@@ -1,0 +1,9 @@
+yfinance
+pandas
+plotly
+# Streamlit option:
+streamlit
+# Dash option (Render/Railway):
+dash
+dash-auth
+gunicorn

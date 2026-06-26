@@ -1,0 +1,1 @@
+web: gunicorn dash_app:server --chdir web_sample --bind 0.0.0.0:$PORT

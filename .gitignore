@@ -1,0 +1,17 @@
+# Secrets — never upload
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+
+# Other local project (separate repo)
+iggys-egg-adventure/
+
+# Generated output
+reports/
+*.xlsx
+
+# Local helper/test artifacts
+_test_*.xlsx
