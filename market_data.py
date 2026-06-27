@@ -36,9 +36,10 @@ def price_history(symbol, start=None, period="10y"):
         s = _cboe_history(_CBOE_MAP[symbol])
     else:
         if start is not None:
-            h = yf.Ticker(symbol).history(start=str(start))
+            # auto_adjust=True → dividend+split adjusted close = TOTAL RETURN basis
+            h = yf.Ticker(symbol).history(start=str(start), auto_adjust=True)
         else:
-            h = yf.Ticker(symbol).history(period=period, interval="1d")
+            h = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=True)
         if h.empty:
             return pd.Series(dtype=float)
         if h.index.tz is not None:
