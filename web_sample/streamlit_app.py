@@ -684,25 +684,95 @@ def panel_yield(k):
         else:
             st.info("Muni or Treasury data unavailable right now.")
 
+# Maturity → numeric x (years) for overlaying curves on one axis
+_MATX={"1 Mo":1/12,"2 Mo":2/12,"3 Mo":0.25,"4 Mo":4/12,"6 Mo":0.5,"1 Yr":1,"2 Yr":2,
+       "3 Yr":3,"5 Yr":5,"7 Yr":7,"10 Yr":10,"20 Yr":20,"30 Yr":30}
+_MUNI_X={"0-2 Yr":1,"2-5 Yr":3.5,"5-10 Yr":7.5,"10-15 Yr":12.5,"15-20 Yr":17.5,"20+ Yr":25}
+
+def panel_curves(k):
+    import yield_curve as yc
+    opts=st.multiselect("Curves to show",
+        ["Treasury (nominal)","TIPS (real)","Municipal (proxy)","Credit by rating"],
+        default=["Treasury (nominal)","TIPS (real)"], key=k+"_sel")
+    hist=st.selectbox("Treasury history overlay", ["None","-1M","-3M","-6M","-1Y","-2Y"], key=k+"_hist")
+    fig=go.Figure(); exp={}
+    if "Treasury (nominal)" in opts:
+        row=_ust_curve(0)
+        if row:
+            mats=[m for m in yc.MATURITIES if row["yields"].get(m) is not None]
+            xs=[_MATX[m] for m in mats]; ys=[row["yields"][m] for m in mats]
+            fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Treasury",
+                line=dict(color=ACCENT,width=2.2))); exp["Treasury"]=dict(zip(mats,ys))
+        if hist!="None":
+            dmap={"-1M":30,"-3M":91,"-6M":182,"-1Y":365,"-2Y":730}
+            rh=_ust_curve(dmap[hist])
+            if rh:
+                mats=[m for m in yc.MATURITIES if rh["yields"].get(m) is not None]
+                fig.add_trace(go.Scatter(x=[_MATX[m] for m in mats],
+                    y=[rh["yields"][m] for m in mats],mode="lines",name=f"Treasury {hist}",
+                    line=dict(color=ACCENT,width=1.3,dash="dot")))
+    if "TIPS (real)" in opts:
+        try:
+            t=yc.fetch_tips_curve_for_date(datetime.today())
+            if t:
+                mats=[m for m in yc.TIPS_MATURITIES if t["yields"].get(m) is not None]
+                xs=[_MATX[m] for m in mats]; ys=[t["yields"][m] for m in mats]
+                fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="TIPS (real)",
+                    line=dict(color=GREEN,width=2,dash="dash"))); exp["TIPS"]=dict(zip(mats,ys))
+        except Exception: pass
+    if "Municipal (proxy)" in opts:
+        m=_muni_curve()
+        if m:
+            bks=[b for b in yc.MUNI_MATURITIES if m["yields"].get(b) is not None]
+            xs=[_MUNI_X[b] for b in bks]; ys=[m["yields"][b] for b in bks]
+            fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Municipal",
+                line=dict(color=PURPLE,width=2))); exp["Muni"]=dict(zip(bks,ys))
+    fig.update_xaxes(title="Maturity (yrs)")
+    st.plotly_chart(base_layout(fig,"Yield Curves (nominal · real · muni)","%",h=300),
+                    use_container_width=True, key=k+"_curve")
+    if "Credit by rating" in opts:
+        cc=credit_curve()
+        if cc:
+            labels,ys=zip(*cc)
+            cf=go.Figure(go.Scatter(x=list(labels),y=list(ys),mode="lines+markers",
+                line=dict(color=BLUE,width=2),marker=dict(size=8)))
+            st.plotly_chart(base_layout(cf,"Corporate Yield by Rating (ICE BofA)","%",h=240),
+                            use_container_width=True, key=k+"_credit")
+            exp["Credit (by rating)"]=dict(zip(labels,ys))
+        else:
+            st.caption("Credit-by-rating needs the FRED key.")
+    if exp:
+        rows=[]
+        for cname,d in exp.items():
+            for mat,v in d.items(): rows.append({"Curve":cname,"Point":mat,"Yield%":v})
+        dl(pd.DataFrame(rows), "Export curves", "JAWS_curves.xlsx", k+"_dl")
+    st.caption("Foreign sovereign full curves aren't freely available; Treasury/TIPS = US Treasury, "
+               "Muni = ETF-proxy, Credit = ICE BofA effective yields.")
+
 def panel_rvol(k):
-    chosen=ticker_picker(k, ["S&P 500","Nasdaq 100"])
-    wins=st.multiselect("Windows",[21,63,126,252],default=[21,63],
-                        format_func=lambda d:{21:"1M",63:"3M",126:"6M",252:"1Y"}[d],key=k+"_w")
-    yrs=st.select_slider("Lookback",[1,2,3,5,10],value=3,format_func=lambda x:f"{x}Y",key=k+"_yr")
-    fig=go.Figure(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs))
-    styles={21:"solid",63:"dash",126:"dashdot",252:"dot"}; exp={}
+    chosen=ticker_picker(k, ["S&P 500"])
+    c1,c2,c3=st.columns([1,1,1])
+    win=int(c1.number_input("Rolling window (days)", min_value=10, max_value=756,
+                            value=63, step=1, key=k+"_w"))
+    yrs=c2.select_slider("Lookback (years)",[1,2,3,5,10],value=5,key=k+"_yr")
+    bands=c3.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
+    fig=go.Figure(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); exp={}
     for i,(label,sym) in enumerate(chosen.items()):
         c=md_history(sym)
         if c.empty: continue
-        rets=c.pct_change().dropna(); col=PALETTE[i%len(PALETTE)]
-        for w in wins:
-            if len(rets)<w: continue
-            rv=(rets.rolling(w).std()*(252**0.5)*100).dropna(); rv=rv[rv.index>=cutoff]
-            if rv.empty: continue
-            nm=f"{label} {({21:'1M',63:'3M',126:'6M',252:'1Y'})[w]}"
-            fig.add_trace(go.Scatter(x=rv.index,y=rv.values,mode="lines",name=nm,
-                line=dict(color=col,width=1.4,dash=styles[w]))); exp[nm]=rv
-    st.plotly_chart(base_layout(fig,"Realized Volatility (annualized)","%",h=320),use_container_width=True,key=k+"_chart")
+        rv=(c.pct_change().dropna().rolling(win).std()*(252**0.5)*100).dropna()
+        rv=rv[rv.index>=cutoff]
+        if rv.empty: continue
+        col=PALETTE[i%len(PALETTE)]
+        fig.add_trace(go.Scatter(x=rv.index,y=rv.values,mode="lines",name=label,
+            line=dict(color=col,width=1.6))); exp[label]=rv
+        if bands:
+            mu=float(rv.mean()); sd=float(rv.std())
+            for yv,tag in [(mu,"avg"),(mu+2*sd,"+2σ"),(mu-2*sd,"-2σ")]:
+                fig.add_hline(y=yv, line=dict(color=col,dash="dot",width=1),
+                              annotation_text=f"{label} {tag}", annotation_font_size=9)
+    st.plotly_chart(base_layout(fig,f"Realized Volatility (annualized) · {win}-day rolling","%",h=320),
+                    use_container_width=True, key=k+"_chart")
     if exp:
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_realizedvol.xlsx",k+"_dl")
@@ -1464,14 +1534,42 @@ with r1[0]:
     with st.container(border=True): render_slot("q1", TABLE_TABS, "Equity Indices")
 with r1[1]:
     with st.container(border=True): render_slot("q2", TABLE_TABS, "Factor ETFs")
+import traceback as _tb
+def _hdr(tag, title):
+    st.markdown(f'<span class="jaws-logo" style="font-size:15px;padding:2px 9px;">{tag}</span> '
+                f'<span class="jaws-title" style="font-size:15px;">{title}</span>',
+                unsafe_allow_html=True)
+def _sec(tag, title, fn, *a):
+    with st.container(border=True):
+        _hdr(tag, title)
+        try: fn(*a)
+        except Exception as e:
+            st.error(f"⚠ {title}: {type(e).__name__}: {e}")
+            with st.expander("details"): st.code(_tb.format_exc())
+
+# Row 2 of the grid: Curves (under top-left) · News (under top-right)
 r2=st.columns(2)
 with r2[0]:
-    with st.container(border=True): render_slot("q3", PANEL_TABS, "Yield Curve")
+    with st.container(border=True):
+        _hdr("CRV","Curves")
+        try: panel_curves("q3")
+        except Exception as _e:
+            st.error(f"⚠ Curves: {type(_e).__name__}: {_e}")
+            with st.expander("details"): st.code(_tb.format_exc())
 with r2[1]:
-    with st.container(border=True): render_slot("q4", PANEL_TABS, "News")
+    with st.container(border=True):
+        _hdr("NEWS","Top Stories")
+        try: panel_news("q4")
+        except Exception as _e:
+            st.error(f"⚠ News: {type(_e).__name__}: {_e}")
+            with st.expander("details"): st.code(_tb.format_exc())
 
-# ── Correlation · Regression · Bulk Export (full width, below grid) ──
-import traceback as _tb
+# ── Full-width sections ──
+_sec("CHRT","Chart", panel_chart, "secchart")
+_sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
+_sec("SCAN","Market Scanner", panel_scanner, "secscan")
+
+# Self-headed analytical sections
 for _name,_fn in [("Correlation",panel_corr),("Regression",panel_regression),
                   ("Bulk Export",panel_exporter)]:
     try:
