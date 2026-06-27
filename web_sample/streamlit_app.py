@@ -895,6 +895,72 @@ def panel_regression():
         out=df.copy(); out.insert(0,"Date",out.index)
         dl(out.rename(columns={"x":xlbl,"y":ylbl}), "Export aligned data", "JAWS_regression.xlsx", "reg_dl")
 
+# ════════════════════════════════════════════════════════════════
+# BULK DATA EXPORTER
+# ════════════════════════════════════════════════════════════════
+def panel_exporter():
+    import re as _re
+    st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<span class="jaws-logo" style="font-size:16px;padding:3px 10px;">DATA</span> '
+                    '<span class="jaws-title" style="font-size:15px;">Bulk Data Export</span> '
+                    '<span class="jaws-sub">add any tickers / FRED IDs → download prices or returns</span>',
+                    unsafe_allow_html=True)
+        if "exp_syms" not in st.session_state: st.session_state["exp_syms"]=[]
+        if _HAS_SEARCHBOX:
+            sel=st_searchbox(search_instruments, placeholder="Type to search & add a ticker…", key="exp_sb")
+            if sel and sel not in st.session_state["exp_syms"]:
+                st.session_state["exp_syms"].append(sel)
+        paste=st.text_area("Or paste tickers / FRED IDs (comma, space, or new-line separated)", "",
+                           key="exp_paste", height=70,
+                           placeholder="e.g.  SPY, QQQ, AAPL, ^TNX, BAA10Y, CL=F")
+        pasted=[t.strip() for t in _re.split(r"[,\s]+", paste) if t.strip()]
+        syms=list(dict.fromkeys(st.session_state["exp_syms"]+pasted))
+
+        c1,c2,c3,c4=st.columns(4)
+        freq=c1.radio("Frequency",["Daily","Monthly"],horizontal=True,key="exp_freq")
+        dtp =c2.radio("Data",["Prices","Returns"],horizontal=True,key="exp_dt")
+        start=c3.date_input("Start", value=date.today()-relativedelta(years=5),
+                            min_value=date(1950,1,1), key="exp_start")
+        end =c4.date_input("End", value=date.today(), key="exp_end")
+
+        cc1,cc2=st.columns([1,4])
+        if cc1.button("Clear added", key="exp_clear"):
+            st.session_state["exp_syms"]=[]; st.rerun()
+        cc2.caption("Series queued: " + (", ".join(syms) if syms else "none — add some above"))
+        if not syms:
+            return
+
+        cols={}; missing=[]
+        with st.spinner(f"Building {freq.lower()} {dtp.lower()} for {len(syms)} series…"):
+            for sym in syms:
+                s=md_history(sym)
+                if s is None or s.empty:           # fall back to FRED for economic IDs
+                    import fi_spreads as fs
+                    d,v=fs._fred_fetch_all(sym)
+                    if d: s=pd.Series(v, index=pd.to_datetime(d))
+                if s is None or s.empty:
+                    missing.append(sym); continue
+                s=s.sort_index()
+                if freq=="Monthly": s=s.resample("ME").last()
+                if dtp=="Returns":  s=s.pct_change()*100
+                s=s[(s.index>=pd.Timestamp(start))&(s.index<=pd.Timestamp(end))]
+                if not s.empty: cols[sym]=s
+        if missing:
+            st.warning("No data found for: " + ", ".join(missing))
+        if not cols:
+            st.info("Nothing to export yet."); return
+        df=pd.concat(cols, axis=1, sort=True).dropna(how="all")
+        df.insert(0,"Date",df.index)
+        st.dataframe(df.tail(12), use_container_width=True, height=240, hide_index=True)
+        st.caption(f"{len(df)} rows × {len(cols)} series · {freq.lower()} {dtp.lower()} · "
+                   f"{df['Date'].iloc[0].date()} → {df['Date'].iloc[-1].date()}")
+        e1,e2=st.columns(2)
+        with e1: dl(df, "Download Excel", f"JAWS_export_{freq.lower()}_{dtp.lower()}.xlsx", "exp_xls")
+        with e2:
+            st.download_button("⬇ Download CSV", df.to_csv(index=False).encode(),
+                f"JAWS_export_{freq.lower()}_{dtp.lower()}.csv", "text/csv", key="exp_csv")
+
 # ── Slot dispatcher ─────────────────────────────────────────────
 RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility","FX":"fx",
              "Fixed Income":"fixed_income","Municipals":"munis","Factor ETFs":"factors",
@@ -961,5 +1027,6 @@ with r2[0]:
 with r2[1]:
     with st.container(border=True): render_slot("q4", PANEL_TABS, "News")
 
-# ── Regression Lab (full width, below the grid) ─────────────────
+# ── Regression Lab + Bulk Export (full width, below the grid) ───
 panel_regression()
+panel_exporter()
