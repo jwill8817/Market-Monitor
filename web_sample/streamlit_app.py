@@ -62,10 +62,10 @@ st.markdown(f"""
   /* ── Bigger, easier-to-find scrollbars ── */
   ::-webkit-scrollbar {{ width:16px; height:16px; }}
   ::-webkit-scrollbar-track {{ background:{SIDEBAR}; }}
-  ::-webkit-scrollbar-thumb {{ background:{TEXT3}; border-radius:8px; border:3px solid {SIDEBAR}; }}
+  ::-webkit-scrollbar-thumb {{ background:#ffffff; border-radius:8px; border:3px solid {SIDEBAR}; }}
   ::-webkit-scrollbar-thumb:hover {{ background:{ACCENT}; }}
   ::-webkit-scrollbar-corner {{ background:{SIDEBAR}; }}
-  * {{ scrollbar-width:auto; scrollbar-color:{TEXT3} {SIDEBAR}; }}
+  * {{ scrollbar-width:auto; scrollbar-color:#ffffff {SIDEBAR}; }}
   div[data-testid="stVerticalBlockBorderWrapper"] {{ background:{CARD};
        border:1px solid {BORDER} !important; border-radius:8px; }}
   .stRadio label, .stCheckbox label {{ color:{TEXT1}; }}
@@ -198,7 +198,8 @@ def md_returns(key, custom_start=None, custom_end=None, absolute=False):
     import market_data as md
     dmap={"indices":md.INDICES,"volatility":md.VOLATILITY,"fx":md.FX,
           "fixed_income":md.FIXED_INCOME,"munis":md.MUNIS,"factors":md.FACTORS,
-          "commodities":md.COMMODITIES,"sectors":md.SECTORS}
+          "commodities":md.COMMODITIES,"sectors":md.SECTORS,
+          "hedge_funds":getattr(md,"HEDGE_FUNDS",{})}
     cs=pd.Timestamp(custom_start).date() if custom_start else None
     ce=pd.Timestamp(custom_end).date() if custom_end else None
     try:
@@ -220,7 +221,8 @@ def all_tickers():
     import market_data as md
     d={}
     for dd in (md.INDICES,md.RATES,md.VOLATILITY,md.FX,md.FIXED_INCOME,md.MUNIS,
-               md.FACTORS,md.FUNDING,md.COMMODITIES,md.SECTORS): d.update(dd)
+               md.FACTORS,md.FUNDING,md.COMMODITIES,md.SECTORS,
+               getattr(md,"HEDGE_FUNDS",{})): d.update(dd)
     return d
 
 def search_instruments(term):
@@ -1095,7 +1097,8 @@ def seg_catalog():
     import market_data as md
     return {"Equity Indices":dict(md.INDICES),"Volatility & Correlation":dict(md.VOLATILITY),
             "FX":dict(md.FX),"Fixed Income":dict(md.FIXED_INCOME),"Municipals":dict(md.MUNIS),
-            "Factor ETFs":dict(md.FACTORS),"Commodities":dict(md.COMMODITIES),"US Sectors":dict(md.SECTORS)}
+            "Factor ETFs":dict(md.FACTORS),"Commodities":dict(md.COMMODITIES),"US Sectors":dict(md.SECTORS),
+            "Hedge Funds":dict(getattr(md,"HEDGE_FUNDS",{}))}
 
 def _corr_change_series(kind, payload, freq):
     """Return a period-change series (returns for prices/factors, diff for levels)."""
@@ -1363,7 +1366,7 @@ def panel_exporter():
 # ── Slot dispatcher ─────────────────────────────────────────────
 RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility","FX":"fx",
              "Fixed Income":"fixed_income","Municipals":"munis","Factor ETFs":"factors",
-             "Commodities":"commodities","US Sectors":"sectors"}
+             "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
 TABLE_TABS=list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]

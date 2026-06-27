@@ -220,6 +220,27 @@ SECTORS = {
     "S&P 500 (SPY)":        "SPY",
 }
 
+# Hedge-fund-strategy proxies — investable liquid-alt / HF-replication ETFs & funds.
+# (HFRI / Pivotal Path proprietary indices are subscription-only, not free; these
+#  tradeable vehicles are the closest freely-available read on HF strategy returns.)
+HEDGE_FUNDS = {
+    "HF Multi-Strat (QAI)":      "QAI",
+    "HF Replication (HDG)":      "HDG",
+    "Merger Arb (MNA)":          "MNA",
+    "Merger Arb (MERFX)":        "MERFX",
+    "Mkt-Neutral Anti-Beta (BTAL)":"BTAL",
+    "Hedged Equity (JHQAX)":     "JHQAX",
+    "Managed Futures (DBMF)":    "DBMF",
+    "Managed Futures (KMLM)":    "KMLM",
+    "Managed Futures (CTA)":     "CTA",
+    "Managed Futures (WTMF)":    "WTMF",
+    "Managed Futures (FMF)":     "FMF",
+    "Global Macro/Multi (BLNDX)":"BLNDX",
+    "Global Momentum (GMOM)":    "GMOM",
+    "Liquid Alts (LALT)":        "LALT",
+    "Tactical (CPITX)":          "CPITX",
+}
+
 
 def _start_dates():
     today = datetime.date.today()
