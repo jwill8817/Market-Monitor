@@ -1083,22 +1083,31 @@ def panel_corr():
         st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
                     'Rolling correlation — pick two series, window, and time frame</span>',
                     unsafe_allow_html=True)
-        keys=list(cols.keys())
+        # Standalone pair (any ticker / FRED id) — defaults SPY vs AGG, 6-mo, 10yr
         rc1,rc2=st.columns(2)
-        a=rc1.selectbox("Series A", keys, index=0, key="corr_a")
-        b=rc2.selectbox("Series B", keys, index=min(1,len(keys)-1), key="corr_b")
+        a=rc1.text_input("Series A (ticker / FRED id)", "SPY", key="corr_a").strip()
+        b=rc2.text_input("Series B (ticker / FRED id)", "AGG", key="corr_b").strip()
         unit="months" if freq=="Monthly" else "days"
         rc3,rc4,rc5=st.columns([1,1,1])
         win=rc3.number_input(f"Rolling window ({unit})", min_value=2, max_value=2000,
-                             value=(12 if freq=="Monthly" else 90), step=1, key="corr_win")
+                             value=(6 if freq=="Monthly" else 90), step=1, key="corr_win")
         rs=rc4.date_input("Series start", value=date.today()-relativedelta(years=10),
                           min_value=date(1950,1,1), key="corr_rstart")
         re_=rc5.date_input("Series end", value=date.today(), key="corr_rend")
-        if a==b:
-            st.caption("Pick two different series for a rolling correlation.")
+        # live confirmation
+        for lbl,sym in [("A",a),("B",b)]:
+            if sym:
+                nm,px=resolve_ticker(sym)
+                if nm or px:
+                    st.markdown(f'<span style="color:{GREEN};font-size:12px;">✅ {lbl}: {sym.upper()} — '
+                                f'{nm or "found"}</span>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<span style="color:{YELLOW};font-size:12px;">⚠ {lbl}: {sym.upper()} '
+                                f'— trying as FRED id</span>', unsafe_allow_html=True)
+        if not a or not b or a.upper()==b.upper():
+            st.caption("Enter two different series for a rolling correlation.")
         else:
-            # Rebuild both series over the rolling-specific time frame (independent of matrix)
-            sa=_corr_change_series(*items[a], freq); sb=_corr_change_series(*items[b], freq)
+            sa=_corr_change_series("auto", a, freq); sb=_corr_change_series("auto", b, freq)
             rlo=pd.Timestamp(rs); rhi=pd.Timestamp(re_)
             if sa is not None: sa=sa[(sa.index>=rlo)&(sa.index<=rhi)]
             if sb is not None: sb=sb[(sb.index>=rlo)&(sb.index<=rhi)]
