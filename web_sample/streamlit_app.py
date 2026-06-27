@@ -16,6 +16,15 @@ for _k in ("FRED_API_KEY", "NEWS_API_KEY"):
         if _k in st.secrets: os.environ[_k] = str(st.secrets[_k])
     except Exception: pass
 
+# Force-reload data modules so deployed code changes always take effect, even when
+# Streamlit reruns the script without restarting the process (avoids stale modules).
+import importlib
+for _m in ("market_data", "fi_spreads", "factors_data", "yield_curve"):
+    try:
+        importlib.reload(importlib.import_module(_m))
+    except Exception:
+        pass
+
 import pandas as pd
 import plotly.graph_objects as go
 try:
@@ -1044,8 +1053,10 @@ def panel_regression():
         with bcol:
             bf=go.Figure()
             bf.add_trace(go.Scatter(x=rb.index,y=rb.values,mode="lines",line=dict(color=ACCENT,width=1.6)))
-            bf.add_hline(y=float(rb.mean()),line=dict(color=BLUE,dash="dot"),
-                         annotation_text=f"avg {rb.mean():.2f}")
+            _bmu=float(rb.mean()); _bsd=float(rb.std())
+            bf.add_hline(y=_bmu,line=dict(color=BLUE,dash="dot"),annotation_text=f"avg {_bmu:.2f}")
+            bf.add_hline(y=_bmu+2*_bsd,line=dict(color=RED,dash="dot"),annotation_text="+2σ")
+            bf.add_hline(y=_bmu-2*_bsd,line=dict(color=GREEN,dash="dot"),annotation_text="-2σ")
             bf.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
             base_layout(bf,f"Rolling {w}{unit} Beta · {ylbl} on {xlbl}  (now {rb.iloc[-1]:.2f})",h=290)
             st.plotly_chart(bf, use_container_width=True, key="reg_rbeta")
@@ -1255,8 +1266,11 @@ def panel_corr():
                 rfig.add_trace(go.Scatter(x=roll.index,y=roll.values,mode="lines",
                     line=dict(color=ACCENT,width=1.6)))
                 rfig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-                rfig.add_hline(y=float(roll.mean()),line=dict(color=BLUE,dash="dot"),
-                               annotation_text=f"avg {roll.mean():.2f}")
+                _mu=float(roll.mean()); _sd=float(roll.std())
+                rfig.add_hline(y=_mu,line=dict(color=BLUE,dash="dot"),
+                               annotation_text=f"avg {_mu:.2f}")
+                rfig.add_hline(y=_mu+2*_sd,line=dict(color=RED,dash="dot"),annotation_text="+2σ")
+                rfig.add_hline(y=_mu-2*_sd,line=dict(color=GREEN,dash="dot"),annotation_text="-2σ")
                 base_layout(rfig,f"Rolling {win}-{'mo' if freq=='Monthly' else 'd'} correlation · "
                             f"{a} vs {b}  (now {roll.iloc[-1]:+.2f})", h=300)
                 rfig.update_yaxes(range=[-1,1])
