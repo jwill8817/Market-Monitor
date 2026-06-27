@@ -898,6 +898,28 @@ def panel_regression():
 # ════════════════════════════════════════════════════════════════
 # BULK DATA EXPORTER
 # ════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=1800, show_spinner=False)
+def tool_series_catalog():
+    """Named time-series from the tool itself → {label: (kind, (dates, values))}.
+    kind 'factor' = decimal periodic returns; kind 'level' = level series (already scaled)."""
+    cat={}
+    try:
+        fd=factor_data()
+        for sect in ("daily","monthly"):
+            for r in fd.get(sect,[]):
+                if r.get("error"): continue
+                cat[f"Factor: {r['name']} ({'D' if r['is_daily'] else 'M'})"]=(
+                    "factor",(r["raw_dates"], r["raw_rets"]))
+    except Exception: pass
+    for loader,pfx in [(spreads_analytics,"Spread"),(rates_analytics,"Rate"),
+                       (funding_analytics,"Funding")]:
+        try:
+            for r in loader():
+                if r.get("error") or not r.get("raw_dates"): continue
+                cat[f"{pfx}: {r['name']}"]=("level",(r["raw_dates"], r["raw_values"]))
+        except Exception: pass
+    return cat
+
 def panel_exporter():
     import re as _re
     st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
@@ -917,6 +939,11 @@ def panel_exporter():
         pasted=[t.strip() for t in _re.split(r"[,\s]+", paste) if t.strip()]
         syms=list(dict.fromkeys(st.session_state["exp_syms"]+pasted))
 
+        # Tool's own named series: L/S factors, spreads, rates, funding
+        catalog=tool_series_catalog()
+        tool_pick=st.multiselect("Add tool series — L/S factors · spreads · rates · funding",
+                                 list(catalog.keys()), key="exp_tool")
+
         c1,c2,c3,c4=st.columns(4)
         freq=c1.radio("Frequency",["Daily","Monthly"],horizontal=True,key="exp_freq")
         dtp =c2.radio("Data",["Prices","Returns"],horizontal=True,key="exp_dt")
@@ -927,12 +954,16 @@ def panel_exporter():
         cc1,cc2=st.columns([1,4])
         if cc1.button("Clear added", key="exp_clear"):
             st.session_state["exp_syms"]=[]; st.rerun()
-        cc2.caption("Series queued: " + (", ".join(syms) if syms else "none — add some above"))
-        if not syms:
+        total=len(syms)+len(tool_pick)
+        cc2.caption(f"Series queued ({total}): " +
+                    (", ".join(syms+tool_pick) if total else "none — add some above"))
+        if total==0:
             return
 
+        lo=pd.Timestamp(start); hi=pd.Timestamp(end)
         cols={}; missing=[]
-        with st.spinner(f"Building {freq.lower()} {dtp.lower()} for {len(syms)} series…"):
+        with st.spinner(f"Building {freq.lower()} {dtp.lower()} for {total} series…"):
+            # 1) tickers / FRED IDs
             for sym in syms:
                 s=md_history(sym)
                 if s is None or s.empty:           # fall back to FRED for economic IDs
@@ -944,8 +975,20 @@ def panel_exporter():
                 s=s.sort_index()
                 if freq=="Monthly": s=s.resample("ME").last()
                 if dtp=="Returns":  s=s.pct_change()*100
-                s=s[(s.index>=pd.Timestamp(start))&(s.index<=pd.Timestamp(end))]
+                s=s[(s.index>=lo)&(s.index<=hi)]
                 if not s.empty: cols[sym]=s
+            # 2) tool series (factors / spreads / rates / funding)
+            for label in tool_pick:
+                kind,(d,v)=catalog[label]
+                s=pd.Series(v, index=pd.to_datetime(d)).sort_index().dropna()
+                if kind=="factor":                 # values are decimal returns
+                    if freq=="Monthly": s=(1+s).resample("ME").prod()-1
+                    s=((1+s).cumprod()*100) if dtp=="Prices" else (s*100)
+                else:                              # level series (spreads/rates/funding)
+                    if freq=="Monthly": s=s.resample("ME").last()
+                    if dtp=="Returns": s=s.pct_change()*100
+                s=s[(s.index>=lo)&(s.index<=hi)].dropna()
+                if not s.empty: cols[label]=s
         if missing:
             st.warning("No data found for: " + ", ".join(missing))
         if not cols:
