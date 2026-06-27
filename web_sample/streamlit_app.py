@@ -1012,7 +1012,7 @@ def panel_corr():
 
         segs=seg_catalog()
         seg_pick=st.multiselect("Add whole table segments", list(segs.keys()),
-                                key="corr_segs")
+                                default=["FX"], key="corr_segs")
         catalog=tool_series_catalog()
         tool_pick=st.multiselect("Add factors · spreads · rates · funding",
                                  list(catalog.keys()), key="corr_tools")
