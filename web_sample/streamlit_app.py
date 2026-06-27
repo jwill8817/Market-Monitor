@@ -286,14 +286,15 @@ def panel_factors(k):
     st.plotly_chart(base_layout(fig,f"{r['name']} — cumulative L/S %","%",h=300),
                     use_container_width=True, key=k+"_chart")
 
-def panel_chart(k):
+def ticker_picker(k, default_labels):
+    """Searchable multi-ticker picker. Returns {label: symbol} for the chosen set.
+    Lets the user add ANY ticker (typed) or company name (resolved via Yahoo search)."""
     tmap=all_tickers()
     ek=k+"_extra"
     if ek not in st.session_state: st.session_state[ek]={}
-    # search-add
     sc1,sc2=st.columns([3,1])
-    q=sc1.text_input("Search / add ticker or name", key=k+"_q", label_visibility="collapsed",
-                     placeholder="Search any ticker or name…")
+    q=sc1.text_input("Search/add ticker or name", key=k+"_q", label_visibility="collapsed",
+                     placeholder="Search any ticker or name, then Add →")
     if sc2.button("Add", key=k+"_add") and q.strip():
         raw=q.strip()
         if len(raw)<=6 and raw.replace("^","").replace("=","").replace(".","").isalnum():
@@ -301,11 +302,16 @@ def panel_chart(k):
         else:
             res=yf_search(raw)
             if res:
-                sym,nm=res[0]; st.session_state[ek][f"{nm[:24]} ({sym})"]=sym
+                sym,nm=res[0]; st.session_state[ek][f"{nm[:22]} ({sym})"]=sym
     opts=list(tmap.keys())+list(st.session_state[ek].keys())
     full={**tmap, **st.session_state[ek]}
-    picks=st.multiselect("Instruments (multiple = overlay)", opts,
-                         default=opts[:1], key=k+"_ms")
+    defs=[d for d in default_labels if d in opts] or opts[:1]
+    picks=st.multiselect("Instruments (add multiple to overlay)", opts, default=defs, key=k+"_ms")
+    return {p:full.get(p,p) for p in picks}
+
+def panel_chart(k):
+    chosen=ticker_picker(k, ["S&P 500"])
+    picks=list(chosen.keys()); full=chosen
     c1,c2,c3=st.columns([2,1,1])
     per=c1.select_slider("Period",["MTD","3M","6M","YTD","1Y","3Y","5Y","10Y","Custom"],
                          value="1Y",key=k+"_per")
@@ -349,24 +355,35 @@ def panel_chart(k):
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df, "Export chart data", "JAWS_chart.xlsx", k+"_dl")
 
+# Muni bucket → comparable Treasury maturity for the Muni/UST ratio
+_MUNI_UST_MAP=[("0-2 Yr","2 Yr"),("2-5 Yr","5 Yr"),("5-10 Yr","10 Yr"),
+               ("15-20 Yr","20 Yr"),("20+ Yr","30 Yr")]
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _ust_curve(days=0):
+    import yield_curve as yc
+    return yc.fetch_curve_for_date(datetime.today()-relativedelta(days=days))
+@st.cache_data(ttl=1800, show_spinner=False)
+def _muni_curve():
+    import yield_curve as yc
+    return yc.fetch_muni_curve(datetime.today())
+
 def panel_yield(k):
     import yield_curve as yc
-    mode=st.radio("Curve",["Treasury par","Credit (by rating)"],horizontal=True,key=k+"_mode")
+    mode=st.radio("Curve",["Treasury","Municipal","Muni/UST Ratio"],horizontal=True,key=k+"_mode")
     fig=go.Figure()
-    if mode=="Treasury par":
+    if mode=="Treasury":
         opts={"Today":0,"-1M":30,"-3M":91,"-6M":182,"-1Y":365,"-2Y":730,"-3Y":1095}
         picks=st.multiselect("Curves", list(opts.keys()), default=["Today","-1Y"], key=k+"_ms")
         tips=st.checkbox("TIPS real", key=k+"_tips")
-        @st.cache_data(ttl=1800, show_spinner=False)
-        def _cv(days): return yc.fetch_curve_for_date(datetime.today()-relativedelta(days=days))
         rowsout={}
         for i,p in enumerate(picks):
             try:
-                row=_cv(opts[p])
+                row=_ust_curve(opts[p])
                 if not row: continue
                 xs=[m for m in yc.MATURITIES if row["yields"].get(m) is not None]
                 ys=[row["yields"][m] for m in xs]
-                fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name=f"{p}",
+                fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name=p,
                     line=dict(color=PALETTE[i%len(PALETTE)],width=2)))
                 rowsout[p]=dict(zip(xs,ys))
             except Exception: pass
@@ -379,27 +396,52 @@ def panel_yield(k):
                         mode="lines+markers",name="TIPS",line=dict(color=GREEN,dash="dash")))
             except Exception: pass
         st.plotly_chart(base_layout(fig,"US Treasury Yield Curve","%",h=320),use_container_width=True,key=k+"_chart")
-        if rowsout: dl(pd.DataFrame(rowsout), "Export", "JAWS_yieldcurve.xlsx", k+"_dl")
-    else:
-        cc=credit_curve()
-        if cc:
-            labels,ys=zip(*cc)
-            fig.add_trace(go.Scatter(x=list(labels),y=list(ys),mode="lines+markers",
-                line=dict(color=ACCENT,width=2),marker=dict(size=8)))
-            st.plotly_chart(base_layout(fig,"Corporate Yield by Rating (ICE BofA effective yield)","%",h=320),
+        if rowsout: dl(pd.DataFrame(rowsout),"Export","JAWS_yieldcurve.xlsx",k+"_dl")
+    elif mode=="Municipal":
+        m=_muni_curve()
+        if m and any(v is not None for v in m["yields"].values()):
+            xs=[b for b in yc.MUNI_MATURITIES if m["yields"].get(b) is not None]
+            ys=[m["yields"][b] for b in xs]
+            fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Muni",
+                line=dict(color=PURPLE,width=2),marker=dict(size=8)))
+            st.plotly_chart(base_layout(fig,"Municipal Yield Curve (ETF proxy)","%",h=320),
                             use_container_width=True,key=k+"_chart")
-            dl(pd.DataFrame({"Rating":labels,"Yield%":ys}), "Export", "JAWS_creditcurve.xlsx", k+"_dl")
+            dl(pd.DataFrame({"Bucket":xs,"Yield%":ys}),"Export","JAWS_muni.xlsx",k+"_dl")
         else:
-            st.info("Credit curve data unavailable (needs FRED key).")
+            st.info("Muni data unavailable right now (ETF yields).")
+    else:  # Muni/UST Ratio
+        m=_muni_curve(); ust=_ust_curve(0)
+        if m and ust:
+            labels,ratios,mu,tr=[],[],[],[]
+            for bucket,mat in _MUNI_UST_MAP:
+                mv=m["yields"].get(bucket); tv=ust["yields"].get(mat)
+                if mv and tv:
+                    labels.append(f"{bucket}→{mat}"); ratios.append(round(mv/tv*100,1))
+                    mu.append(mv); tr.append(tv)
+            if labels:
+                cols=[GREEN if r<85 else (RED if r>100 else YELLOW) for r in ratios]
+                fig.add_trace(go.Bar(x=labels,y=ratios,marker_color=cols,
+                    text=[f"{r:.0f}%" for r in ratios],textposition="outside"))
+                fig.add_hline(y=100,line=dict(color=TEXT3,dash="dash"),annotation_text="100% (parity)")
+                st.plotly_chart(base_layout(fig,"Muni / Treasury Yield Ratio  (low = munis rich/expensive)","%",h=320),
+                                use_container_width=True,key=k+"_chart")
+                st.caption("Ratio = tax-exempt muni yield ÷ Treasury yield. Lower = munis richer "
+                           "(expensive); higher (→100%+) = munis cheaper vs Treasuries.")
+                dl(pd.DataFrame({"Tenor":labels,"Muni%":mu,"UST%":tr,"Ratio%":ratios}),
+                   "Export","JAWS_muni_ust_ratio.xlsx",k+"_dl")
+            else:
+                st.info("Could not align muni/UST tenors right now.")
+        else:
+            st.info("Muni or Treasury data unavailable right now.")
 
 def panel_rvol(k):
-    syms=st.text_input("Tickers", "^GSPC, ^NDX, TLT", key=k+"_t")
+    chosen=ticker_picker(k, ["S&P 500","Nasdaq 100"])
     wins=st.multiselect("Windows",[21,63,126,252],default=[21,63],
                         format_func=lambda d:{21:"1M",63:"3M",126:"6M",252:"1Y"}[d],key=k+"_w")
     yrs=st.select_slider("Lookback",[1,2,3,5,10],value=3,format_func=lambda x:f"{x}Y",key=k+"_yr")
     fig=go.Figure(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs))
     styles={21:"solid",63:"dash",126:"dashdot",252:"dot"}; exp={}
-    for i,sym in enumerate([s.strip() for s in syms.split(",") if s.strip()]):
+    for i,(label,sym) in enumerate(chosen.items()):
         c=md_history(sym)
         if c.empty: continue
         rets=c.pct_change().dropna(); col=PALETTE[i%len(PALETTE)]
@@ -407,7 +449,7 @@ def panel_rvol(k):
             if len(rets)<w: continue
             rv=(rets.rolling(w).std()*(252**0.5)*100).dropna(); rv=rv[rv.index>=cutoff]
             if rv.empty: continue
-            nm=f"{sym} {({21:'1M',63:'3M',126:'6M',252:'1Y'})[w]}"
+            nm=f"{label} {({21:'1M',63:'3M',126:'6M',252:'1Y'})[w]}"
             fig.add_trace(go.Scatter(x=rv.index,y=rv.values,mode="lines",name=nm,
                 line=dict(color=col,width=1.4,dash=styles[w]))); exp[nm]=rv
     st.plotly_chart(base_layout(fig,"Realized Volatility (annualized)","%",h=320),use_container_width=True,key=k+"_chart")
@@ -493,26 +535,39 @@ def panel_news(k):
 RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility","FX":"fx",
              "Fixed Income":"fixed_income","Municipals":"munis","Factor ETFs":"factors",
              "Commodities":"commodities","US Sectors":"sectors"}
-PANEL_OPTS=(list(RETURN_CATS.keys())+
-            ["FI Spreads","Rates","Funding","L/S Factors","Yield Curve","Chart",
-             "Realized Vol","Scanner","News"])
+# Tabs shown above each quadrant (radio = lazy: only the selected one loads).
+TABLE_TABS=list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors"]
+PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]
 
-def render_slot(k, default):
-    sel=st.selectbox("Panel", PANEL_OPTS, index=PANEL_OPTS.index(default),
-                     key=k+"_sel", label_visibility="collapsed")
-    if sel in RETURN_CATS:           panel_returns(RETURN_CATS[sel], sel, k)
-    elif sel=="FI Spreads":          panel_analytics(spreads_analytics,"Spreads","JAWS_FI_Spreads.xlsx",k)
-    elif sel=="Rates":               panel_analytics(rates_analytics,"Rates","JAWS_Rates.xlsx",k)
-    elif sel=="Funding":             panel_analytics(funding_analytics,"Funding","JAWS_Funding.xlsx",k)
-    elif sel=="L/S Factors":         panel_factors(k)
-    elif sel=="Yield Curve":         panel_yield(k)
-    elif sel=="Chart":               panel_chart(k)
-    elif sel=="Realized Vol":        panel_rvol(k)
-    elif sel=="Scanner":             panel_scanner(k)
-    elif sel=="News":                panel_news(k)
+def _dispatch(sel, k):
+    if sel in RETURN_CATS:    panel_returns(RETURN_CATS[sel], sel, k)
+    elif sel=="FI Spreads":   panel_analytics(spreads_analytics,"Spreads","JAWS_FI_Spreads.xlsx",k)
+    elif sel=="Rates":        panel_analytics(rates_analytics,"Rates","JAWS_Rates.xlsx",k)
+    elif sel=="Funding":      panel_analytics(funding_analytics,"Funding","JAWS_Funding.xlsx",k)
+    elif sel=="L/S Factors":  panel_factors(k)
+    elif sel=="Yield Curve":  panel_yield(k)
+    elif sel=="Chart":        panel_chart(k)
+    elif sel=="Realized Vol": panel_rvol(k)
+    elif sel=="Scanner":      panel_scanner(k)
+    elif sel=="News":         panel_news(k)
+
+def render_slot(k, tabs, default):
+    # Horizontal radio acts as a tab strip but only renders the selected panel
+    sel=st.radio("tabs", tabs, index=tabs.index(default), key=k+"_sel",
+                 horizontal=True, label_visibility="collapsed")
+    _dispatch(sel, k)
+
+# Style the radio strips to read like tabs
+st.markdown(f"""
+<style>
+  div[role="radiogroup"] {{ gap:2px !important; flex-wrap:wrap; }}
+  div[role="radiogroup"] label {{ background:{CARD2}; border:1px solid {BORDER};
+      border-radius:5px 5px 0 0; padding:2px 9px !important; margin:0 !important; }}
+  div[role="radiogroup"] label:hover {{ background:{BORDER}; }}
+</style>""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════
-# TOP BAR + 4-QUADRANT GRID
+# TOP BAR + 4-QUADRANT GRID  (top = data tables, bottom = panels)
 # ════════════════════════════════════════════════════════════════
 tb1,tb2=st.columns([5,1])
 with tb1:
@@ -526,11 +581,11 @@ with tb2:
 
 r1=st.columns(2)
 with r1[0]:
-    with st.container(border=True): render_slot("q1","Equity Indices")
+    with st.container(border=True): render_slot("q1", TABLE_TABS, "Equity Indices")
 with r1[1]:
-    with st.container(border=True): render_slot("q2","Factor ETFs")
+    with st.container(border=True): render_slot("q2", TABLE_TABS, "Factor ETFs")
 r2=st.columns(2)
 with r2[0]:
-    with st.container(border=True): render_slot("q3","Yield Curve")
+    with st.container(border=True): render_slot("q3", PANEL_TABS, "Yield Curve")
 with r2[1]:
-    with st.container(border=True): render_slot("q4","News")
+    with st.container(border=True): render_slot("q4", PANEL_TABS, "News")
