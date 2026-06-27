@@ -253,9 +253,16 @@ def fetch_returns(ticker_dict, custom_start=None, absolute=False):
     """
     starts = _start_dates()
     results = {}
+    # If a custom start older than the default 10y window is requested, fetch
+    # from that date so the custom return reaches back — but never shorten the
+    # window below 10y (so 5Y/10Y columns stay correct).
+    _cs_str = None
+    if custom_start:
+        _ten_y = datetime.date.today() - relativedelta(years=10)
+        _cs_str = min(custom_start, _ten_y).isoformat()
     for name, ticker in ticker_dict.items():
         try:
-            close = price_history(ticker)   # routes CBOE-only indices correctly
+            close = price_history(ticker, start=_cs_str) if _cs_str else price_history(ticker)
             if close.empty:
                 results[name] = {"price": None, "change_1d": None, "returns": {}}
                 continue
