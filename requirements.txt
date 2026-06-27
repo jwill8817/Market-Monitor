@@ -11,3 +11,4 @@ lxml
 feedparser
 openpyxl
 xlsxwriter
+scipy

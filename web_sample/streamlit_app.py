@@ -629,6 +629,109 @@ def panel_valuation(k):
                     use_container_width=True, key=k+"_chart")
     dl(pd.DataFrame({"Date":ds,metric:vs}), "Export history", f"JAWS_SP500_{metric.replace('/','_')}.xlsx", k+"_dl2")
 
+# ════════════════════════════════════════════════════════════════
+# REGRESSION TOOL
+# ════════════════════════════════════════════════════════════════
+def _reg_build_series(src, sym, fred_id, upfile, tf, freq):
+    """Return a pd.Series (datetime index) for one regression variable."""
+    s=None
+    if src=="Market ticker" and sym.strip():
+        s=md_history(sym.strip())
+    elif src=="FRED series" and fred_id.strip():
+        import fi_spreads as fs
+        d,v=fs._fred_fetch_all(fred_id.strip())
+        if d: s=pd.Series(v, index=pd.to_datetime(d))
+    elif src=="Upload CSV" and upfile is not None:
+        try:
+            df=pd.read_csv(upfile)
+            df.iloc[:,0]=pd.to_datetime(df.iloc[:,0], errors="coerce")
+            s=pd.Series(pd.to_numeric(df.iloc[:,1],errors="coerce").values, index=df.iloc[:,0]).dropna()
+        except Exception: s=None
+    if s is None or len(s)==0: return None
+    s=s.sort_index()
+    if freq=="Monthly": s=s.resample("ME").last()
+    s=s.dropna()
+    if tf=="Return %":   s=s.pct_change()*100
+    elif tf=="YoY %":    s=s.pct_change(12 if freq=="Monthly" else 252)*100
+    elif tf=="Change":   s=s.diff()
+    return s.dropna()
+
+def _reg_var_ui(side, k):
+    st.markdown(f"**{side} variable**")
+    src=st.radio("Source",["Market ticker","FRED series","Upload CSV"],
+                 horizontal=True,key=f"{k}_{side}_src",label_visibility="collapsed")
+    sym=fred=""; up=None
+    if src=="Market ticker":
+        sym=st.text_input("Ticker (e.g. ^GSPC, SPY, CL=F)", "^GSPC" if side=="Y" else "^TNX",
+                          key=f"{k}_{side}_sym")
+    elif src=="FRED series":
+        fred=st.text_input("FRED series id (e.g. BAA10Y, DGS10)", "BAA10Y", key=f"{k}_{side}_fred")
+    else:
+        up=st.file_uploader("CSV: first col = Date, second = Value", type=["csv"],
+                            key=f"{k}_{side}_up")
+    tf=st.selectbox("Transform",["Level","Return %","YoY %","Change"],
+                    index=(1 if side=="Y" else 0), key=f"{k}_{side}_tf")
+    return src,sym,fred,up,tf
+
+def panel_regression():
+    st.markdown(f'<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<span class="jaws-logo" style="font-size:16px;padding:3px 10px;">REG</span> '
+                    '<span class="jaws-title" style="font-size:15px;">Regression Lab</span> '
+                    '<span class="jaws-sub">OLS · any tool data or your own monthly CSV</span>',
+                    unsafe_allow_html=True)
+        freq=st.radio("Frequency",["Monthly","Daily"],horizontal=True,key="reg_freq")
+        cX,cY=st.columns(2)
+        with cX: xsrc,xsym,xfred,xup,xtf=_reg_var_ui("X","reg")
+        with cY: ysrc,ysym,yfred,yup,ytf=_reg_var_ui("Y","reg")
+        d1,d2,d3=st.columns([1,1,1])
+        start=d1.date_input("Start", value=date.today()-relativedelta(years=10),
+                            min_value=date(1950,1,1), key="reg_start")
+        end=d2.date_input("End", value=date.today(), key="reg_end")
+        run=d3.button("▶ Run regression", use_container_width=True, key="reg_run")
+        if not run:
+            st.caption("Pick X and Y, then Run. Beta = slope of Y on X. "
+                       "Upload your own monthly series (Date, Value) to test against any tool data.")
+            return
+        sx=_reg_build_series(xsrc,xsym,xfred,xup,xtf,freq)
+        sy=_reg_build_series(ysrc,ysym,yfred,yup,ytf,freq)
+        if sx is None or sy is None:
+            st.error("Could not build one of the series — check the ticker / FRED id / CSV."); return
+        df=pd.concat([sx.rename("x"),sy.rename("y")],axis=1,join="inner").dropna()
+        df=df[(df.index>=pd.Timestamp(start))&(df.index<=pd.Timestamp(end))]
+        if len(df)<3:
+            st.error(f"Only {len(df)} overlapping points — widen the date range or check frequency."); return
+        from scipy import stats
+        lr=stats.linregress(df["x"].values, df["y"].values)
+        tstat = lr.slope/lr.stderr if lr.stderr else float("nan")
+        r2=lr.rvalue**2
+        xlbl=f"{xsym or xfred or 'X'} ({xtf})"; ylbl=f"{ysym or yfred or 'Y'} ({ytf})"
+        m=st.columns(6)
+        m[0].metric("R²", f"{r2:.3f}")
+        m[1].metric("Beta (slope)", f"{lr.slope:.4f}")
+        m[2].metric("Intercept", f"{lr.intercept:.4f}")
+        m[3].metric("t-stat", f"{tstat:.2f}")
+        m[4].metric("p-value", f"{lr.pvalue:.4f}")
+        m[5].metric("N obs", f"{len(df)}")
+        sig = "significant" if lr.pvalue<0.05 else "not significant"
+        st.caption(f"Correlation r = {lr.rvalue:+.3f} · slope {sig} at 95% · "
+                   f"{df.index[0].date()} → {df.index[-1].date()} · {freq.lower()}")
+        # Scatter + fit
+        import numpy as np
+        fig=go.Figure()
+        fig.add_trace(go.Scatter(x=df["x"],y=df["y"],mode="markers",
+            marker=dict(color=BLUE,size=6,opacity=0.7),name="obs"))
+        xr=np.array([df["x"].min(),df["x"].max()])
+        fig.add_trace(go.Scatter(x=xr,y=lr.intercept+lr.slope*xr,mode="lines",
+            line=dict(color=ACCENT,width=2),name=f"fit  y={lr.slope:.3f}x+{lr.intercept:.2f}"))
+        fig.update_layout(template="plotly_dark",paper_bgcolor=BG,plot_bgcolor=CARD,height=380,
+            margin=dict(l=50,r=20,t=40,b=44),title=dict(text=f"{ylbl}  vs  {xlbl}",font=dict(size=13)),
+            font=dict(family="Consolas",color=TEXT2,size=11),legend=dict(bgcolor=CARD2,font=dict(size=10)))
+        fig.update_xaxes(gridcolor=BORDER,title=xlbl); fig.update_yaxes(gridcolor=BORDER,title=ylbl)
+        st.plotly_chart(fig, use_container_width=True, key="reg_chart")
+        out=df.copy(); out.insert(0,"Date",out.index)
+        dl(out.rename(columns={"x":xlbl,"y":ylbl}), "Export aligned data", "JAWS_regression.xlsx", "reg_dl")
+
 # ── Slot dispatcher ─────────────────────────────────────────────
 RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility","FX":"fx",
              "Fixed Income":"fixed_income","Municipals":"munis","Factor ETFs":"factors",
@@ -659,10 +762,16 @@ def render_slot(k, tabs, default):
 # Style the radio strips to read like tabs
 st.markdown(f"""
 <style>
-  div[role="radiogroup"] {{ gap:2px !important; flex-wrap:wrap; }}
+  div[role="radiogroup"] {{ gap:3px !important; flex-wrap:wrap; }}
   div[role="radiogroup"] label {{ background:{CARD2}; border:1px solid {BORDER};
-      border-radius:5px 5px 0 0; padding:2px 9px !important; margin:0 !important; }}
+      border-radius:5px 5px 0 0; padding:3px 11px !important; margin:0 !important; }}
   div[role="radiogroup"] label:hover {{ background:{BORDER}; }}
+  /* Bright, bold tab text */
+  div[role="radiogroup"] label p {{ color:#ffffff !important; font-weight:700 !important;
+      font-size:13px !important; }}
+  /* Selected tab: accent highlight */
+  div[role="radiogroup"] label:has(input:checked) {{ background:{ACCENT}; border-color:{ACCENT}; }}
+  div[role="radiogroup"] label:has(input:checked) p {{ color:#0d1117 !important; }}
 </style>""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════
@@ -688,3 +797,6 @@ with r2[0]:
     with st.container(border=True): render_slot("q3", PANEL_TABS, "Yield Curve")
 with r2[1]:
     with st.container(border=True): render_slot("q4", PANEL_TABS, "News")
+
+# ── Regression Lab (full width, below the grid) ─────────────────
+panel_regression()
