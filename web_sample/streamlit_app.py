@@ -59,6 +59,13 @@ st.markdown(f"""
   .jaws-cat {{ background:#161b22; color:{ACCENT}; font-family:Consolas; font-weight:700;
               padding:4px 8px; font-size:11px; }}
   .tbl-wrap {{ max-height:330px; overflow:auto; border:1px solid {BORDER}; border-radius:6px; }}
+  /* ── Bigger, easier-to-find scrollbars ── */
+  ::-webkit-scrollbar {{ width:16px; height:16px; }}
+  ::-webkit-scrollbar-track {{ background:{SIDEBAR}; }}
+  ::-webkit-scrollbar-thumb {{ background:{TEXT3}; border-radius:8px; border:3px solid {SIDEBAR}; }}
+  ::-webkit-scrollbar-thumb:hover {{ background:{ACCENT}; }}
+  ::-webkit-scrollbar-corner {{ background:{SIDEBAR}; }}
+  * {{ scrollbar-width:auto; scrollbar-color:{TEXT3} {SIDEBAR}; }}
   div[data-testid="stVerticalBlockBorderWrapper"] {{ background:{CARD};
        border:1px solid {BORDER} !important; border-radius:8px; }}
   .stRadio label, .stCheckbox label {{ color:{TEXT1}; }}
@@ -142,13 +149,14 @@ def z_color(z):
 
 # ── Cached loaders ──────────────────────────────────────────────
 @st.cache_data(ttl=900, show_spinner=False)
-def md_returns(key, custom_start=None, absolute=False):
+def md_returns(key, custom_start=None, custom_end=None, absolute=False):
     import market_data as md
     dmap={"indices":md.INDICES,"volatility":md.VOLATILITY,"fx":md.FX,
           "fixed_income":md.FIXED_INCOME,"munis":md.MUNIS,"factors":md.FACTORS,
           "commodities":md.COMMODITIES,"sectors":md.SECTORS}
     cs=pd.Timestamp(custom_start).date() if custom_start else None
-    return md.fetch_returns(dmap[key], custom_start=cs, absolute=absolute), dmap[key]
+    ce=pd.Timestamp(custom_end).date() if custom_end else None
+    return md.fetch_returns(dmap[key], custom_start=cs, custom_end=ce, absolute=absolute), dmap[key]
 
 @st.cache_data(ttl=900, show_spinner=False)
 def md_history(sym, start=None, adjusted=True):
@@ -341,8 +349,10 @@ RET_HDR=["Name","Tkr","Price","1D%","MTD%","YTD%","1Y%","3Y%","5Y%","10Y%","Cust
 def panel_returns(catkey, label, k):
     absolute = catkey in ("rates","funding")
     cs = st.session_state.get(k+"_cs")
+    ce = st.session_state.get(k+"_ce")
     with st.spinner(f"Loading {label}…"):
-        data,tmap = md_returns(catkey, custom_start=cs.isoformat() if cs else None, absolute=absolute)
+        data,tmap = md_returns(catkey, custom_start=cs.isoformat() if cs else None,
+                               custom_end=ce.isoformat() if ce else None, absolute=absolute)
     fc=f_abs if absolute else f_pct
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in RET_HDR)+"</tr>"
     for name,info in data.items():
@@ -353,12 +363,13 @@ def panel_returns(catkey, label, k):
             f"<td>{fc(r.get('3Y'))}</td><td>{fc(r.get('5Y'))}</td><td>{fc(r.get('10Y'))}</td>"
             f"<td>{fc(r.get('Custom'))}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
-    c1,c2=st.columns([1,1])
+    c1,c2,c3=st.columns([1,1,1])
     c1.date_input("Custom start", value=cs, key=k+"_cs", min_value=date(1970,1,1))
+    c2.date_input("Custom end", value=ce, key=k+"_ce", min_value=date(1970,1,1))
     df=pd.DataFrame([{"Name":n,"Ticker":tmap.get(n,""),"Price":i.get("price"),
         **{p:i.get("returns",{}).get(p) for p in ["MTD","YTD","1Y","3Y","5Y","10Y","Custom"]}}
         for n,i in data.items()])
-    with c2: dl(df, "Export", f"JAWS_{catkey}.xlsx", k+"_dl")
+    with c3: dl(df, "Export", f"JAWS_{catkey}.xlsx", k+"_dl")
 
 ANA_HDR=["Name","Unit","Cur","1M","3M","1Y","3Y","5Y","10Y","Min","Max","Z"]
 def panel_analytics(loader, label, fname, k):

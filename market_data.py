@@ -246,12 +246,13 @@ def _annualized(start_price, end_price, years):
 # Periods that get annualized (>1Y)
 _ANNUALIZE = {"3Y": 3, "5Y": 5, "10Y": 10}
 
-def fetch_returns(ticker_dict, custom_start=None, absolute=False):
+def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=False):
     """
     Fetch returns for each ticker.
     absolute=True: report absolute level differences (e.g. yield bps) instead
                    of percentage changes. Used for the Rates tab.
-    custom_start: optional datetime.date — also computes 'Custom' return.
+    custom_start / custom_end: optional datetime.date — computes a 'Custom'
+    return between them (end defaults to latest).
     """
     starts = _start_dates()
     results = {}
@@ -290,21 +291,25 @@ def fetch_returns(ticker_dict, custom_start=None, absolute=False):
                 else:
                     returns[period] = _pct(float(subset.iloc[0]), current)
 
-            # Custom date range
+            # Custom date range (start → end; end defaults to latest)
             if custom_start is not None:
                 cdt = datetime.datetime.combine(custom_start, datetime.time())
                 csub = close[close.index >= cdt]
+                if custom_end is not None:
+                    edt = datetime.datetime.combine(custom_end, datetime.time())
+                    esub = close[close.index <= edt]
+                    ep = float(esub.iloc[-1]) if not esub.empty else current
+                    end_date = custom_end
+                else:
+                    ep = current; end_date = datetime.date.today()
                 if not csub.empty:
                     sp = float(csub.iloc[0])
                     if absolute:
-                        returns["Custom"] = round(current - sp, 4)
+                        returns["Custom"] = round(ep - sp, 4)
                     else:
-                        days = (datetime.date.today() - custom_start).days
-                        years = days / 365.25
-                        if years > 1:
-                            returns["Custom"] = _annualized(sp, current, years)
-                        else:
-                            returns["Custom"] = _pct(sp, current)
+                        years = (end_date - custom_start).days / 365.25
+                        returns["Custom"] = (_annualized(sp, ep, years) if years > 1
+                                             else _pct(sp, ep))
                 else:
                     returns["Custom"] = None
 
