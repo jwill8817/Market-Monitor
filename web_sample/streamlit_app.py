@@ -1075,6 +1075,39 @@ def panel_corr():
         out=corr.copy(); out.insert(0,"Series",out.index)
         dl(out, "Export matrix", "JAWS_correlation.xlsx", "corr_dl")
 
+        # ── Rolling correlation between two chosen series ──
+        st.divider()
+        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Rolling correlation — pick two series</span>', unsafe_allow_html=True)
+        keys=list(cols.keys())
+        rc1,rc2,rc3=st.columns([2,2,1])
+        a=rc1.selectbox("Series A", keys, index=0, key="corr_a")
+        b=rc2.selectbox("Series B", keys, index=min(1,len(keys)-1), key="corr_b")
+        if freq=="Monthly":
+            win=rc3.select_slider("Window (months)",[3,6,12,24,36],value=12,key="corr_win")
+        else:
+            win=rc3.select_slider("Window (days)",[21,30,60,90,126,252],value=90,key="corr_win")
+        if a==b:
+            st.caption("Pick two different series for a rolling correlation.")
+        else:
+            pair=pd.concat([cols[a].rename("a"),cols[b].rename("b")],axis=1,join="inner").dropna()
+            roll=pair["a"].rolling(win).corr(pair["b"]).dropna()
+            if roll.empty:
+                st.caption("Not enough overlapping data for that window.")
+            else:
+                rfig=go.Figure()
+                rfig.add_trace(go.Scatter(x=roll.index,y=roll.values,mode="lines",
+                    line=dict(color=ACCENT,width=1.6)))
+                rfig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+                rfig.add_hline(y=float(roll.mean()),line=dict(color=BLUE,dash="dot"),
+                               annotation_text=f"avg {roll.mean():.2f}")
+                base_layout(rfig,f"Rolling {win}-{'mo' if freq=='Monthly' else 'd'} correlation · "
+                            f"{a} vs {b}  (now {roll.iloc[-1]:+.2f})", h=300)
+                rfig.update_yaxes(range=[-1,1])
+                st.plotly_chart(rfig, use_container_width=True, key="corr_roll")
+                rdf=pd.DataFrame({"Date":roll.index,"RollingCorr":roll.values})
+                dl(rdf, "Export rolling corr", "JAWS_rolling_corr.xlsx", "corr_roll_dl")
+
 def panel_exporter():
     import re as _re
     st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
@@ -1240,7 +1273,7 @@ with r2[0]:
 with r2[1]:
     with st.container(border=True): render_slot("q4", PANEL_TABS, "News")
 
-# ── Regression · Correlation · Bulk Export (full width, below grid) ──
-panel_regression()
+# ── Correlation · Regression · Bulk Export (full width, below grid) ──
 panel_corr()
+panel_regression()
 panel_exporter()
