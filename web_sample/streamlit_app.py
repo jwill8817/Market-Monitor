@@ -122,6 +122,33 @@ def all_tickers():
     return d
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def resolve_ticker(sym):
+    """Return (name, last_price) for a ticker, or (None,None) if not recognized."""
+    import yfinance as yf
+    name=None; price=None
+    try: price=float(yf.Ticker(sym).fast_info.last_price)
+    except Exception: price=None
+    try:
+        for qq in yf.Search(sym, max_results=4).quotes:
+            if qq.get("symbol","").upper()==sym.upper():
+                name=qq.get("shortname") or qq.get("longname"); break
+    except Exception: pass
+    return name, price
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fred_title(sid):
+    """Return the FRED series title, or None if not found."""
+    import urllib.request, json
+    key=os.environ.get("FRED_API_KEY","")
+    if not key: return None
+    try:
+        url=f"https://api.stlouisfed.org/fred/series?series_id={sid}&file_type=json&api_key={key}"
+        with urllib.request.urlopen(urllib.request.Request(url,headers={"User-Agent":"JAWS"}),timeout=8) as r:
+            import json as _j; d=_j.loads(r.read())
+        return d["seriess"][0]["title"]
+    except Exception: return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def yf_search(q):
     import yfinance as yf
     try:
@@ -681,13 +708,33 @@ def _reg_var_ui(side, k):
                  horizontal=True,key=f"{k}_{side}_src",label_visibility="collapsed")
     sym=fred=""; up=None
     if src=="Market ticker":
-        sym=st.text_input("Ticker (e.g. ^GSPC, SPY, CL=F)", "^GSPC" if side=="Y" else "^TNX",
+        sym=st.text_input("Ticker (e.g. ^GSPC, SPY, CL=F)", "SPY" if side=="X" else "AAPL",
                           key=f"{k}_{side}_sym")
+        if sym.strip():
+            nm,px=resolve_ticker(sym.strip())
+            if nm or px:
+                st.markdown(f'<span style="color:{GREEN};font-size:12px;">✅ {sym.strip().upper()} — '
+                            f'{nm or "found"}{f" · {px:,.2f}" if px else ""}</span>',
+                            unsafe_allow_html=True)
+            else:
+                st.markdown(f'<span style="color:{RED};font-size:12px;">❌ {sym.strip().upper()} '
+                            f'not recognized</span>', unsafe_allow_html=True)
     elif src=="FRED series":
         fred=st.text_input("FRED series id (e.g. BAA10Y, DGS10)", "BAA10Y", key=f"{k}_{side}_fred")
+        if fred.strip():
+            t=fred_title(fred.strip())
+            if t:
+                st.markdown(f'<span style="color:{GREEN};font-size:12px;">✅ {fred.strip().upper()} — '
+                            f'{t[:48]}</span>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<span style="color:{YELLOW};font-size:12px;">⚠ {fred.strip().upper()} '
+                            f'— could not verify (will still try)</span>', unsafe_allow_html=True)
     else:
         up=st.file_uploader("CSV: first col = Date, second = Value", type=["csv"],
                             key=f"{k}_{side}_up")
+        if up is not None:
+            st.markdown(f'<span style="color:{GREEN};font-size:12px;">✅ {up.name} uploaded</span>',
+                        unsafe_allow_html=True)
     tf=st.selectbox("Transform",["Level","Return %","YoY %","Change"],
                     index=1, key=f"{k}_{side}_tf")   # default Return % for both sides
     return src,sym,fred,up,tf
