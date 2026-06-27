@@ -689,7 +689,7 @@ def _reg_var_ui(side, k):
         up=st.file_uploader("CSV: first col = Date, second = Value", type=["csv"],
                             key=f"{k}_{side}_up")
     tf=st.selectbox("Transform",["Level","Return %","YoY %","Change"],
-                    index=(1 if side=="Y" else 0), key=f"{k}_{side}_tf")
+                    index=1, key=f"{k}_{side}_tf")   # default Return % for both sides
     return src,sym,fred,up,tf
 
 def panel_regression():
@@ -714,8 +714,20 @@ def panel_regression():
             return
         sx=_reg_build_series(xsrc,xsym,xfred,xup,xtf,freq)
         sy=_reg_build_series(ysrc,ysym,yfred,yup,ytf,freq)
-        if sx is None or sy is None:
-            st.error("Could not build one of the series — check the ticker / FRED id / CSV."); return
+        # ── Verify each series resolved correctly ──
+        def _ver(s, label, src, sym, fred):
+            who = sym or fred or "uploaded CSV"
+            if s is None or len(s)==0:
+                return False, f"❌ **{label}** — `{who}` returned NO data (check the ticker/id)"
+            return True, (f"✅ **{label}** — `{who}` · {len(s)} pts · "
+                          f"{s.index[0].date()} → {s.index[-1].date()} · last {s.iloc[-1]:.2f}")
+        okx,mx=_ver(sx,"X",xsrc,xsym,xfred); oky,my=_ver(sy,"Y",ysrc,ysym,yfred)
+        st.markdown(mx); st.markdown(my)
+        if xtf!=ytf:
+            st.warning(f"⚠ X uses **{xtf}** but Y uses **{ytf}**. For a beta vs an index, set "
+                       f"**both** to *Return %*.")
+        if not okx or not oky:
+            st.error("Fix the series above and re-run."); return
         df=pd.concat([sx.rename("x"),sy.rename("y")],axis=1,join="inner").dropna()
         df=df[(df.index>=pd.Timestamp(start))&(df.index<=pd.Timestamp(end))]
         if len(df)<3:
