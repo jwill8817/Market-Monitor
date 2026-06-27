@@ -151,9 +151,9 @@ def md_returns(key, custom_start=None, absolute=False):
     return md.fetch_returns(dmap[key], custom_start=cs, absolute=absolute), dmap[key]
 
 @st.cache_data(ttl=900, show_spinner=False)
-def md_history(sym, start=None):
+def md_history(sym, start=None, adjusted=True):
     import market_data as md
-    return md.price_history(sym, start=start)
+    return md.price_history(sym, start=start, adjusted=adjusted)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def all_tickers():
@@ -993,6 +993,14 @@ def panel_exporter():
         start=c3.date_input("Start", value=date.today()-relativedelta(years=5),
                             min_value=date(1950,1,1), key="exp_start")
         end =c4.date_input("End", value=date.today(), key="exp_end")
+        # Price basis toggle (returns are always total-return / adjusted)
+        if dtp=="Prices":
+            basis=st.radio("Price basis",
+                           ["Adjusted (total return)","Actual (unadjusted)"],
+                           horizontal=True, key="exp_basis")
+            adjusted = basis.startswith("Adjusted")
+        else:
+            adjusted = True   # total-return basis for returns
 
         cc1,cc2=st.columns([1,4])
         if cc1.button("Clear added", key="exp_clear"):
@@ -1008,7 +1016,7 @@ def panel_exporter():
         with st.spinner(f"Building {freq.lower()} {dtp.lower()} for {total} series…"):
             # 1) tickers / FRED IDs
             for sym in syms:
-                s=md_history(sym)
+                s=md_history(sym, adjusted=adjusted)
                 if s is None or s.empty:           # fall back to FRED for economic IDs
                     import fi_spreads as fs
                     d,v=fs._fred_fetch_all(sym)

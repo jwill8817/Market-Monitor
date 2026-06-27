@@ -27,19 +27,20 @@ def _cboe_history(cboe_sym):
     _CBOE_CACHE[cboe_sym] = s
     return s
 
-def price_history(symbol, start=None, period="10y"):
+def price_history(symbol, start=None, period="10y", adjusted=True):
     """Return a tz-naive daily Close Series for any symbol.
     Routes CBOE-only indices (VIXEQ, COR1M/3M/6M) to cboe.com; everything
-    else uses yfinance. Optional `start` (date/str) trims the series."""
+    else uses yfinance. Optional `start` (date/str) trims the series.
+    adjusted=True → dividend+split adjusted close (TOTAL RETURN basis, default).
+    adjusted=False → actual unadjusted market price."""
     import pandas as pd
     if symbol in _CBOE_MAP:
-        s = _cboe_history(_CBOE_MAP[symbol])
+        s = _cboe_history(_CBOE_MAP[symbol])   # index levels — no adjustment concept
     else:
         if start is not None:
-            # auto_adjust=True → dividend+split adjusted close = TOTAL RETURN basis
-            h = yf.Ticker(symbol).history(start=str(start), auto_adjust=True)
+            h = yf.Ticker(symbol).history(start=str(start), auto_adjust=adjusted)
         else:
-            h = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=True)
+            h = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=adjusted)
         if h.empty:
             return pd.Series(dtype=float)
         if h.index.tz is not None:
