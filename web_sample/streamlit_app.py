@@ -192,11 +192,25 @@ MULTPL={"Trailing P/E":"https://www.multpl.com/s-p-500-pe-ratio/table/by-month",
 @st.cache_data(ttl=3600, show_spinner=False)
 def yf_multiples(sym):
     import yfinance as yf
-    try: i=yf.Ticker(sym).info
+    tk=yf.Ticker(sym)
+    try: i=tk.info
     except Exception: i={}
+    mc=i.get("marketCap")
+    fwd_ps=None; eps_gr=None
+    # Forward metrics we build ourselves from consensus estimates (stocks only)
+    if mc:
+        try:
+            re=tk.revenue_estimate
+            if re is not None and "+1y" in re.index:
+                rev=re.loc["+1y","avg"]
+                if rev and rev>0: fwd_ps=mc/rev
+        except Exception: pass
+    fe=i.get("forwardEps"); te=i.get("trailingEps")
+    if fe and te and te>0: eps_gr=(fe/te-1)*100
     return {"FwdPE":i.get("forwardPE"),"PE":i.get("trailingPE"),"PB":i.get("priceToBook"),
-            "PS":i.get("priceToSalesTrailing12Months"),"EVEBITDA":i.get("enterpriseToEbitda"),
-            "PEG":i.get("pegRatio"),"DivYld":i.get("dividendYield")}
+            "PS":i.get("priceToSalesTrailing12Months"),"FwdPS":fwd_ps,
+            "EVEBITDA":i.get("enterpriseToEbitda"),"PEG":i.get("pegRatio"),
+            "EPSgr":eps_gr,"DivYld":i.get("dividendYield")}
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def multpl_series(url):
@@ -577,20 +591,25 @@ def panel_valuation(k):
             res=yf_search(raw)
             if res: sym,nm=res[0]; st.session_state[ek][f"{nm[:18]} ({sym})"]=sym
     universe={**VAL_INDEX_ETFS, **st.session_state[ek]}
-    hdr=["Name","Fwd P/E","Trail P/E","P/B","P/S","EV/EBITDA","PEG","Div%"]
-    def fnum(v): return f'<span style="color:{TEXT3}">—</span>' if not isinstance(v,(int,float)) else f"{v:.1f}"
+    hdr=["Name","Fwd P/E","Trail P/E","P/B","P/S","Fwd P/S","EV/EBITDA","PEG","EPS Gr%","Div%"]
+    def fnum(v,suf=""): return f'<span style="color:{TEXT3}">—</span>' if not isinstance(v,(int,float)) else f"{v:.1f}{suf}"
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
     exp=[]
     with st.spinner("Loading multiples…"):
         for name,sym in universe.items():
             m=yf_multiples(sym)
+            gr=m['EPSgr']; grc=GREEN if (isinstance(gr,(int,float)) and gr>=0) else (RED if isinstance(gr,(int,float)) else TEXT3)
             h+=("<tr>"f"<td>{name}</td><td>{fnum(m['FwdPE'])}</td><td>{fnum(m['PE'])}</td>"
-                f"<td>{fnum(m['PB'])}</td><td>{fnum(m['PS'])}</td><td>{fnum(m['EVEBITDA'])}</td>"
-                f"<td>{fnum(m['PEG'])}</td><td>{fnum(m['DivYld'])}</td></tr>")
+                f"<td>{fnum(m['PB'])}</td><td>{fnum(m['PS'])}</td><td>{fnum(m['FwdPS'])}</td>"
+                f"<td>{fnum(m['EVEBITDA'])}</td><td>{fnum(m['PEG'])}</td>"
+                f"<td style='color:{grc}'>{fnum(gr,'%')}</td><td>{fnum(m['DivYld'])}</td></tr>")
             exp.append({"Name":name,"Ticker":sym,"FwdPE":m['FwdPE'],"TrailPE":m['PE'],"PB":m['PB'],
-                        "PS":m['PS'],"EV/EBITDA":m['EVEBITDA'],"PEG":m['PEG'],"DivYld":m['DivYld']})
+                        "PS":m['PS'],"FwdPS":m['FwdPS'],"EV/EBITDA":m['EVEBITDA'],"PEG":m['PEG'],
+                        "EPSgr%":m['EPSgr'],"DivYld":m['DivYld']})
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
-    st.caption("Forward multiples available for single stocks; index ETFs show trailing P/E, P/B, yield.")
+    st.caption("Forward P/E, Fwd P/S and EPS growth are built from consensus estimates — "
+               "single stocks only. Index ETFs show trailing P/E, P/B, yield (Yahoo doesn't "
+               "publish forward data for funds; index forward multiples need the JPM feed).")
     dl(pd.DataFrame(exp), "Export multiples", "JAWS_valuation.xlsx", k+"_dl")
 
     # ── S&P 500 valuation vs history ──
