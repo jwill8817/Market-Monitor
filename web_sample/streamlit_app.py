@@ -963,6 +963,118 @@ def tool_series_catalog():
         except Exception: pass
     return cat
 
+# ════════════════════════════════════════════════════════════════
+# CORRELATION MATRIX
+# ════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=900, show_spinner=False)
+def seg_catalog():
+    import market_data as md
+    return {"Equity Indices":dict(md.INDICES),"Volatility & Correlation":dict(md.VOLATILITY),
+            "FX":dict(md.FX),"Fixed Income":dict(md.FIXED_INCOME),"Municipals":dict(md.MUNIS),
+            "Factor ETFs":dict(md.FACTORS),"Commodities":dict(md.COMMODITIES),"US Sectors":dict(md.SECTORS)}
+
+def _corr_change_series(kind, payload, freq):
+    """Return a period-change series (returns for prices/factors, diff for levels)."""
+    import fi_spreads as fs
+    s=None
+    if kind=="ticker":
+        s=md_history(payload)
+    elif kind=="auto":                       # individual entry: ticker, else FRED
+        s=md_history(payload)
+        if s is None or s.empty:
+            d,v=fs._fred_fetch_all(payload)
+            if d: s=pd.Series(v,index=pd.to_datetime(d)); kind="level"
+    elif kind=="level":
+        d,v=payload; s=pd.Series(v,index=pd.to_datetime(d))
+    elif kind=="factor":
+        d,v=payload; s=pd.Series(v,index=pd.to_datetime(d))
+    if s is None or len(s)==0: return None
+    s=s.sort_index()
+    if kind=="factor":
+        if freq=="Monthly": s=(1+s).resample("ME").prod()-1
+        return s.dropna()                    # periodic return (corr is scale-invariant)
+    if freq=="Monthly": s=s.resample("ME").last()
+    chg = s.diff() if kind=="level" else s.pct_change()
+    return chg.dropna()
+
+def panel_corr():
+    st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<span class="jaws-logo" style="font-size:16px;padding:3px 10px;">CORR</span> '
+                    '<span class="jaws-title" style="font-size:15px;">Correlation Matrix</span> '
+                    '<span class="jaws-sub">returns/changes · green = low, red = high</span>',
+                    unsafe_allow_html=True)
+        c1,c2,c3=st.columns([1,1,1])
+        freq=c1.radio("Frequency",["Monthly","Daily"],horizontal=True,key="corr_freq")
+        start=c2.date_input("Start", value=date.today()-relativedelta(years=3),
+                            min_value=date(1950,1,1), key="corr_start")
+        end=c3.date_input("End", value=date.today(), key="corr_end")
+
+        segs=seg_catalog()
+        seg_pick=st.multiselect("Add whole table segments", list(segs.keys()),
+                                key="corr_segs")
+        catalog=tool_series_catalog()
+        tool_pick=st.multiselect("Add factors · spreads · rates · funding",
+                                 list(catalog.keys()), key="corr_tools")
+        if "corr_syms" not in st.session_state: st.session_state["corr_syms"]=[]
+        if _HAS_SEARCHBOX:
+            sel=st_searchbox(search_instruments, placeholder="Search & add an individual ticker…",
+                             key="corr_sb")
+            if sel and sel not in st.session_state["corr_syms"]:
+                st.session_state["corr_syms"].append(sel)
+        import re as _re
+        paste=st.text_input("…or paste tickers/IDs (comma separated)", "", key="corr_paste")
+        pasted=[t.strip() for t in _re.split(r"[,\s]+", paste) if t.strip()]
+
+        if st.button("Clear selections", key="corr_clear"):
+            st.session_state["corr_syms"]=[]; st.rerun()
+
+        # ── assemble selected items: label -> (kind, payload) ──
+        items={}
+        for seg in seg_pick:
+            for name,sym in segs[seg].items(): items[name]=("ticker",sym)
+        for t in tool_pick:
+            kind,payload=catalog[t]; items[t.split(": ",1)[-1]]=(kind,payload)
+        for sym in list(dict.fromkeys(st.session_state["corr_syms"]+pasted)):
+            items[sym]=("auto",sym)
+        if len(items)<2:
+            st.info("Add at least 2 series (segments, factors, or tickers) to build the matrix.")
+            return
+        if len(items)>45:
+            st.warning(f"{len(items)} series selected — showing first 45 for readability.")
+            items=dict(list(items.items())[:45])
+
+        lo=pd.Timestamp(start); hi=pd.Timestamp(end)
+        cols={}
+        with st.spinner(f"Building {freq.lower()} correlation for {len(items)} series…"):
+            for label,(kind,payload) in items.items():
+                s=_corr_change_series(kind,payload,freq)
+                if s is None or s.empty: continue
+                s=s[(s.index>=lo)&(s.index<=hi)]
+                if len(s)>=3: cols[label]=s
+        if len(cols)<2:
+            st.warning("Not enough overlapping data — widen the date range."); return
+        df=pd.concat(cols, axis=1, sort=True)
+        corr=df.corr()                       # pairwise complete observations
+        labels=list(corr.columns); n=len(labels)
+        import numpy as np
+        z=corr.values
+        fig=go.Figure(go.Heatmap(
+            z=z, x=labels, y=labels, zmin=-1, zmax=1,
+            colorscale=[[0.0,"#3fb950"],[0.5,"#e3b341"],[1.0,"#f85149"]],
+            colorbar=dict(title="ρ", tickfont=dict(color=TEXT2)),
+            text=np.round(z,2), texttemplate="%{text}" if n<=18 else None,
+            textfont=dict(size=9, color="#0d1117")))
+        fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=BG,
+            height=max(360, 26*n+120), margin=dict(l=10,r=10,t=30,b=10),
+            font=dict(family="Consolas", color=TEXT2, size=10),
+            title=dict(text=f"{freq} return correlation · {df.index[0].date()} → {df.index[-1].date()}",
+                       font=dict(size=13)))
+        fig.update_yaxes(autorange="reversed")
+        st.plotly_chart(fig, use_container_width=True, key="corr_chart")
+        out=corr.copy(); out.insert(0,"Series",out.index)
+        dl(out, "Export matrix", "JAWS_correlation.xlsx", "corr_dl")
+
 def panel_exporter():
     import re as _re
     st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
@@ -1128,6 +1240,7 @@ with r2[0]:
 with r2[1]:
     with st.container(border=True): render_slot("q4", PANEL_TABS, "News")
 
-# ── Regression Lab + Bulk Export (full width, below the grid) ───
+# ── Regression · Correlation · Bulk Export (full width, below grid) ──
 panel_regression()
+panel_corr()
 panel_exporter()
