@@ -230,9 +230,35 @@ CAT_COLORS={"hedge_fund":CYAN,"ipo":GREEN,"ma":YELLOW,"issuance":PURPLE}
 
 def xlsx_bytes(df, sheet="Data"):
     buf=io.BytesIO()
-    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
+    with pd.ExcelWriter(buf, engine="xlsxwriter",
+                        datetime_format="mm/dd/yyyy", date_format="mm/dd/yyyy") as w:
         df.to_excel(w, index=False, sheet_name=sheet[:31])
     return buf.getvalue()
+
+def export_series_xlsx(df, returns_mode):
+    """Bulk-export writer: MM/DD/YYYY dates; return columns as true Excel % cells."""
+    import xlsxwriter
+    buf=io.BytesIO()
+    wb=xlsxwriter.Workbook(buf, {"nan_inf_to_errors": True})
+    ws=wb.add_worksheet("Data")
+    datef=wb.add_format({"num_format":"mm/dd/yyyy"})
+    pctf =wb.add_format({"num_format":"0.00%"})
+    numf =wb.add_format({"num_format":"#,##0.0000"})
+    cols=list(df.columns)
+    for c,nm in enumerate(cols): ws.write(0,c,nm)
+    ws.set_column(0,0,12); ws.set_column(1,len(cols)-1,14)
+    for r,(_,row) in enumerate(df.iterrows()):
+        for c,nm in enumerate(cols):
+            val=row[nm]
+            if nm=="Date":
+                ws.write_datetime(r+1,c, pd.Timestamp(val).to_pydatetime(), datef)
+            elif pd.isna(val):
+                ws.write_blank(r+1,c,None)
+            elif returns_mode:
+                ws.write_number(r+1,c, float(val)/100.0, pctf)   # 2.34 → 0.0234 → shows 2.34%
+            else:
+                ws.write_number(r+1,c, float(val), numf)
+    wb.close(); return buf.getvalue()
 def dl(df, label, fname, key):
     st.download_button("⬇ "+label, data=xlsx_bytes(df), file_name=fname, key=key,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -998,10 +1024,17 @@ def panel_exporter():
         st.dataframe(df.tail(12), use_container_width=True, height=240, hide_index=True)
         st.caption(f"{len(df)} rows × {len(cols)} series · {freq.lower()} {dtp.lower()} · "
                    f"{df['Date'].iloc[0].date()} → {df['Date'].iloc[-1].date()}")
+        rmode = (dtp=="Returns")
         e1,e2=st.columns(2)
-        with e1: dl(df, "Download Excel", f"JAWS_export_{freq.lower()}_{dtp.lower()}.xlsx", "exp_xls")
+        with e1:
+            st.download_button("⬇ Download Excel",
+                export_series_xlsx(df, rmode),
+                f"JAWS_export_{freq.lower()}_{dtp.lower()}.xlsx", key="exp_xls",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with e2:
-            st.download_button("⬇ Download CSV", df.to_csv(index=False).encode(),
+            csv_df=df.copy()
+            csv_df["Date"]=pd.to_datetime(csv_df["Date"]).dt.strftime("%m/%d/%Y")
+            st.download_button("⬇ Download CSV", csv_df.to_csv(index=False).encode(),
                 f"JAWS_export_{freq.lower()}_{dtp.lower()}.csv", "text/csv", key="exp_csv")
 
 # ── Slot dispatcher ─────────────────────────────────────────────
