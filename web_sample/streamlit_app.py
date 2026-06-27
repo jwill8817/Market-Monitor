@@ -1058,19 +1058,22 @@ def panel_corr():
         corr=df.corr()                       # pairwise complete observations
         labels=list(corr.columns); n=len(labels)
         import numpy as np
-        z=corr.values
+        zpct=corr.values*100                 # show as %
+        fsize=11 if n<=14 else (9 if n<=22 else 7)
         fig=go.Figure(go.Heatmap(
-            z=z, x=labels, y=labels, zmin=-1, zmax=1,
-            colorscale=[[0.0,"#3fb950"],[0.5,"#e3b341"],[1.0,"#f85149"]],
-            colorbar=dict(title="ρ", tickfont=dict(color=TEXT2)),
-            text=np.round(z,2), texttemplate="%{text}" if n<=18 else None,
-            textfont=dict(size=9, color="#0d1117")))
+            z=zpct, x=labels, y=labels, zmin=-100, zmax=100,
+            # Excel-style 3-colour scale: green (low) → yellow → red (high)
+            colorscale=[[0.0,"#63be7b"],[0.5,"#ffeb84"],[1.0,"#f8696b"]],
+            showscale=False, xgap=1, ygap=1,
+            text=np.round(zpct).astype(int), texttemplate="%{text}%",
+            textfont=dict(size=fsize, color="#1a1a1a")))
         fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=BG,
-            height=max(360, 26*n+120), margin=dict(l=10,r=10,t=30,b=10),
+            height=max(420, 30*n+150), margin=dict(l=10,r=10,t=34,b=10),
             font=dict(family="Consolas", color=TEXT2, size=10),
             title=dict(text=f"{freq} return correlation · {df.index[0].date()} → {df.index[-1].date()}",
                        font=dict(size=13)))
-        fig.update_yaxes(autorange="reversed")
+        fig.update_xaxes(side="top", tickangle=-90, tickfont=dict(size=10,color=TEXT1))
+        fig.update_yaxes(autorange="reversed", tickfont=dict(size=10,color=TEXT1))
         st.plotly_chart(fig, use_container_width=True, key="corr_chart")
         out=corr.copy(); out.insert(0,"Series",out.index)
         dl(out, "Export matrix", "JAWS_correlation.xlsx", "corr_dl")
