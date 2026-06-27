@@ -941,13 +941,10 @@ def panel_regression():
         cX,cY=st.columns(2)
         with cX: xsrc,xsym,xfred,xfac,xup,xtf=_reg_var_ui("X","reg")
         with cY: ysrc,ysym,yfred,yfac,yup,ytf=_reg_var_ui("Y","reg")
-        d1,d2,d3=st.columns([1,1,1])
+        d1,d2=st.columns(2)
         start=d1.date_input("Start", value=date.today()-relativedelta(years=10),
                             min_value=date(1950,1,1), key="reg_start")
         end=d2.date_input("End", value=date.today(), key="reg_end")
-        rwin=d3.number_input(f"Rolling window ({'months' if freq=='Monthly' else 'days'})",
-                             min_value=3, max_value=2000,
-                             value=(24 if freq=="Monthly" else 120), step=1, key="reg_rwin")
         sx=_reg_build_series(xsrc,xsym,xfred,xup,xfac,xtf,freq)
         sy=_reg_build_series(ysrc,ysym,yfred,yup,yfac,ytf,freq)
         # ── Verify each series resolved correctly ──
@@ -999,19 +996,48 @@ def panel_regression():
         out=df.copy(); out.insert(0,"Date",out.index)
         dl(out.rename(columns={"x":xlbl,"y":ylbl}), "Export aligned data", "JAWS_regression.xlsx", "reg_dl")
 
-        # ── Rolling beta & p-value over time ──
+        # ── Rolling beta & p-value (own choice menu) ──
         st.divider()
-        w=int(rwin)
-        if len(df) <= w:
-            st.caption(f"Need more than {w} points for a rolling window — widen the range "
+        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Rolling beta &amp; p-value — pick X &amp; Y, window, and time frame</span>',
+                    unsafe_allow_html=True)
+        rb1,rb2=st.columns(2)
+        bx=rb1.text_input("X (ticker / FRED id)", "SPY", key="reg_rbx").strip()
+        by=rb2.text_input("Y (ticker / FRED id)", "AGG", key="reg_rby").strip()
+        unitf="months" if freq=="Monthly" else "days"
+        rb3,rb4,rb5=st.columns([1,1,1])
+        w=int(rb3.number_input(f"Rolling window ({unitf})", min_value=3, max_value=2000,
+                               value=(24 if freq=="Monthly" else 120), step=1, key="reg_rw"))
+        bs=rb4.date_input("Series start", value=date.today()-relativedelta(years=10),
+                          min_value=date(1950,1,1), key="reg_rbs")
+        be=rb5.date_input("Series end", value=date.today(), key="reg_rbe")
+        for lbl,sym in [("X",bx),("Y",by)]:
+            if sym:
+                nm,px=resolve_ticker(sym)
+                col = GREEN if (nm or px) else YELLOW
+                txtc = f"{nm or 'found'}" if (nm or px) else "trying as FRED id"
+                st.markdown(f'<span style="color:{col};font-size:12px;">'
+                            f'{"✅" if (nm or px) else "⚠"} {lbl}: {sym.upper()} — {txtc}</span>',
+                            unsafe_allow_html=True)
+        if not bx or not by or bx.upper()==by.upper():
+            st.caption("Enter two different series for rolling beta."); return
+        sxx=_corr_change_series("auto", bx, freq); syy=_corr_change_series("auto", by, freq)
+        blo=pd.Timestamp(bs); bhi=pd.Timestamp(be)
+        if sxx is not None: sxx=sxx[(sxx.index>=blo)&(sxx.index<=bhi)]
+        if syy is not None: syy=syy[(syy.index>=blo)&(syy.index<=bhi)]
+        rdf=pd.concat([sxx.rename("x"),syy.rename("y")],axis=1,join="inner").dropna() \
+            if (sxx is not None and syy is not None) else pd.DataFrame()
+        if len(rdf) <= w:
+            st.caption(f"Need more than {w} overlapping points — widen the time frame "
                        f"or shrink the window."); return
-        xv=df["x"].values; yv=df["y"].values; idx=df.index
+        xv=rdf["x"].values; yv=rdf["y"].values; idx=rdf.index
         betas=[]; pvals=[]; rix=[]
-        for i in range(w, len(df)+1):
+        for i in range(w, len(rdf)+1):
             lr_w=stats.linregress(xv[i-w:i], yv[i-w:i])
             betas.append(lr_w.slope); pvals.append(lr_w.pvalue); rix.append(idx[i-1])
         rb=pd.Series(betas,index=rix); rp=pd.Series(pvals,index=rix)
         unit="mo" if freq=="Monthly" else "d"
+        xlbl=bx.upper(); ylbl=by.upper()
         bcol,pcol=st.columns(2)
         with bcol:
             bf=go.Figure()
@@ -1156,17 +1182,17 @@ def panel_corr():
         corr=df.corr()                       # pairwise complete observations
         labels=list(corr.columns); n=len(labels)
         import numpy as np
-        zpct=corr.values*100                 # show as %
+        vals=corr.values                     # correlations (-1..1), shown as 2-dp decimals
         fsize=11 if n<=14 else (9 if n<=22 else 7)
-        # Mask the diagonal (self-correlation = 100%): no color, no number → black
-        z=zpct.astype(float).copy()
+        # Mask the diagonal (self-correlation = 1.00): no color, no number → black
+        z=vals.astype(float).copy()
         np.fill_diagonal(z, np.nan)
         txt=np.empty((n,n), dtype=object)
         for i in range(n):
             for j in range(n):
-                txt[i,j]="" if i==j else f"{int(round(zpct[i,j]))}%"
+                txt[i,j]="" if i==j else f"{vals[i,j]:.2f}"
         fig=go.Figure(go.Heatmap(
-            z=z, x=labels, y=labels, zmin=-100, zmax=100,
+            z=z, x=labels, y=labels, zmin=-1, zmax=1,
             # Excel-style 3-colour scale: green (low) → yellow → red (high)
             colorscale=[[0.0,"#63be7b"],[0.5,"#ffeb84"],[1.0,"#f8696b"]],
             showscale=False, xgap=1, ygap=1, hoverongaps=False,
