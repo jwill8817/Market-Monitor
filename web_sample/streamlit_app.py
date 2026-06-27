@@ -1081,22 +1081,32 @@ def panel_corr():
         # ── Rolling correlation between two chosen series ──
         st.divider()
         st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
-                    'Rolling correlation — pick two series</span>', unsafe_allow_html=True)
+                    'Rolling correlation — pick two series, window, and time frame</span>',
+                    unsafe_allow_html=True)
         keys=list(cols.keys())
-        rc1,rc2,rc3=st.columns([2,2,1])
+        rc1,rc2=st.columns(2)
         a=rc1.selectbox("Series A", keys, index=0, key="corr_a")
         b=rc2.selectbox("Series B", keys, index=min(1,len(keys)-1), key="corr_b")
-        if freq=="Monthly":
-            win=rc3.select_slider("Window (months)",[3,6,12,24,36],value=12,key="corr_win")
-        else:
-            win=rc3.select_slider("Window (days)",[21,30,60,90,126,252],value=90,key="corr_win")
+        unit="months" if freq=="Monthly" else "days"
+        rc3,rc4,rc5=st.columns([1,1,1])
+        win=rc3.number_input(f"Rolling window ({unit})", min_value=2, max_value=2000,
+                             value=(12 if freq=="Monthly" else 90), step=1, key="corr_win")
+        rs=rc4.date_input("Series start", value=date.today()-relativedelta(years=10),
+                          min_value=date(1950,1,1), key="corr_rstart")
+        re_=rc5.date_input("Series end", value=date.today(), key="corr_rend")
         if a==b:
             st.caption("Pick two different series for a rolling correlation.")
         else:
-            pair=pd.concat([cols[a].rename("a"),cols[b].rename("b")],axis=1,join="inner").dropna()
-            roll=pair["a"].rolling(win).corr(pair["b"]).dropna()
+            # Rebuild both series over the rolling-specific time frame (independent of matrix)
+            sa=_corr_change_series(*items[a], freq); sb=_corr_change_series(*items[b], freq)
+            rlo=pd.Timestamp(rs); rhi=pd.Timestamp(re_)
+            if sa is not None: sa=sa[(sa.index>=rlo)&(sa.index<=rhi)]
+            if sb is not None: sb=sb[(sb.index>=rlo)&(sb.index<=rhi)]
+            pair=pd.concat([sa.rename("a"),sb.rename("b")],axis=1,join="inner").dropna() \
+                 if (sa is not None and sb is not None) else pd.DataFrame()
+            roll=pair["a"].rolling(int(win)).corr(pair["b"]).dropna() if not pair.empty else pd.Series(dtype=float)
             if roll.empty:
-                st.caption("Not enough overlapping data for that window.")
+                st.caption("Not enough overlapping data for that window / time frame.")
             else:
                 rfig=go.Figure()
                 rfig.add_trace(go.Scatter(x=roll.index,y=roll.values,mode="lines",
