@@ -1090,12 +1090,19 @@ def panel_corr():
         import numpy as np
         zpct=corr.values*100                 # show as %
         fsize=11 if n<=14 else (9 if n<=22 else 7)
+        # Mask the diagonal (self-correlation = 100%): no color, no number → black
+        z=zpct.astype(float).copy()
+        np.fill_diagonal(z, np.nan)
+        txt=np.empty((n,n), dtype=object)
+        for i in range(n):
+            for j in range(n):
+                txt[i,j]="" if i==j else f"{int(round(zpct[i,j]))}%"
         fig=go.Figure(go.Heatmap(
-            z=zpct, x=labels, y=labels, zmin=-100, zmax=100,
+            z=z, x=labels, y=labels, zmin=-100, zmax=100,
             # Excel-style 3-colour scale: green (low) → yellow → red (high)
             colorscale=[[0.0,"#63be7b"],[0.5,"#ffeb84"],[1.0,"#f8696b"]],
-            showscale=False, xgap=1, ygap=1,
-            text=np.round(zpct).astype(int), texttemplate="%{text}%",
+            showscale=False, xgap=1, ygap=1, hoverongaps=False,
+            text=txt, texttemplate="%{text}",
             textfont=dict(size=fsize, color="#1a1a1a")))
         fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=BG,
             height=max(420, 30*n+150), margin=dict(l=10,r=10,t=34,b=10),
