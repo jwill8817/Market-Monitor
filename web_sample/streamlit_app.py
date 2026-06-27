@@ -33,7 +33,7 @@ try:
     import market_data as _mdv
     _dv = sum(len(getattr(_mdv, _n, {})) for _n in
               ("INDICES","RATES","VOLATILITY","FX","FIXED_INCOME","MUNIS","FACTORS",
-               "COMMODITIES","SECTORS","HEDGE_FUNDS","FUNDING"))
+               "COMMODITIES","SECTORS","HEDGE_FUNDS","FUNDING","RISK_PREMIA","AQR_FUNDS"))
     _h=_ver_holder()
     if _h["v"] != _dv:
         st.cache_data.clear(); _h["v"]=_dv
@@ -223,7 +223,9 @@ def md_returns(key, custom_start=None, custom_end=None, absolute=False):
     dmap={"indices":md.INDICES,"volatility":md.VOLATILITY,"fx":md.FX,
           "fixed_income":md.FIXED_INCOME,"munis":md.MUNIS,"factors":md.FACTORS,
           "commodities":md.COMMODITIES,"sectors":md.SECTORS,
-          "hedge_funds":getattr(md,"HEDGE_FUNDS",{})}
+          "hedge_funds":getattr(md,"HEDGE_FUNDS",{}),
+          "risk_premia":getattr(md,"RISK_PREMIA",{}),
+          "aqr":getattr(md,"AQR_FUNDS",{})}
     cs=pd.Timestamp(custom_start).date() if custom_start else None
     ce=pd.Timestamp(custom_end).date() if custom_end else None
     try:
@@ -246,7 +248,8 @@ def all_tickers():
     d={}
     for dd in (md.INDICES,md.RATES,md.VOLATILITY,md.FX,md.FIXED_INCOME,md.MUNIS,
                md.FACTORS,md.FUNDING,md.COMMODITIES,md.SECTORS,
-               getattr(md,"HEDGE_FUNDS",{})): d.update(dd)
+               getattr(md,"HEDGE_FUNDS",{}),getattr(md,"RISK_PREMIA",{}),
+               getattr(md,"AQR_FUNDS",{})): d.update(dd)
     return d
 
 def search_instruments(term):
@@ -1124,7 +1127,9 @@ def seg_catalog():
     return {"Equity Indices":dict(md.INDICES),"Volatility & Correlation":dict(md.VOLATILITY),
             "FX":dict(md.FX),"Fixed Income":dict(md.FIXED_INCOME),"Municipals":dict(md.MUNIS),
             "Factor ETFs":dict(md.FACTORS),"Commodities":dict(md.COMMODITIES),"US Sectors":dict(md.SECTORS),
-            "Hedge Funds":dict(getattr(md,"HEDGE_FUNDS",{}))}
+            "Hedge Funds":dict(getattr(md,"HEDGE_FUNDS",{})),
+            "Risk Premia":dict(getattr(md,"RISK_PREMIA",{})),
+            "AQR Strategies":dict(getattr(md,"AQR_FUNDS",{}))}
 
 def _corr_change_series(kind, payload, freq):
     """Return a period-change series (returns for prices/factors, diff for levels)."""
@@ -1395,7 +1400,8 @@ def panel_exporter():
 # ── Slot dispatcher ─────────────────────────────────────────────
 RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility","FX":"fx",
              "Fixed Income":"fixed_income","Municipals":"munis","Factor ETFs":"factors",
-             "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds"}
+             "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds",
+             "Risk Premia":"risk_premia","AQR Strategies":"aqr"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
 TABLE_TABS=list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]

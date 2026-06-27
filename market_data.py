@@ -247,6 +247,37 @@ HEDGE_FUNDS = {
     "Long Online / Short Stores (CLIX)":   "CLIX",  # long/short thematic
 }
 
+# Alternative / multi-asset risk premia — liquid ETFs & funds.
+RISK_PREMIA = {
+    "Risk Parity (RPAR)":        "RPAR",
+    "Ultra Risk Parity (UPAR)":  "UPAR",
+    "Alt Risk Premia (QSPIX)":   "QSPIX",   # AQR Style Premia — canonical ARP
+    "Trend / Mgd Futures (DBMF)":"DBMF",
+    "Vol Carry (SVOL)":          "SVOL",
+    "Rate Convexity/Tail (PFIX)":"PFIX",
+    "Global Momentum (GMOM)":    "GMOM",
+    "Real Return (RLY)":         "RLY",
+    "Low-Risk / Anti-Beta (BTAL)":"BTAL",
+    # Equity style premia
+    "Momentum (MTUM)":           "MTUM",
+    "Value (VLUE)":              "VLUE",
+    "Quality (QUAL)":            "QUAL",
+    "Min Volatility (USMV)":     "USMV",
+    "Size (SIZE)":               "SIZE",
+}
+
+# AQR's most common strategies available in liquid (mutual-fund) format.
+AQR_FUNDS = {
+    "Style Premia Alt (QSPIX)":      "QSPIX",
+    "Equity Mkt-Neutral (QMNIX)":    "QMNIX",
+    "Long-Short Equity (QLEIX)":     "QLEIX",
+    "Managed Futures (AQMIX)":       "AQMIX",
+    "Multi-Strategy Alt (QMHIX)":    "QMHIX",
+    "Diversified Arbitrage (ADAIX)": "ADAIX",
+    "Intl Defensive Equity (QICNX)": "QICNX",
+    "Risk Parity (QRPRX)":           "QRPRX",
+}
+
 
 def _start_dates():
     today = datetime.date.today()
