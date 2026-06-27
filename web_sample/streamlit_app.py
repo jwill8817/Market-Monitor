@@ -111,17 +111,62 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Auth ────────────────────────────────────────────────────────
+def _bg_data_uri():
+    """Build a 'cool finance' SVG background (skyline + grid + rising charts)."""
+    import urllib.parse
+    W,H=1440,760; n=12
+    p=[f"<svg xmlns='http://www.w3.org/2000/svg' width='{W}' height='{H}' viewBox='0 0 {W} {H}'>"]
+    p.append("<rect width='100%' height='100%' fill='#0a0e15'/>")
+    g="<g stroke='#13202d' stroke-width='1'>"
+    for x in range(0,W+1,60): g+=f"<line x1='{x}' y1='0' x2='{x}' y2='{H}'/>"
+    for y in range(0,H+1,48): g+=f"<line x1='0' y1='{y}' x2='{W}' y2='{y}'/>"
+    p.append(g+"</g>")
+    # skyline
+    heights=[150,250,190,300,210,340,170,260,320,200,280,230,360,180,250,310,160,270,330,210,300,190]
+    bw=W//len(heights); b="<g fill='#0f1923'>"
+    for i,h in enumerate(heights):
+        bx=i*bw; b+=f"<rect x='{bx}' y='{H-h}' width='{bw-7}' height='{h}'/>"
+        for wy in range(H-h+14, H-12, 26):
+            for wx in range(bx+8, bx+bw-14, 18):
+                if (wx*7+wy)%5==0:
+                    b+=f"<rect x='{wx}' y='{wy}' width='6' height='9' fill='#1f6feb' opacity='0.45'/>"
+    p.append(b+"</g>")
+    ys =[0.66,0.74,0.6,0.7,0.54,0.64,0.48,0.58,0.42,0.52,0.36,0.30]
+    ys2=[0.74,0.7,0.76,0.64,0.68,0.58,0.63,0.52,0.57,0.47,0.52,0.44]
+    poly =" ".join(f"{int(i*W/(n-1))},{int(v*H)}" for i,v in enumerate(ys))
+    poly2=" ".join(f"{int(i*W/(n-1))},{int(v*H)}" for i,v in enumerate(ys2))
+    p.append(f"<polyline points='0,{H} {poly} {W},{H}' fill='#3fb950' opacity='0.07'/>")
+    p.append(f"<polyline points='{poly}' fill='none' stroke='#3fb950' stroke-width='3' opacity='0.85'/>")
+    p.append(f"<polyline points='{poly2}' fill='none' stroke='#58a6ff' stroke-width='2' opacity='0.6'/>")
+    p.append("</svg>")
+    return "data:image/svg+xml,"+urllib.parse.quote("".join(p))
+
 def _auth():
     try:    pw = st.secrets.get("app_password", "jaws2026")
     except Exception: pw = "jaws2026"
     if st.session_state.get("auth_ok"): return True
-    st.markdown('<div class="topbar"><span class="jaws-logo">JAWS</span>'
-                '<span class="jaws-title">JW Market &amp; News Monitor</span></div>',
-                unsafe_allow_html=True)
-    e = st.text_input("Enter access password", type="password")
-    if e:
-        if e == pw: st.session_state["auth_ok"]=True; st.rerun()
-        else: st.error("Incorrect password")
+    uri=_bg_data_uri()
+    st.markdown(f"""<style>
+      .stApp {{ background:
+          linear-gradient(rgba(7,10,16,0.62), rgba(7,10,16,0.88)),
+          url("{uri}") center/cover no-repeat fixed !important; }}
+      [data-testid="stTextInput"] {{ max-width:520px; margin:0 auto; }}
+    </style>""", unsafe_allow_html=True)
+    st.markdown("<div style='height:11vh'></div>", unsafe_allow_html=True)
+    c=st.columns([1,2,1])
+    with c[1]:
+        st.markdown(
+            "<div style='text-align:center;'>"
+            f"<span class='jaws-logo' style='font-size:46px; padding:12px 34px;'>JAWS</span>"
+            f"<div style='color:{TEXT1}; font-size:26px; font-weight:600; margin-top:18px;'>"
+            "JW Market &amp; News Monitor</div>"
+            f"<div style='color:{TEXT2}; font-family:Consolas; font-size:13px; margin-top:4px;'>"
+            "market &amp; macro intelligence</div></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
+        e = st.text_input("Enter access password", type="password")
+        if e:
+            if e == pw: st.session_state["auth_ok"]=True; st.rerun()
+            else: st.error("Incorrect password")
     return False
 if not _auth(): st.stop()
 
