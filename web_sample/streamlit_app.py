@@ -678,15 +678,32 @@ def panel_valuation(k):
 # ════════════════════════════════════════════════════════════════
 # REGRESSION TOOL
 # ════════════════════════════════════════════════════════════════
-def _reg_build_series(src, sym, fred_id, upfile, tf, freq):
+@st.cache_data(ttl=3600, show_spinner=False)
+def reg_factors():
+    """Flat {label: (dates, decimal_returns, is_daily)} for all L/S factors."""
+    fd=factor_data()
+    out={}
+    for sect in ("daily","monthly"):
+        for r in fd.get(sect,[]):
+            if r.get("error"): continue
+            out[f"{r['name']} ({'D' if r['is_daily'] else 'M'})"]=(
+                r["raw_dates"], r["raw_rets"], r["is_daily"])
+    return out
+
+def _reg_build_series(src, sym, fred_id, upfile, fac, tf, freq):
     """Return a pd.Series (datetime index) for one regression variable."""
-    s=None
+    s=None; is_factor=False
     if src=="Market ticker" and sym.strip():
         s=md_history(sym.strip())
     elif src=="FRED series" and fred_id.strip():
         import fi_spreads as fs
         d,v=fs._fred_fetch_all(fred_id.strip())
         if d: s=pd.Series(v, index=pd.to_datetime(d))
+    elif src=="L/S Factor" and fac:
+        facs=reg_factors()
+        if fac in facs:
+            d,r,_=facs[fac]
+            s=pd.Series(r, index=pd.to_datetime(d)); is_factor=True   # decimal periodic returns
     elif src=="Upload CSV" and upfile is not None:
         try:
             df=pd.read_csv(upfile)
@@ -695,6 +712,13 @@ def _reg_build_series(src, sym, fred_id, upfile, tf, freq):
         except Exception: s=None
     if s is None or len(s)==0: return None
     s=s.sort_index()
+    if is_factor:
+        # Factor values are periodic RETURNS already. Compound to the chosen
+        # frequency, express in %. (Transform is ignored except 'Level' = cum.)
+        if freq=="Monthly": s=(1+s).resample("ME").prod()-1
+        if tf=="Level":     s=((1+s).cumprod()-1)*100   # cumulative growth %
+        else:               s=s*100                     # periodic return %
+        return s.dropna()
     if freq=="Monthly": s=s.resample("ME").last()
     s=s.dropna()
     if tf=="Return %":   s=s.pct_change()*100
@@ -704,9 +728,9 @@ def _reg_build_series(src, sym, fred_id, upfile, tf, freq):
 
 def _reg_var_ui(side, k):
     st.markdown(f"**{side} variable**")
-    src=st.radio("Source",["Market ticker","FRED series","Upload CSV"],
+    src=st.radio("Source",["Market ticker","FRED series","L/S Factor","Upload CSV"],
                  horizontal=True,key=f"{k}_{side}_src",label_visibility="collapsed")
-    sym=fred=""; up=None
+    sym=fred=fac=""; up=None
     if src=="Market ticker":
         sym=st.text_input("Ticker (e.g. ^GSPC, SPY, CL=F)", "SPY" if side=="X" else "AAPL",
                           key=f"{k}_{side}_sym")
@@ -729,15 +753,25 @@ def _reg_var_ui(side, k):
             else:
                 st.markdown(f'<span style="color:{YELLOW};font-size:12px;">⚠ {fred.strip().upper()} '
                             f'— could not verify (will still try)</span>', unsafe_allow_html=True)
+    elif src=="L/S Factor":
+        facs=list(reg_factors().keys())
+        fac=st.selectbox("Factor", facs, key=f"{k}_{side}_fac") if facs else ""
+        if fac:
+            st.markdown(f'<span style="color:{GREEN};font-size:12px;">✅ {fac} · academic L/S return</span>',
+                        unsafe_allow_html=True)
     else:
         up=st.file_uploader("CSV: first col = Date, second = Value", type=["csv"],
                             key=f"{k}_{side}_up")
         if up is not None:
             st.markdown(f'<span style="color:{GREEN};font-size:12px;">✅ {up.name} uploaded</span>',
                         unsafe_allow_html=True)
-    tf=st.selectbox("Transform",["Level","Return %","YoY %","Change"],
-                    index=1, key=f"{k}_{side}_tf")   # default Return % for both sides
-    return src,sym,fred,up,tf
+    # Factors are already returns → fix transform to Return %; others default Return %.
+    if src=="L/S Factor":
+        tf="Return %"; st.caption("Factor is already a return series.")
+    else:
+        tf=st.selectbox("Transform",["Level","Return %","YoY %","Change"],
+                        index=1, key=f"{k}_{side}_tf")
+    return src,sym,fred,fac,up,tf
 
 def panel_regression():
     st.markdown(f'<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
@@ -748,8 +782,8 @@ def panel_regression():
                     unsafe_allow_html=True)
         freq=st.radio("Frequency",["Monthly","Daily"],horizontal=True,key="reg_freq")
         cX,cY=st.columns(2)
-        with cX: xsrc,xsym,xfred,xup,xtf=_reg_var_ui("X","reg")
-        with cY: ysrc,ysym,yfred,yup,ytf=_reg_var_ui("Y","reg")
+        with cX: xsrc,xsym,xfred,xfac,xup,xtf=_reg_var_ui("X","reg")
+        with cY: ysrc,ysym,yfred,yfac,yup,ytf=_reg_var_ui("Y","reg")
         d1,d2,d3=st.columns([1,1,1])
         start=d1.date_input("Start", value=date.today()-relativedelta(years=10),
                             min_value=date(1950,1,1), key="reg_start")
@@ -759,16 +793,16 @@ def panel_regression():
             st.caption("Pick X and Y, then Run. Beta = slope of Y on X. "
                        "Upload your own monthly series (Date, Value) to test against any tool data.")
             return
-        sx=_reg_build_series(xsrc,xsym,xfred,xup,xtf,freq)
-        sy=_reg_build_series(ysrc,ysym,yfred,yup,ytf,freq)
+        sx=_reg_build_series(xsrc,xsym,xfred,xup,xfac,xtf,freq)
+        sy=_reg_build_series(ysrc,ysym,yfred,yup,yfac,ytf,freq)
         # ── Verify each series resolved correctly ──
-        def _ver(s, label, src, sym, fred):
-            who = sym or fred or "uploaded CSV"
+        def _ver(s, label, src, sym, fred, fac=""):
+            who = sym or fred or fac or "uploaded CSV"
             if s is None or len(s)==0:
                 return False, f"❌ **{label}** — `{who}` returned NO data (check the ticker/id)"
             return True, (f"✅ **{label}** — `{who}` · {len(s)} pts · "
                           f"{s.index[0].date()} → {s.index[-1].date()} · last {s.iloc[-1]:.2f}")
-        okx,mx=_ver(sx,"X",xsrc,xsym,xfred); oky,my=_ver(sy,"Y",ysrc,ysym,yfred)
+        okx,mx=_ver(sx,"X",xsrc,xsym,xfred,xfac); oky,my=_ver(sy,"Y",ysrc,ysym,yfred,yfac)
         st.markdown(mx); st.markdown(my)
         if xtf!=ytf:
             st.warning(f"⚠ X uses **{xtf}** but Y uses **{ytf}**. For a beta vs an index, set "
@@ -783,7 +817,7 @@ def panel_regression():
         lr=stats.linregress(df["x"].values, df["y"].values)
         tstat = lr.slope/lr.stderr if lr.stderr else float("nan")
         r2=lr.rvalue**2
-        xlbl=f"{xsym or xfred or 'X'} ({xtf})"; ylbl=f"{ysym or yfred or 'Y'} ({ytf})"
+        xlbl=f"{xsym or xfred or xfac or 'X'} ({xtf})"; ylbl=f"{ysym or yfred or yfac or 'Y'} ({ytf})"
         m=st.columns(6)
         m[0].metric("R²", f"{r2:.3f}")
         m[1].metric("Beta (slope)", f"{lr.slope:.4f}")
