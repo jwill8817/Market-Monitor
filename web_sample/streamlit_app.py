@@ -61,8 +61,28 @@ st.markdown(f"""
   .tbl-wrap {{ max-height:330px; overflow:auto; border:1px solid {BORDER}; border-radius:6px; }}
   div[data-testid="stVerticalBlockBorderWrapper"] {{ background:{CARD};
        border:1px solid {BORDER} !important; border-radius:8px; }}
-  div[data-baseweb="select"] > div {{ background:{CARD2}; border-color:{BORDER}; }}
-  .stRadio label, .stCheckbox label {{ color:{TEXT2}; }}
+  .stRadio label, .stCheckbox label {{ color:{TEXT1}; }}
+
+  /* ── High-contrast form controls (inputs, selects, dates, searchbox) ── */
+  input, textarea {{ color:{TEXT1} !important; }}
+  input::placeholder, textarea::placeholder {{ color:{TEXT2} !important; opacity:1; }}
+  /* field backgrounds: dark with visible border */
+  [data-baseweb="input"], [data-baseweb="base-input"],
+  [data-baseweb="select"] > div, [data-baseweb="input"] > div {{
+       background:#0b0e13 !important; border:1px solid {BORDER} !important; }}
+  /* selected text shown inside selects / searchbox */
+  [data-baseweb="select"] div, [data-baseweb="select"] span,
+  [data-baseweb="select"] input {{ color:{TEXT1} !important; }}
+  /* dropdown / autocomplete option lists */
+  [data-baseweb="popover"] li, [data-baseweb="menu"] li,
+  [role="option"] {{ color:{TEXT1} !important; background:{CARD2} !important; }}
+  [data-baseweb="popover"] li:hover, [role="option"]:hover {{ background:{ACCENT} !important;
+       color:#0d1117 !important; }}
+  /* field labels */
+  label, .stSelectbox label, .stTextInput label, .stDateInput label {{ color:{TEXT1} !important; }}
+  /* metrics (regression output) */
+  [data-testid="stMetricLabel"] p {{ color:{TEXT2} !important; }}
+  [data-testid="stMetricValue"] {{ color:{TEXT1} !important; }}
 </style>
 """, unsafe_allow_html=True)
 
