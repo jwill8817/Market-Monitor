@@ -179,6 +179,38 @@ def base_layout(fig, title, ysuffix="", h=330):
     fig.update_xaxes(gridcolor=BORDER); fig.update_yaxes(gridcolor=BORDER,ticksuffix=ysuffix)
     return fig
 
+# ── Valuation data ──────────────────────────────────────────────
+VAL_INDEX_ETFS={"S&P 500 (SPY)":"SPY","Nasdaq 100 (QQQ)":"QQQ","Russell 2000 (IWM)":"IWM",
+    "Dow (DIA)":"DIA","S&P MidCap (MDY)":"MDY","EAFE (EFA)":"EFA","EM (EEM)":"EEM",
+    "Tech (XLK)":"XLK","Financials (XLF)":"XLF","Energy (XLE)":"XLE","Health (XLV)":"XLV",
+    "Cons Disc (XLY)":"XLY","Cons Stpl (XLP)":"XLP"}
+MULTPL={"Trailing P/E":"https://www.multpl.com/s-p-500-pe-ratio/table/by-month",
+    "Shiller CAPE":"https://www.multpl.com/shiller-pe/table/by-month",
+    "Price / Book":"https://www.multpl.com/s-p-500-price-to-book/table/by-quarter",
+    "Price / Sales":"https://www.multpl.com/s-p-500-price-to-sales/table/by-quarter"}
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def yf_multiples(sym):
+    import yfinance as yf
+    try: i=yf.Ticker(sym).info
+    except Exception: i={}
+    return {"FwdPE":i.get("forwardPE"),"PE":i.get("trailingPE"),"PB":i.get("priceToBook"),
+            "PS":i.get("priceToSalesTrailing12Months"),"EVEBITDA":i.get("enterpriseToEbitda"),
+            "PEG":i.get("pegRatio"),"DivYld":i.get("dividendYield")}
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def multpl_series(url):
+    import urllib.request, re
+    req=urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+    html=urllib.request.urlopen(req,timeout=20).read().decode("utf-8","replace")
+    rows=re.findall(r'<td>\s*([A-Z][a-z]{2} \d{1,2}, \d{4})\s*</td>\s*<td>.*?([\d]+\.[\d]+|[\d]+)\s*</td>',
+                    html, re.DOTALL)
+    out=[]
+    for d,v in rows:
+        try: out.append((datetime.strptime(d,"%b %d, %Y").date(), float(v)))
+        except Exception: pass
+    out.sort(); return out
+
 # ════════════════════════════════════════════════════════════════
 # PANEL RENDERERS  (each takes a unique key prefix `k`)
 # ════════════════════════════════════════════════════════════════
@@ -531,12 +563,78 @@ def panel_news(k):
     st.markdown("</div>", unsafe_allow_html=True)
     if shown==0: st.info("No stories (check NEWS_API_KEY in app secrets).")
 
+def panel_valuation(k):
+    # ── Current multiples cross-section ──
+    ek=k+"_stk"
+    if ek not in st.session_state: st.session_state[ek]={}
+    c1,c2=st.columns([3,1])
+    q=c1.text_input("Add stock", key=k+"_q", label_visibility="collapsed",
+                    placeholder="Add a stock by ticker or name (e.g. AAPL, Nvidia)…")
+    if c2.button("Add", key=k+"_add") and q.strip():
+        raw=q.strip()
+        if len(raw)<=6 and raw.replace(".","").isalnum(): st.session_state[ek][raw.upper()]=raw.upper()
+        else:
+            res=yf_search(raw)
+            if res: sym,nm=res[0]; st.session_state[ek][f"{nm[:18]} ({sym})"]=sym
+    universe={**VAL_INDEX_ETFS, **st.session_state[ek]}
+    hdr=["Name","Fwd P/E","Trail P/E","P/B","P/S","EV/EBITDA","PEG","Div%"]
+    def fnum(v): return f'<span style="color:{TEXT3}">—</span>' if not isinstance(v,(int,float)) else f"{v:.1f}"
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    exp=[]
+    with st.spinner("Loading multiples…"):
+        for name,sym in universe.items():
+            m=yf_multiples(sym)
+            h+=("<tr>"f"<td>{name}</td><td>{fnum(m['FwdPE'])}</td><td>{fnum(m['PE'])}</td>"
+                f"<td>{fnum(m['PB'])}</td><td>{fnum(m['PS'])}</td><td>{fnum(m['EVEBITDA'])}</td>"
+                f"<td>{fnum(m['PEG'])}</td><td>{fnum(m['DivYld'])}</td></tr>")
+            exp.append({"Name":name,"Ticker":sym,"FwdPE":m['FwdPE'],"TrailPE":m['PE'],"PB":m['PB'],
+                        "PS":m['PS'],"EV/EBITDA":m['EVEBITDA'],"PEG":m['PEG'],"DivYld":m['DivYld']})
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("Forward multiples available for single stocks; index ETFs show trailing P/E, P/B, yield.")
+    dl(pd.DataFrame(exp), "Export multiples", "JAWS_valuation.xlsx", k+"_dl")
+
+    # ── S&P 500 valuation vs history ──
+    st.divider()
+    st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'S&amp;P 500 valuation vs history</span>', unsafe_allow_html=True)
+    cc1,cc2=st.columns([3,1])
+    metric=cc1.radio("Metric", list(MULTPL), horizontal=True, key=k+"_m", label_visibility="collapsed")
+    win=cc2.selectbox("Window", ["All","30Y","20Y","10Y"], key=k+"_w")
+    try:
+        series=multpl_series(MULTPL[metric])
+    except Exception as e:
+        st.info(f"History source unavailable: {e}"); return
+    if not series: st.info("No history available."); return
+    if win!="All":
+        yrs=int(win[:-1]); cutoff=date.today()-relativedelta(years=yrs)
+        series=[(d,v) for d,v in series if d>=cutoff]
+    ds=[d for d,_ in series]; vs=[v for _,v in series]
+    cur=vs[-1]; n=len(vs)
+    import statistics
+    mean=statistics.mean(vs); std=statistics.pstdev(vs) if n>1 else 0
+    pct=round(sum(1 for v in vs if v<=cur)/n*100)
+    z=round((cur-mean)/std,2) if std else None
+    pc = RED if pct>=80 else (GREEN if pct<=20 else YELLOW)
+    m1,m2,m3=st.columns(3)
+    m1.metric("Current", f"{cur:.1f}")
+    m2.markdown(f'<div style="font-family:Consolas"><span style="color:{TEXT2};font-size:12px">Percentile vs history</span><br>'
+                f'<span style="color:{pc};font-size:22px;font-weight:700">{pct}th</span></div>', unsafe_allow_html=True)
+    m3.markdown(f'<div style="font-family:Consolas"><span style="color:{TEXT2};font-size:12px">Z-score</span><br>'
+                f'<span style="color:{pc};font-size:22px;font-weight:700">{(f"{z:+.2f}σ" if z is not None else "—")}</span></div>', unsafe_allow_html=True)
+    fig=go.Figure()
+    fig.add_trace(go.Scatter(x=ds,y=vs,mode="lines",line=dict(color=ACCENT,width=1.4)))
+    fig.add_hline(y=mean,line=dict(color=TEXT3,dash="dash"),annotation_text=f"avg {mean:.1f}")
+    st.plotly_chart(base_layout(fig,f"S&P 500 {metric} — {ds[0].year}–{ds[-1].year} "
+                    f"({'expensive' if pct>=80 else 'cheap' if pct<=20 else 'mid'} vs history)",h=300),
+                    use_container_width=True, key=k+"_chart")
+    dl(pd.DataFrame({"Date":ds,metric:vs}), "Export history", f"JAWS_SP500_{metric.replace('/','_')}.xlsx", k+"_dl2")
+
 # ── Slot dispatcher ─────────────────────────────────────────────
 RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility","FX":"fx",
              "Fixed Income":"fixed_income","Municipals":"munis","Factor ETFs":"factors",
              "Commodities":"commodities","US Sectors":"sectors"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
-TABLE_TABS=list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors"]
+TABLE_TABS=list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]
 
 def _dispatch(sel, k):
@@ -545,6 +643,7 @@ def _dispatch(sel, k):
     elif sel=="Rates":        panel_analytics(rates_analytics,"Rates","JAWS_Rates.xlsx",k)
     elif sel=="Funding":      panel_analytics(funding_analytics,"Funding","JAWS_Funding.xlsx",k)
     elif sel=="L/S Factors":  panel_factors(k)
+    elif sel=="Valuation":    panel_valuation(k)
     elif sel=="Yield Curve":  panel_yield(k)
     elif sel=="Chart":        panel_chart(k)
     elif sel=="Realized Vol": panel_rvol(k)
