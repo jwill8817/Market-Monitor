@@ -18,6 +18,11 @@ for _k in ("FRED_API_KEY", "NEWS_API_KEY"):
 
 import pandas as pd
 import plotly.graph_objects as go
+try:
+    from streamlit_searchbox import st_searchbox
+    _HAS_SEARCHBOX=True
+except Exception:
+    _HAS_SEARCHBOX=False
 
 # ── Theme ───────────────────────────────────────────────────────
 BG="#0d1117"; SIDEBAR="#161b22"; CARD="#1c2128"; CARD2="#21262d"; BORDER="#30363d"
@@ -120,6 +125,19 @@ def all_tickers():
     for dd in (md.INDICES,md.RATES,md.VOLATILITY,md.FX,md.FIXED_INCOME,md.MUNIS,
                md.FACTORS,md.FUNDING,md.COMMODITIES,md.SECTORS): d.update(dd)
     return d
+
+def search_instruments(term):
+    """Type-ahead search: local tool instruments first, then live Yahoo results.
+    Returns [(label, symbol), ...] for streamlit-searchbox."""
+    if not term or not term.strip(): return []
+    t=term.strip().lower(); seen=set(); out=[]
+    for name,sym in all_tickers().items():
+        if t in name.lower() or t in sym.lower():
+            if sym not in seen: out.append((f"{name}  [{sym}]", sym)); seen.add(sym)
+    if len(t)>=2:                      # remote search once 2+ chars typed
+        for sym,name in yf_search(term.strip()):
+            if sym and sym not in seen: out.append((f"{name} ({sym})", sym)); seen.add(sym)
+    return out[:12]
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def resolve_ticker(sym):
@@ -365,17 +383,21 @@ def ticker_picker(k, default_labels):
     tmap=all_tickers()
     ek=k+"_extra"
     if ek not in st.session_state: st.session_state[ek]={}
-    sc1,sc2=st.columns([3,1])
-    q=sc1.text_input("Search/add ticker or name", key=k+"_q", label_visibility="collapsed",
-                     placeholder="Search any ticker or name, then Add →")
-    if sc2.button("Add", key=k+"_add") and q.strip():
-        raw=q.strip()
-        if len(raw)<=6 and raw.replace("^","").replace("=","").replace(".","").isalnum():
-            st.session_state[ek][raw.upper()]=raw.upper()
-        else:
-            res=yf_search(raw)
-            if res:
-                sym,nm=res[0]; st.session_state[ek][f"{nm[:22]} ({sym})"]=sym
+    if _HAS_SEARCHBOX:
+        sel=st_searchbox(search_instruments, placeholder="Type to search & add any ticker…",
+                         key=k+"_sb")
+        if sel: st.session_state[ek][sel]=sel
+    else:
+        sc1,sc2=st.columns([3,1])
+        q=sc1.text_input("Search/add", key=k+"_q", label_visibility="collapsed",
+                         placeholder="Search any ticker or name, then Add →")
+        if sc2.button("Add", key=k+"_add") and q.strip():
+            raw=q.strip()
+            if len(raw)<=6 and raw.replace("^","").replace("=","").replace(".","").isalnum():
+                st.session_state[ek][raw.upper()]=raw.upper()
+            else:
+                res=yf_search(raw)
+                if res: sym,nm=res[0]; st.session_state[ek][f"{nm[:22]} ({sym})"]=sym
     opts=list(tmap.keys())+list(st.session_state[ek].keys())
     full={**tmap, **st.session_state[ek]}
     defs=[d for d in default_labels if d in opts] or opts[:1]
@@ -608,15 +630,19 @@ def panel_valuation(k):
     # ── Current multiples cross-section ──
     ek=k+"_stk"
     if ek not in st.session_state: st.session_state[ek]={}
-    c1,c2=st.columns([3,1])
-    q=c1.text_input("Add stock", key=k+"_q", label_visibility="collapsed",
-                    placeholder="Add a stock by ticker or name (e.g. AAPL, Nvidia)…")
-    if c2.button("Add", key=k+"_add") and q.strip():
-        raw=q.strip()
-        if len(raw)<=6 and raw.replace(".","").isalnum(): st.session_state[ek][raw.upper()]=raw.upper()
-        else:
-            res=yf_search(raw)
-            if res: sym,nm=res[0]; st.session_state[ek][f"{nm[:18]} ({sym})"]=sym
+    if _HAS_SEARCHBOX:
+        sel=st_searchbox(search_instruments, placeholder="Type to search & add a stock…", key=k+"_sb")
+        if sel: st.session_state[ek][sel]=sel
+    else:
+        c1,c2=st.columns([3,1])
+        q=c1.text_input("Add stock", key=k+"_q", label_visibility="collapsed",
+                        placeholder="Add a stock by ticker or name…")
+        if c2.button("Add", key=k+"_add") and q.strip():
+            raw=q.strip()
+            if len(raw)<=6 and raw.replace(".","").isalnum(): st.session_state[ek][raw.upper()]=raw.upper()
+            else:
+                res=yf_search(raw)
+                if res: sym,nm=res[0]; st.session_state[ek][f"{nm[:18]} ({sym})"]=sym
     universe={**VAL_INDEX_ETFS, **st.session_state[ek]}
     hdr=["Name","Fwd P/E","Trail P/E","P/B","P/S","Fwd P/S","EV/EBITDA","PEG","EPS Gr%","Div%"]
     def fnum(v,suf=""): return f'<span style="color:{TEXT3}">—</span>' if not isinstance(v,(int,float)) else f"{v:.1f}{suf}"
@@ -732,8 +758,13 @@ def _reg_var_ui(side, k):
                  horizontal=True,key=f"{k}_{side}_src",label_visibility="collapsed")
     sym=fred=fac=""; up=None
     if src=="Market ticker":
-        sym=st.text_input("Ticker (e.g. ^GSPC, SPY, CL=F)", "SPY" if side=="X" else "AAPL",
-                          key=f"{k}_{side}_sym")
+        deflt="SPY" if side=="X" else "AAPL"
+        if _HAS_SEARCHBOX:
+            sel=st_searchbox(search_instruments, placeholder=f"Type to search (default {deflt})…",
+                             key=f"{k}_{side}_sb")
+            sym=sel or deflt
+        else:
+            sym=st.text_input("Ticker", deflt, key=f"{k}_{side}_sym")
         if sym.strip():
             nm,px=resolve_ticker(sym.strip())
             if nm or px:

@@ -12,3 +12,4 @@ feedparser
 openpyxl
 xlsxwriter
 scipy
+streamlit-searchbox
