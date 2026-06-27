@@ -25,6 +25,21 @@ for _m in ("market_data", "fi_spreads", "factors_data", "yield_curve"):
     except Exception:
         pass
 
+# Auto-clear the data cache when the instrument universe changes (e.g. new tabs/
+# tickers added) so stale empty/old cached results don't persist after a deploy.
+@st.cache_resource
+def _ver_holder(): return {"v": None}
+try:
+    import market_data as _mdv
+    _dv = sum(len(getattr(_mdv, _n, {})) for _n in
+              ("INDICES","RATES","VOLATILITY","FX","FIXED_INCOME","MUNIS","FACTORS",
+               "COMMODITIES","SECTORS","HEDGE_FUNDS","FUNDING"))
+    _h=_ver_holder()
+    if _h["v"] != _dv:
+        st.cache_data.clear(); _h["v"]=_dv
+except Exception:
+    pass
+
 import pandas as pd
 import plotly.graph_objects as go
 try:
