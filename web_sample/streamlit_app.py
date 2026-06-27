@@ -821,7 +821,7 @@ def _reg_var_ui(side, k):
                  horizontal=True,key=f"{k}_{side}_src",label_visibility="collapsed")
     sym=fred=fac=""; up=None
     if src=="Market ticker":
-        deflt="SPY" if side=="X" else "AAPL"
+        deflt="SPY" if side=="X" else "AGG"
         if _HAS_SEARCHBOX:
             sel=st_searchbox(search_instruments, placeholder=f"Type to search (default {deflt})…",
                              key=f"{k}_{side}_sb")
@@ -882,11 +882,9 @@ def panel_regression():
         start=d1.date_input("Start", value=date.today()-relativedelta(years=10),
                             min_value=date(1950,1,1), key="reg_start")
         end=d2.date_input("End", value=date.today(), key="reg_end")
-        run=d3.button("▶ Run regression", use_container_width=True, key="reg_run")
-        if not run:
-            st.caption("Pick X and Y, then Run. Beta = slope of Y on X. "
-                       "Upload your own monthly series (Date, Value) to test against any tool data.")
-            return
+        rwin=d3.number_input(f"Rolling window ({'months' if freq=='Monthly' else 'days'})",
+                             min_value=3, max_value=2000,
+                             value=(24 if freq=="Monthly" else 120), step=1, key="reg_rwin")
         sx=_reg_build_series(xsrc,xsym,xfred,xup,xfac,xtf,freq)
         sy=_reg_build_series(ysrc,ysym,yfred,yup,yfac,ytf,freq)
         # ── Verify each series resolved correctly ──
@@ -937,6 +935,38 @@ def panel_regression():
         st.plotly_chart(fig, use_container_width=True, key="reg_chart")
         out=df.copy(); out.insert(0,"Date",out.index)
         dl(out.rename(columns={"x":xlbl,"y":ylbl}), "Export aligned data", "JAWS_regression.xlsx", "reg_dl")
+
+        # ── Rolling beta & p-value over time ──
+        st.divider()
+        w=int(rwin)
+        if len(df) <= w:
+            st.caption(f"Need more than {w} points for a rolling window — widen the range "
+                       f"or shrink the window."); return
+        xv=df["x"].values; yv=df["y"].values; idx=df.index
+        betas=[]; pvals=[]; rix=[]
+        for i in range(w, len(df)+1):
+            lr_w=stats.linregress(xv[i-w:i], yv[i-w:i])
+            betas.append(lr_w.slope); pvals.append(lr_w.pvalue); rix.append(idx[i-1])
+        rb=pd.Series(betas,index=rix); rp=pd.Series(pvals,index=rix)
+        unit="mo" if freq=="Monthly" else "d"
+        bcol,pcol=st.columns(2)
+        with bcol:
+            bf=go.Figure()
+            bf.add_trace(go.Scatter(x=rb.index,y=rb.values,mode="lines",line=dict(color=ACCENT,width=1.6)))
+            bf.add_hline(y=float(rb.mean()),line=dict(color=BLUE,dash="dot"),
+                         annotation_text=f"avg {rb.mean():.2f}")
+            bf.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+            base_layout(bf,f"Rolling {w}{unit} Beta · {ylbl} on {xlbl}  (now {rb.iloc[-1]:.2f})",h=290)
+            st.plotly_chart(bf, use_container_width=True, key="reg_rbeta")
+        with pcol:
+            pf=go.Figure()
+            pf.add_trace(go.Scatter(x=rp.index,y=rp.values,mode="lines",line=dict(color=YELLOW,width=1.6)))
+            pf.add_hline(y=0.05,line=dict(color=GREEN,dash="dash"),annotation_text="0.05 sig")
+            base_layout(pf,f"Rolling {w}{unit} p-value  (now {rp.iloc[-1]:.3f})",h=290)
+            pf.update_yaxes(range=[0,min(1.0,max(0.2,float(rp.max())*1.1))])
+            st.plotly_chart(pf, use_container_width=True, key="reg_rp")
+        rolldf=pd.DataFrame({"Date":rb.index,"Beta":rb.values,"p_value":rp.values})
+        dl(rolldf, "Export rolling beta/p-value", "JAWS_rolling_regression.xlsx", "reg_roll_dl")
 
 # ════════════════════════════════════════════════════════════════
 # BULK DATA EXPORTER
