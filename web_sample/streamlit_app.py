@@ -1307,7 +1307,13 @@ def render_slot(k, tabs, default):
     # Horizontal radio acts as a tab strip but only renders the selected panel
     sel=st.radio("tabs", tabs, index=tabs.index(default), key=k+"_sel",
                  horizontal=True, label_visibility="collapsed")
-    _dispatch(sel, k)
+    try:
+        _dispatch(sel, k)
+    except Exception as e:
+        import traceback
+        st.error(f"⚠ {sel}: {type(e).__name__}: {e}")
+        with st.expander("details"):
+            st.code(traceback.format_exc())
 
 # Style the radio strips to read like tabs
 st.markdown(f"""
@@ -1349,6 +1355,12 @@ with r2[1]:
     with st.container(border=True): render_slot("q4", PANEL_TABS, "News")
 
 # ── Correlation · Regression · Bulk Export (full width, below grid) ──
-panel_corr()
-panel_regression()
-panel_exporter()
+import traceback as _tb
+for _name,_fn in [("Correlation",panel_corr),("Regression",panel_regression),
+                  ("Bulk Export",panel_exporter)]:
+    try:
+        _fn()
+    except Exception as _e:
+        st.error(f"⚠ {_name}: {type(_e).__name__}: {_e}")
+        with st.expander("details"):
+            st.code(_tb.format_exc())
