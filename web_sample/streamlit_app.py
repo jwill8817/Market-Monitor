@@ -83,6 +83,23 @@ st.markdown(f"""
   /* metrics (regression output) */
   [data-testid="stMetricLabel"] p {{ color:{TEXT2} !important; }}
   [data-testid="stMetricValue"] {{ color:{TEXT1} !important; }}
+
+  /* ── Buttons: red/black theme, high contrast ── */
+  .stButton > button, .stDownloadButton > button, [data-testid="stBaseButton-secondary"],
+  [data-testid="baseButton-secondary"], button[kind="secondary"] {{
+       background:#0d1117 !important; color:{ACCENT} !important;
+       border:1.5px solid {ACCENT} !important; font-weight:700 !important; }}
+  .stButton > button:hover, .stDownloadButton > button:hover,
+  button[kind="secondary"]:hover {{
+       background:{ACCENT} !important; color:#0d1117 !important; border-color:{ACCENT} !important; }}
+  .stButton > button:active, .stDownloadButton > button:active {{
+       background:{RED} !important; color:#0d1117 !important; border-color:{RED} !important; }}
+  /* file-uploader browse button */
+  [data-testid="stFileUploader"] button {{
+       background:#0d1117 !important; color:{ACCENT} !important; border:1.5px solid {ACCENT} !important; }}
+  /* dropdown / date fields: subtle accent border for definition */
+  [data-baseweb="select"] > div:focus-within, [data-baseweb="input"]:focus-within {{
+       border:1.5px solid {ACCENT} !important; }}
 </style>
 """, unsafe_allow_html=True)
 
