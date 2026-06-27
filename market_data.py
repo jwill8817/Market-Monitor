@@ -239,6 +239,12 @@ HEDGE_FUNDS = {
     "Global Momentum (GMOM)":    "GMOM",
     "Liquid Alts (LALT)":        "LALT",
     "Tactical (CPITX)":          "CPITX",
+    # ── Positioning / crowding ──
+    "GS Hedge VIP — Crowded Longs (GVIP)": "GVIP",  # tracks GS Hedge Fund VIP basket
+    "Most-Shorted / Meme (MEME)":          "MEME",  # high short-interest + retail-crowded names
+    "Short Innovation (SARK)":             "SARK",  # inverse ARKK (short crowded growth)
+    "Active Short / Bear (HDGE)":          "HDGE",  # actively shorts deteriorating crowded names
+    "Long Online / Short Stores (CLIX)":   "CLIX",  # long/short thematic
 }
 
 
