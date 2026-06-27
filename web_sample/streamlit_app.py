@@ -971,10 +971,17 @@ def panel_regression():
             st.plotly_chart(bf, use_container_width=True, key="reg_rbeta")
         with pcol:
             pf=go.Figure()
-            pf.add_trace(go.Scatter(x=rp.index,y=rp.values,mode="lines",line=dict(color=YELLOW,width=1.6)))
+            # floor tiny/zero p-values so the log axis stays finite
+            rp_plot=rp.clip(lower=1e-5)
+            pf.add_trace(go.Scatter(x=rp_plot.index,y=rp_plot.values,mode="lines",
+                line=dict(color=YELLOW,width=1.6)))
             pf.add_hline(y=0.05,line=dict(color=GREEN,dash="dash"),annotation_text="0.05 sig")
-            base_layout(pf,f"Rolling {w}{unit} p-value  (now {rp.iloc[-1]:.3f})",h=290)
-            pf.update_yaxes(range=[0,min(1.0,max(0.2,float(rp.max())*1.1))])
+            pf.add_hline(y=0.01,line=dict(color=GREEN,dash="dot"),annotation_text="0.01")
+            base_layout(pf,f"Rolling {w}{unit} p-value (log scale)  (now {rp.iloc[-1]:.4f})",h=320)
+            lo=max(1e-5, min(float(rp_plot.min())*0.6, 0.005))
+            pf.update_yaxes(type="log", range=[np.log10(lo), np.log10(1.05)],
+                tickvals=[0.001,0.005,0.01,0.05,0.1,0.5,1],
+                ticktext=["0.001","0.005","0.01","0.05","0.1","0.5","1"])
             st.plotly_chart(pf, use_container_width=True, key="reg_rp")
         rolldf=pd.DataFrame({"Date":rb.index,"Beta":rb.values,"p_value":rp.values})
         dl(rolldf, "Export rolling beta/p-value", "JAWS_rolling_regression.xlsx", "reg_roll_dl")
