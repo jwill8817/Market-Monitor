@@ -201,12 +201,19 @@ def md_returns(key, custom_start=None, custom_end=None, absolute=False):
           "commodities":md.COMMODITIES,"sectors":md.SECTORS}
     cs=pd.Timestamp(custom_start).date() if custom_start else None
     ce=pd.Timestamp(custom_end).date() if custom_end else None
-    return md.fetch_returns(dmap[key], custom_start=cs, custom_end=ce, absolute=absolute), dmap[key]
+    try:
+        data=md.fetch_returns(dmap[key], custom_start=cs, custom_end=ce, absolute=absolute)
+    except TypeError:   # resilience if an older market_data is still in memory
+        data=md.fetch_returns(dmap[key], custom_start=cs, absolute=absolute)
+    return data, dmap[key]
 
 @st.cache_data(ttl=900, show_spinner=False)
 def md_history(sym, start=None, adjusted=True):
     import market_data as md
-    return md.price_history(sym, start=start, adjusted=adjusted)
+    try:
+        return md.price_history(sym, start=start, adjusted=adjusted)
+    except TypeError:   # resilience if an older market_data is still in memory
+        return md.price_history(sym, start=start)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def all_tickers():
