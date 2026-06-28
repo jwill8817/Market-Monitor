@@ -1769,7 +1769,7 @@ RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility",
              "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds",
              "Risk Premia":"risk_premia","AQR Strategies":"aqr","Crypto":"crypto"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
-TABLE_TABS=list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors","Valuation"]
+TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]
 
 def _dispatch(sel, k):
@@ -1784,6 +1784,8 @@ def _dispatch(sel, k):
     elif sel=="Realized Vol": panel_rvol(k)
     elif sel=="Scanner":      panel_scanner(k)
     elif sel=="News":         panel_news(k)
+    elif sel=="Watchlist":    panel_watchlist(k)
+    elif sel=="Custom Data":  panel_custom(k)
 
 def render_slot(k, tabs, default):
     # Horizontal radio acts as a tab strip but only renders the selected panel
@@ -1822,6 +1824,7 @@ with tb1:
                 f'<span class="jaws-sub">&nbsp;&nbsp;{datetime.now().strftime("%Y-%m-%d %H:%M")}</span>'
                 '</div>', unsafe_allow_html=True)
 with tb2:
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     nc=len(custom_store())
     with st.popover(f"⬆ Upload data{f' ({nc})' if nc else ''}", use_container_width=True):
         st.caption("Upload a spreadsheet of time series. **Column 1 = dates**, each other "
@@ -1842,6 +1845,7 @@ with tb2:
             except Exception as e:
                 st.error(f"Could not parse: {type(e).__name__}: {e}")
 with tb3:
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     if st.button("↻ Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
 
@@ -1870,8 +1874,6 @@ _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
-_sec("CUST","Custom Data", panel_custom, "seccust")
-_sec("WL","Watchlist", panel_watchlist, "secwl")
 _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
 # Self-headed analytical sections
