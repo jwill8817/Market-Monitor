@@ -243,6 +243,27 @@ def _md_history_remote(sym, start=None, adjusted=True):
     except TypeError:   # resilience if an older market_data is still in memory
         return md.price_history(sym, start=start)
 
+# ── Persistent watchlist (survives refresh / re-login) ─────────────
+import json as _json
+_WL_FILE=os.path.join(os.path.dirname(os.path.abspath(__file__)), "_watchlist.json")
+def watchlist_store():
+    """{SYMBOL: name} — persisted to disk so it stays until explicitly removed."""
+    if "wl_store" not in st.session_state:
+        d={}
+        try:
+            with open(_WL_FILE,"r",encoding="utf-8") as f:
+                d={x["sym"]:x["name"] for x in _json.load(f)}
+        except Exception:
+            d={}
+        st.session_state["wl_store"]=d
+    return st.session_state["wl_store"]
+def watchlist_save():
+    try:
+        with open(_WL_FILE,"w",encoding="utf-8") as f:
+            _json.dump([{"sym":s,"name":n} for s,n in watchlist_store().items()], f)
+    except Exception:
+        pass
+
 # ── User-uploaded custom time series (session-scoped) ──────────────
 def custom_store():
     """{SYMBOL: {'name':str,'prices':pd.Series}} — user-uploaded series as price levels."""
@@ -999,59 +1020,63 @@ def panel_scanner(k):
                f"Red ≥ |2σ| extreme move vs history = potential dislocation.")
     dl(pd.DataFrame(rows),"Export","JAWS_dislocation_scanner.xlsx",k+"_dl")
 
+def _wl_ret(c, anchor):
+    """Total return (%) from price at/just-before anchor date to latest. None if insufficient."""
+    if c is None or c.empty: return None
+    base=c[c.index<=pd.Timestamp(anchor)]
+    if base.empty: return None
+    b=float(base.iloc[-1])
+    return (float(c.iloc[-1])/b-1)*100 if b else None
+
 def panel_watchlist(k):
-    """User-built watchlist — add any instrument via search; shows a returns board."""
-    wk=k+"_wl"
-    if wk not in st.session_state: st.session_state[wk]={}     # {symbol: label}
+    """User-built watchlist — add any instrument via search; renders the standard returns table.
+    The list is stored on disk and persists until you remove each item."""
+    wl=watchlist_store()
     if _HAS_SEARCHBOX:
         sel=st_searchbox(search_instruments, placeholder="Search & add to watchlist…", key=k+"_sb")
-        if sel:
-            lbl=next((n for n,s in all_tickers().items() if s==sel), sel)
-            st.session_state[wk][sel]=lbl; st.rerun()
+        if sel and sel not in wl:
+            wl[sel]=next((n for n,s in {**all_tickers(),**custom_labels()}.items() if s==sel), sel)
+            watchlist_save(); st.rerun()
     else:
         sc1,sc2=st.columns([3,1])
         q=sc1.text_input("Add", key=k+"_q", label_visibility="collapsed",
                          placeholder="Type a ticker, then Add →")
         if sc2.button("Add", key=k+"_add") and q.strip():
-            s=q.strip().upper(); st.session_state[wk][s]=s; st.rerun()
-    if not st.session_state[wk]:
-        st.info("Search above to add instruments to your watchlist."); return
-    cc1,cc2=st.columns([3,1])
-    rm=cc1.multiselect("Remove", list(st.session_state[wk].keys()),
-                       format_func=lambda s: f"{st.session_state[wk][s]} [{s}]", key=k+"_rm")
-    if cc2.button("Remove selected", key=k+"_rmbtn") and rm:
-        for s in rm: st.session_state[wk].pop(s,None)
-        st.rerun()
-    def _ret(c, days):
-        if c is None or len(c)<days+1: return None
-        return (c.iloc[-1]/c.iloc[-1-days]-1)*100
-    def _ytd(c):
-        if c is None or c.empty: return None
-        yc=c[c.index>=pd.Timestamp(date.today().replace(month=1,day=1))]
-        if len(yc)<1: return None
-        return (c.iloc[-1]/yc.iloc[0]-1)*100
-    pers=[("1D",1),("1W",5),("1M",21),("3M",63),("1Y",252)]
-    hdr=["Instrument","Tkr","Last"]+[p for p,_ in pers]+["YTD"]
-    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+            s=q.strip().upper(); wl[s]=s; watchlist_save(); st.rerun()
+    if not wl:
+        st.info("Search above to add instruments to your watchlist. Items stay until you remove them."); return
+    today=date.today()
+    anchors=[("1D",None),("MTD",today.replace(day=1)-relativedelta(days=1)),
+             ("YTD",date(today.year-1,12,31)),("1Y",today-relativedelta(years=1)),
+             ("3Y",today-relativedelta(years=3)),("5Y",today-relativedelta(years=5)),
+             ("10Y",today-relativedelta(years=10))]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in RET_HDR[:-1])+"</tr>"
     rows=[]
     with st.spinner("Loading watchlist…"):
-        for sym,lbl in st.session_state[wk].items():
+        for sym,lbl in wl.items():
             c=md_history(sym)
             if c is None or c.empty:
                 h+=(f"<tr><td>{lbl}</td><td style='color:{TEXT3}'>{sym}</td>"
-                    f"<td colspan='{len(pers)+2}' style='color:{TEXT3}'>no data</td></tr>"); continue
-            vals={p:_ret(c,d) for p,d in pers}; vals["YTD"]=_ytd(c)
-            cells=""
-            for col in [p for p,_ in pers]+["YTD"]:
-                v=vals[col]
-                if v is None: cells+=f"<td style='color:{TEXT3}'>—</td>"
-                else: cells+=f"<td style='color:{GREEN if v>=0 else RED}'>{v:+.2f}%</td>"
+                    f"<td colspan='{len(RET_HDR)-3}' style='color:{TEXT3}'>no data</td></tr>"); continue
+            vals={}
+            for nm,anc in anchors:
+                vals[nm]=(_wl_ret(c, c.index[-2]) if (nm=="1D" and len(c)>=2)
+                          else (_wl_ret(c, anc) if anc else None))
+            cells="".join(f"<td>{f_pct(vals[nm])}</td>" for nm,_ in anchors)
             h+=(f"<tr><td>{lbl}</td><td style='color:{TEXT3}'>{sym}</td>"
                 f"<td>{f_price(float(c.iloc[-1]),lbl)}</td>{cells}</tr>")
-            row={"Instrument":lbl,"Ticker":sym,"Last":float(c.iloc[-1])}; row.update(vals); rows.append(row)
+            rows.append({"Name":lbl,"Ticker":sym,"Price":float(c.iloc[-1]),
+                         **{nm:vals[nm] for nm,_ in anchors}})
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
-    st.caption("Total-return basis. Add or remove instruments above; the list persists for your session.")
-    if rows: dl(pd.DataFrame(rows),"Export","JAWS_watchlist.xlsx",k+"_dl")
+    cc1,cc2=st.columns([3,1])
+    rm=cc1.multiselect("Remove from watchlist", list(wl.keys()),
+                       format_func=lambda s: f"{wl[s]} [{s}]", key=k+"_rm")
+    if cc2.button("Remove selected", key=k+"_rmbtn") and rm:
+        for s in rm: wl.pop(s,None)
+        watchlist_save(); st.rerun()
+    st.caption("Total-return basis (dividends/coupons included). Your watchlist is saved and persists "
+               "across sessions until you remove an item.")
+    if rows: dl(pd.DataFrame(rows),"Export","JAWS_watchlist.xlsx",k+"_dl2")
 
 def panel_custom(k):
     """Custom tab — manage and preview user-uploaded time series."""

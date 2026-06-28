@@ -18,3 +18,7 @@ _test_*.xlsx
 
 # Claude internal
 .claude/
+
+# User watchlist (local, per-deployment)
+_watchlist.json
+web_sample/_watchlist.json
