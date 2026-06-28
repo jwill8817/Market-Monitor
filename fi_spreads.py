@@ -93,7 +93,7 @@ def _fred_fetch_all(series_id: str, units: str = None) -> tuple[list, list] | tu
     if _FRED_KEY:
         # Full history via FRED API
         url = (f"https://api.stlouisfed.org/fred/series/observations"
-               f"?series_id={series_id}&observation_start=1990-01-01"
+               f"?series_id={series_id}&observation_start=1900-01-01"
                f"&file_type=json&api_key={_FRED_KEY}")
         if units:
             url += f"&units={units}"

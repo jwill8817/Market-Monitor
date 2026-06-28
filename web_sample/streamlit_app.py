@@ -696,7 +696,7 @@ def panel_chart(k):
     chosen=ticker_picker(k, ["S&P 500"])
     picks=list(chosen.keys()); full=chosen
     c1,c2,c3=st.columns([2,1,1])
-    per=c1.select_slider("Period",["MTD","3M","6M","YTD","1Y","3Y","5Y","10Y","Custom"],
+    per=c1.select_slider("Period",["MTD","3M","6M","YTD","1Y","3Y","5Y","10Y","20Y","Max","Custom"],
                          value="1Y",key=k+"_per")
     if per=="Custom":
         d1,d2=st.columns(2)
@@ -707,7 +707,8 @@ def panel_chart(k):
         cstart={"MTD":date.today().replace(day=1),"3M":date.today()-relativedelta(months=3),
                 "6M":date.today()-relativedelta(months=6),"YTD":date.today().replace(month=1,day=1),
                 "1Y":date.today()-relativedelta(years=1),"3Y":date.today()-relativedelta(years=3),
-                "5Y":date.today()-relativedelta(years=5),"10Y":date.today()-relativedelta(years=10)}[per]
+                "5Y":date.today()-relativedelta(years=5),"10Y":date.today()-relativedelta(years=10),
+                "20Y":date.today()-relativedelta(years=20),"Max":date(1900,1,1)}[per]
         cend=date.today()
     single = len(picks)==1
     mode=c2.radio("Type",["Bar","Line"],horizontal=True,key=k+"_mode",disabled=not single)
@@ -913,7 +914,7 @@ def muni_ust_ratio_series(muni_etf, tsy_fred):
 def panel_muni_ratio(k):
     tenors=st.multiselect("Tenor (muni ETF ÷ Treasury)", list(_MUNI_RATIO.keys()),
                           default=["Core (MUB ~7y)"], key=k+"_t")
-    yrs=st.select_slider("Lookback (years)",[3,5,10],value=10,key=k+"_yr")
+    yrs=st.select_slider("Lookback (years)",[3,5,10,15,20,25],value=10,key=k+"_yr")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
     for i,t in enumerate(tenors):
         etf,fred=_MUNI_RATIO[t]
@@ -941,7 +942,7 @@ def panel_rvol(k):
     c1,c2,c3=st.columns([1,1,1])
     win=int(c1.number_input("Rolling window (days)", min_value=10, max_value=756,
                             value=63, step=1, key=k+"_w"))
-    yrs=c2.select_slider("Lookback (years)",[1,2,3,5,10],value=5,key=k+"_yr")
+    yrs=c2.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
     bands=c3.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
     fig=go.Figure(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); exp={}
     for i,(label,sym) in enumerate(chosen.items()):
@@ -985,7 +986,7 @@ def panel_scanner(k):
     for sym in list(dict.fromkeys(st.session_state[k+"_syms"]+pasted)): items[sym]=sym
 
     c1,c2=st.columns(2)
-    yrs=c1.select_slider("Lookback (years)",[1,2,3,5,10],value=10,key=k+"_yr")
+    yrs=c1.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=10,key=k+"_yr")
     zper=c2.selectbox("Z-score period",list(_ZPER.keys()),index=2,key=k+"_zp")
     w=_ZPER[zper]
     if not items:
@@ -1121,7 +1122,7 @@ def panel_rolling_returns(k):
     c1,c2,c3=st.columns(3)
     win=int(c1.number_input("Rolling return window (days)", min_value=5, max_value=756,
                             value=63, step=1, key=k+"_w"))
-    yrs=c2.select_slider("Lookback (years)",[1,2,3,5,10],value=5,key=k+"_yr")
+    yrs=c2.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
     bands=c3.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
     for i,(label,sym) in enumerate(chosen.items()):

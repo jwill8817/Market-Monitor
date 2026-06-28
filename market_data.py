@@ -27,7 +27,7 @@ def _cboe_history(cboe_sym):
     _CBOE_CACHE[cboe_sym] = s
     return s
 
-def price_history(symbol, start=None, period="10y", adjusted=True):
+def price_history(symbol, start=None, period="max", adjusted=True):
     """Return a tz-naive daily Close Series for any symbol.
     Routes CBOE-only indices (VIXEQ, COR1M/3M/6M) to cboe.com; everything
     else uses yfinance. Optional `start` (date/str) trims the series.
@@ -338,7 +338,10 @@ def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=Fals
         _cs_str = min(custom_start, _ten_y).isoformat()
     for name, ticker in ticker_dict.items():
         try:
-            close = price_history(ticker, start=_cs_str) if _cs_str else price_history(ticker)
+            # Returns tables only need 10y; pin the window so the (now max-default)
+            # price_history doesn't pull full history for every quadrant instrument.
+            _tbl_start = _cs_str or (datetime.date.today() - relativedelta(years=10)).isoformat()
+            close = price_history(ticker, start=_tbl_start)
             if close.empty:
                 results[name] = {"price": None, "change_1d": None, "returns": {}}
                 continue
