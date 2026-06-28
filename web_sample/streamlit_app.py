@@ -335,7 +335,7 @@ def markets_news():
     for src,url in _MKT_FEEDS.items():
         try:
             f=feedparser.parse(url)
-            for e in f.entries[:20]:
+            for e in f.entries[:6]:
                 title=(e.get("title") or "").strip()
                 if not title or title.lower() in seen: continue
                 seen.add(title.lower())
@@ -379,6 +379,15 @@ def credit_curve():
 NEWS_WEIGHT={"bloomberg":10,"wsj":9,"wall street journal":9,"financial times":9,"ft":9,
              "new york times":8,"nyt":8,"reuters":8,"economist":8,"cnbc":7,
              "marketwatch":6,"yahoo finance":6,"guardian":5,"seeking alpha":5,"zero hedge":4}
+_SRC_COLORS={"bloomberg":"#f78166","wsj":"#58a6ff","wall street journal":"#58a6ff",
+             "financial times":"#bc8cff","ft":"#bc8cff","new york times":"#79c0ff","nyt":"#79c0ff",
+             "cnbc":"#3fb950","economist":"#ff6b6b","marketwatch":"#e3b341",
+             "yahoo":"#ffa94d","guardian":"#51cf66"}
+def _src_color(src):
+    s=(src or "").lower()
+    for k,v in _SRC_COLORS.items():
+        if k in s: return v
+    return CYAN
 CAT_LABELS={"hedge_fund":"HF","ipo":"IPO","ma":"M&A","issuance":"ISS"}
 CAT_COLORS={"hedge_fund":CYAN,"ipo":GREEN,"ma":YELLOW,"issuance":PURPLE}
 
@@ -732,9 +741,10 @@ def panel_yield(k):
         else:
             st.info("Muni or Treasury data unavailable right now.")
 
-# Maturity → numeric x (years) for overlaying curves on one axis
-_MATX={"1 Mo":1/12,"2 Mo":2/12,"3 Mo":0.25,"4 Mo":4/12,"6 Mo":0.5,"1 Yr":1,"2 Yr":2,
-       "3 Yr":3,"5 Yr":5,"7 Yr":7,"10 Yr":10,"20 Yr":20,"30 Yr":30}
+# Maturity → numeric x (years) for overlaying curves on one axis.
+# Short-end points (<1y) thinned to 3M/6M only to reduce bunching/noise near 0.
+_MATX={"3 Mo":0.25,"6 Mo":0.5,"1 Yr":1,"2 Yr":2,"3 Yr":3,"5 Yr":5,"7 Yr":7,
+       "10 Yr":10,"20 Yr":20,"30 Yr":30}
 _MUNI_X={"0-2 Yr":1,"2-5 Yr":3.5,"5-10 Yr":7.5,"10-15 Yr":12.5,"15-20 Yr":17.5,"20+ Yr":25}
 
 def panel_curves(k):
@@ -747,7 +757,7 @@ def panel_curves(k):
     if "Treasury (nominal)" in opts:
         row=_ust_curve(0)
         if row:
-            mats=[m for m in yc.MATURITIES if row["yields"].get(m) is not None]
+            mats=[m for m in yc.MATURITIES if m in _MATX and row["yields"].get(m) is not None]
             xs=[_MATX[m] for m in mats]; ys=[row["yields"][m] for m in mats]
             fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Treasury",
                 line=dict(color=ACCENT,width=2.2))); exp["Treasury"]=dict(zip(mats,ys))
@@ -755,7 +765,7 @@ def panel_curves(k):
             dmap={"-1M":30,"-3M":91,"-6M":182,"-1Y":365,"-2Y":730}
             rh=_ust_curve(dmap[hist])
             if rh:
-                mats=[m for m in yc.MATURITIES if rh["yields"].get(m) is not None]
+                mats=[m for m in yc.MATURITIES if m in _MATX and rh["yields"].get(m) is not None]
                 fig.add_trace(go.Scatter(x=[_MATX[m] for m in mats],
                     y=[rh["yields"][m] for m in mats],mode="lines",name=f"Treasury {hist}",
                     line=dict(color=ACCENT,width=1.3,dash="dot")))
@@ -763,7 +773,7 @@ def panel_curves(k):
         try:
             t=yc.fetch_tips_curve_for_date(datetime.today())
             if t:
-                mats=[m for m in yc.TIPS_MATURITIES if t["yields"].get(m) is not None]
+                mats=[m for m in yc.TIPS_MATURITIES if m in _MATX and t["yields"].get(m) is not None]
                 xs=[_MATX[m] for m in mats]; ys=[t["yields"][m] for m in mats]
                 fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="TIPS (real)",
                     line=dict(color=GREEN,width=2,dash="dash"))); exp["TIPS"]=dict(zip(mats,ys))
@@ -776,7 +786,7 @@ def panel_curves(k):
             fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Municipal",
                 line=dict(color=PURPLE,width=2))); exp["Muni"]=dict(zip(bks,ys))
     fig.update_xaxes(title="Maturity (yrs)")
-    st.plotly_chart(base_layout(fig,"Yield Curves (nominal · real · muni)","%",h=300),
+    st.plotly_chart(base_layout(fig,"Yield Curves (nominal · real · muni)","%",h=380),
                     use_container_width=True, key=k+"_curve")
     if "Credit by rating" in opts:
         cc=credit_curve()
@@ -915,26 +925,29 @@ def panel_news(k):
     with st.spinner("Fetching markets news…"):
         try: items=markets_news()
         except Exception as e: items=[]; st.error(f"News error: {e}")
-    scored=[]
+    # Cap to 5 per source, then rank by source quality + recency
+    per={}; capped=[]
     for it in items:
-        src=(it.get("source") or "").lower()
-        w=max((v for kk,v in NEWS_WEIGHT.items() if kk in src), default=4)
-        scored.append((w,it))
-    scored.sort(key=lambda x:(x[0], x[1].get("published","") or ""), reverse=True)
-    st.markdown('<div style="max-height:440px;overflow:auto;">', unsafe_allow_html=True)
-    for rank,(w,it) in enumerate(scored[:90]):
-        title=it.get("title") or "(no title)"
-        url=it.get("url") or "#"; src=it.get("source") or "Unknown"
-        pub=(it.get("published") or "")[:16]
-        st.markdown(f'<div style="background:{CARD2};border:1px solid {BORDER};border-radius:5px;'
-            f'padding:6px 9px;margin-bottom:6px;">'
-            f'<span style="color:{TEXT3};font-family:Consolas;font-size:10px;">#{rank+1}</span> '
-            f'<span style="color:{ACCENT};font-weight:600;font-size:12px;">{src}</span> '
-            f'<span style="color:{TEXT3};font-size:10px;">{pub}</span><br>'
-            f'<a href="{url}" target="_blank" style="color:{TEXT1};text-decoration:none;font-size:13px;">'
-            f'{title}</a></div>', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-    if not scored: st.info("No stories available right now.")
+        s=it.get("source","")
+        if per.get(s,0)>=5: continue
+        per[s]=per.get(s,0)+1; capped.append(it)
+    for it in capped:
+        it["_w"]=max((v for kk,v in NEWS_WEIGHT.items() if kk in (it.get("source") or "").lower()), default=4)
+    capped.sort(key=lambda it:(it["_w"], it.get("published","") or ""), reverse=True)
+    if not capped:
+        st.info("No stories available right now."); return
+    cols=st.columns(2)
+    for i,it in enumerate(capped):
+        title=it.get("title") or "(no title)"; url=it.get("url") or "#"
+        src=it.get("source") or "Unknown"; pub=(it.get("published") or "")[:16]
+        scol=_src_color(src)
+        with cols[i%2]:
+            st.markdown(f'<div style="background:{CARD2};border:1px solid {BORDER};border-left:3px solid {scol};'
+                f'border-radius:5px;padding:6px 9px;margin-bottom:6px;">'
+                f'<span style="color:{scol};font-weight:700;font-size:12px;">{src}</span> '
+                f'<span style="color:{TEXT3};font-size:10px;">{pub}</span><br>'
+                f'<a href="{url}" target="_blank" style="color:{TEXT1};text-decoration:none;font-size:13px;">'
+                f'{title}</a></div>', unsafe_allow_html=True)
 
 def panel_valuation(k):
     # ── Current multiples cross-section ──
@@ -1633,24 +1646,9 @@ def _sec(tag, title, fn, *a):
             st.error(f"⚠ {title}: {type(e).__name__}: {e}")
             with st.expander("details"): st.code(_tb.format_exc())
 
-# Row 2 of the grid: Curves (under top-left) · News (under top-right)
-r2=st.columns(2)
-with r2[0]:
-    with st.container(border=True):
-        _hdr("CRV","Curves")
-        try: panel_curves("q3")
-        except Exception as _e:
-            st.error(f"⚠ Curves: {type(_e).__name__}: {_e}")
-            with st.expander("details"): st.code(_tb.format_exc())
-with r2[1]:
-    with st.container(border=True):
-        _hdr("NEWS","Top Stories")
-        try: panel_news("q4")
-        except Exception as _e:
-            st.error(f"⚠ News: {type(_e).__name__}: {_e}")
-            with st.expander("details"): st.code(_tb.format_exc())
-
-# ── Full-width sections ──
+# ── Full-width sections (stacked) ──
+_sec("CRV","Curves", panel_curves, "q3")
+_sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
