@@ -311,6 +311,40 @@ def parse_uploaded_series(file, kind):
         raise ValueError("No numeric data columns found.")
     return out
 
+def build_upload_template():
+    """Return (bytes) an .xlsx template showing the expected upload layout:
+    column 1 = dates, each subsequent column = one identifier."""
+    import io as _io
+    ex_dates=pd.date_range(end=date.today(), periods=6, freq="ME")
+    df=pd.DataFrame({
+        "Date":[d.strftime("%Y-%m-%d") for d in ex_dates],
+        "MY_FUND":[100.0,101.2,99.8,103.5,104.1,106.0],
+        "BENCHMARK":[100.0,100.6,100.1,101.9,102.4,103.0],
+    })
+    buf=_io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as xw:
+        df.to_excel(xw, index=False, sheet_name="Data", startrow=0)
+        wb=xw.book; ws=xw.sheets["Data"]
+        hdr=wb.add_format({"bold":True,"bg_color":"#1f2730","font_color":"#ffffff","border":1})
+        for ci,col in enumerate(df.columns):
+            ws.write(0, ci, col, hdr); ws.set_column(ci, ci, 16)
+        notes=wb.add_worksheet("How to use")
+        for i,line in enumerate([
+            "JAWS — custom data upload template",
+            "",
+            "1. Put DATES in the first column (any clear date format, e.g. 2024-01-31).",
+            "2. Each additional column = one instrument. The COLUMN HEADER becomes its",
+            "   ticker/identifier (e.g. MY_FUND, BENCHMARK). Add as many columns as you like.",
+            "3. Fill values down each column. They can be PRICES/levels or RETURNS —",
+            "   pick the matching option ('Values are…') when you upload.",
+            "4. Returns are auto-compounded to a base-100 index so every tool works.",
+            "5. Save as .xlsx or .csv, then use 'Add to dashboard'.",
+            "",
+            "Replace the example columns on the 'Data' sheet with your own.",
+        ]):
+            notes.write(i, 0, line)
+    return buf.getvalue()
+
 @st.cache_data(ttl=900, show_spinner=False)
 def all_tickers():
     import market_data as md
@@ -1859,7 +1893,12 @@ with tb2:
         st.caption("Upload a spreadsheet of time series. **Column 1 = dates**, each other "
                    "column = one identifier (its header becomes the ticker). Series become "
                    "available in every section (chart, correlation, regression, scanner, watchlist…).")
-        up=st.file_uploader("CSV or Excel", type=["csv","xlsx","xls"], key="cust_up")
+        st.download_button("⬇ Download template (.xlsx)", data=build_upload_template(),
+                           file_name="JAWS_upload_template.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           use_container_width=True, key="cust_tmpl",
+                           help="Pre-formatted sheet — paste your dates/tickers/values in, then upload.")
+        up=st.file_uploader("CSV or Excel (.csv, .xlsx, .xls)", type=["csv","xlsx","xls"], key="cust_up")
         kind=st.radio("Values are", ["Prices","Returns %","Returns (decimal)"],
                       horizontal=True, key="cust_kind",
                       help="Returns are compounded into a price index (base 100) so all tools work.")
