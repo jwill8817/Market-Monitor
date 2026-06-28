@@ -946,8 +946,62 @@ def panel_scanner(k):
             f"<td style='color:{zc}'>{flag}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
     st.caption(f"Z = (latest {zper} return − mean {zper} return over {yrs}y) ÷ {yrs}y std. "
-               f"Red ≥ |2σ| extreme move vs history.")
-    dl(pd.DataFrame(rows),"Export","JAWS_scanner.xlsx",k+"_dl")
+               f"Red ≥ |2σ| extreme move vs history = potential dislocation.")
+    dl(pd.DataFrame(rows),"Export","JAWS_dislocation_scanner.xlsx",k+"_dl")
+
+def panel_watchlist(k):
+    """User-built watchlist — add any instrument via search; shows a returns board."""
+    wk=k+"_wl"
+    if wk not in st.session_state: st.session_state[wk]={}     # {symbol: label}
+    if _HAS_SEARCHBOX:
+        sel=st_searchbox(search_instruments, placeholder="Search & add to watchlist…", key=k+"_sb")
+        if sel:
+            lbl=next((n for n,s in all_tickers().items() if s==sel), sel)
+            st.session_state[wk][sel]=lbl; st.rerun()
+    else:
+        sc1,sc2=st.columns([3,1])
+        q=sc1.text_input("Add", key=k+"_q", label_visibility="collapsed",
+                         placeholder="Type a ticker, then Add →")
+        if sc2.button("Add", key=k+"_add") and q.strip():
+            s=q.strip().upper(); st.session_state[wk][s]=s; st.rerun()
+    if not st.session_state[wk]:
+        st.info("Search above to add instruments to your watchlist."); return
+    cc1,cc2=st.columns([3,1])
+    rm=cc1.multiselect("Remove", list(st.session_state[wk].keys()),
+                       format_func=lambda s: f"{st.session_state[wk][s]} [{s}]", key=k+"_rm")
+    if cc2.button("Remove selected", key=k+"_rmbtn") and rm:
+        for s in rm: st.session_state[wk].pop(s,None)
+        st.rerun()
+    def _ret(c, days):
+        if c is None or len(c)<days+1: return None
+        return (c.iloc[-1]/c.iloc[-1-days]-1)*100
+    def _ytd(c):
+        if c is None or c.empty: return None
+        yc=c[c.index>=pd.Timestamp(date.today().replace(month=1,day=1))]
+        if len(yc)<1: return None
+        return (c.iloc[-1]/yc.iloc[0]-1)*100
+    pers=[("1D",1),("1W",5),("1M",21),("3M",63),("1Y",252)]
+    hdr=["Instrument","Tkr","Last"]+[p for p,_ in pers]+["YTD"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    rows=[]
+    with st.spinner("Loading watchlist…"):
+        for sym,lbl in st.session_state[wk].items():
+            c=md_history(sym)
+            if c is None or c.empty:
+                h+=(f"<tr><td>{lbl}</td><td style='color:{TEXT3}'>{sym}</td>"
+                    f"<td colspan='{len(pers)+2}' style='color:{TEXT3}'>no data</td></tr>"); continue
+            vals={p:_ret(c,d) for p,d in pers}; vals["YTD"]=_ytd(c)
+            cells=""
+            for col in [p for p,_ in pers]+["YTD"]:
+                v=vals[col]
+                if v is None: cells+=f"<td style='color:{TEXT3}'>—</td>"
+                else: cells+=f"<td style='color:{GREEN if v>=0 else RED}'>{v:+.2f}%</td>"
+            h+=(f"<tr><td>{lbl}</td><td style='color:{TEXT3}'>{sym}</td>"
+                f"<td>{f_price(float(c.iloc[-1]),lbl)}</td>{cells}</tr>")
+            row={"Instrument":lbl,"Ticker":sym,"Last":float(c.iloc[-1])}; row.update(vals); rows.append(row)
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("Total-return basis. Add or remove instruments above; the list persists for your session.")
+    if rows: dl(pd.DataFrame(rows),"Export","JAWS_watchlist.xlsx",k+"_dl")
 
 def panel_rolling_returns(k):
     chosen=ticker_picker(k, ["S&P 500"])
@@ -1710,7 +1764,8 @@ _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
-_sec("SCAN","Market Scanner", panel_scanner, "secscan")
+_sec("WL","Watchlist", panel_watchlist, "secwl")
+_sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
 # Self-headed analytical sections
 for _name,_fn in [("Correlation",panel_corr),("Regression",panel_regression),
