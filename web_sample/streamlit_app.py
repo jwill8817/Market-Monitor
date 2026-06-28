@@ -578,8 +578,8 @@ def panel_returns(catkey, label, k):
             f"<td>{fc(r.get('Custom'))}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
     c1,c2,c3=st.columns([1,1,1])
-    c1.date_input("Custom start", value=cs, key=k+"_cs", min_value=date(1970,1,1))
-    c2.date_input("Custom end", value=ce, key=k+"_ce", min_value=date(1970,1,1))
+    c1.date_input("Custom start", value=cs, key=k+"_cs", min_value=date(1900,1,1))
+    c2.date_input("Custom end", value=ce, key=k+"_ce", min_value=date(1900,1,1))
     df=pd.DataFrame([{"Name":n,"Ticker":tmap.get(n,""),"Price":i.get("price"),
         **{p:i.get("returns",{}).get(p) for p in ["MTD","YTD","1Y","3Y","5Y","10Y","Custom"]}}
         for n,i in data.items()])
