@@ -1824,7 +1824,7 @@ with tb1:
                 f'<span class="jaws-sub">&nbsp;&nbsp;{datetime.now().strftime("%Y-%m-%d %H:%M")}</span>'
                 '</div>', unsafe_allow_html=True)
 with tb2:
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:34px'></div>", unsafe_allow_html=True)
     nc=len(custom_store())
     with st.popover(f"⬆ Upload data{f' ({nc})' if nc else ''}", use_container_width=True):
         st.caption("Upload a spreadsheet of time series. **Column 1 = dates**, each other "
@@ -1845,7 +1845,7 @@ with tb2:
             except Exception as e:
                 st.error(f"Could not parse: {type(e).__name__}: {e}")
 with tb3:
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:34px'></div>", unsafe_allow_html=True)
     if st.button("↻ Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
 
