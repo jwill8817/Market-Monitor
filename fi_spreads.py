@@ -79,11 +79,14 @@ CHART_PAIRS = [
 
 # ── FRED fetch helpers ──────────────────────────────────────
 
-def _fred_fetch_all(series_id: str) -> tuple[list, list] | tuple[None, None]:
+def _fred_fetch_all(series_id: str, units: str = None) -> tuple[list, list] | tuple[None, None]:
     """
     Fetch complete available history for a FRED series.
     Uses the proper JSON API when FRED_API_KEY is set (full history).
     Falls back to the public CSV endpoint (~3 years without a key).
+
+    units: optional FRED transformation, e.g. "pc1" = % change from year ago
+           (used to turn index series like CPI into YoY inflation rates).
     """
     dates, values = [], []
 
@@ -92,6 +95,8 @@ def _fred_fetch_all(series_id: str) -> tuple[list, list] | tuple[None, None]:
         url = (f"https://api.stlouisfed.org/fred/series/observations"
                f"?series_id={series_id}&observation_start=1990-01-01"
                f"&file_type=json&api_key={_FRED_KEY}")
+        if units:
+            url += f"&units={units}"
         req = urllib.request.Request(url, headers={"User-Agent": _FRED_UA})
         try:
             with urllib.request.urlopen(req, timeout=_FRED_TIMEOUT) as r:
@@ -110,6 +115,8 @@ def _fred_fetch_all(series_id: str) -> tuple[list, list] | tuple[None, None]:
     if not dates:
         # Public CSV endpoint (~3 years without login)
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+        if units:
+            url += f"&transformation={units}"
         req = urllib.request.Request(url, headers={"User-Agent": _FRED_UA})
         try:
             with urllib.request.urlopen(req, timeout=_FRED_TIMEOUT) as r:
@@ -312,6 +319,66 @@ def fetch_rates_analytics() -> list[dict]:
 def fetch_funding_analytics() -> list[dict]:
     return _fetch_level_analytics(
         FUNDING_SERIES, ["Overnight", "Policy", "Bills/CP", "Intl", "Other"])
+
+
+# ── Inflation (all displayed in %, YoY where noted) ─────────
+# (display_name, fred_series_id, category, description, units)
+#   units="pc1" → FRED computes % change from a year ago (turns an index into YoY).
+#   units=None  → series is already a rate in %.
+INFLATION_SERIES = [
+    # Realized — headline & core, YoY %
+    ("CPI YoY",             "CPIAUCSL",            "Realized (YoY %)",
+     "Headline CPI, % change from a year ago", "pc1"),
+    ("Core CPI YoY",        "CPILFESL",            "Realized (YoY %)",
+     "CPI excluding food & energy, YoY", "pc1"),
+    ("PCE YoY",             "PCEPI",               "Realized (YoY %)",
+     "PCE price index, YoY", "pc1"),
+    ("Core PCE YoY",        "PCEPILFE",            "Realized (YoY %)",
+     "Core PCE — the Fed's target gauge, YoY", "pc1"),
+    ("PPI Final Demand YoY","PPIFIS",              "Realized (YoY %)",
+     "Producer Price Index, final demand, YoY", "pc1"),
+    ("Import Prices YoY",   "IR",                  "Realized (YoY %)",
+     "Import price index, all commodities, YoY", "pc1"),
+    # Underlying / trend measures (already %)
+    ("Sticky Core CPI YoY", "CORESTICKM159SFRBATL","Underlying Trend",
+     "Atlanta Fed sticky-price core CPI, YoY", None),
+    ("Trimmed Mean PCE",    "PCETRIM12M159SFRBDAL","Underlying Trend",
+     "Dallas Fed 12-month trimmed mean PCE", None),
+    ("Median CPI",          "MEDCPIM158SFRBCLE",   "Underlying Trend",
+     "Cleveland Fed median CPI (annualized monthly)", None),
+    # Market-implied breakevens (%)
+    ("5Y Breakeven",        "T5YIE",               "Market-Implied",
+     "5-Year breakeven inflation (TIPS vs nominal)", None),
+    ("10Y Breakeven",       "T10YIE",              "Market-Implied",
+     "10-Year breakeven inflation", None),
+    ("5Y5Y Fwd Breakeven",  "T5YIFR",              "Market-Implied",
+     "5-Year, 5-Year forward inflation expectation", None),
+    # Survey / model expectations (%)
+    ("UMich 1Y Expected",   "MICH",                "Expectations",
+     "U. Michigan median expected inflation, next 12 months", None),
+    ("Cleveland 1Y Expected","EXPINF1YR",          "Expectations",
+     "Cleveland Fed model expected inflation, 1-year", None),
+    ("Cleveland 10Y Expected","EXPINF10YR",        "Expectations",
+     "Cleveland Fed model expected inflation, 10-year", None),
+]
+
+
+def fetch_inflation_analytics() -> list[dict]:
+    """Inflation gauges from FRED — realized YoY, underlying trend, market-implied,
+    and survey/model expectations. All displayed in %."""
+    results = []
+    for name, sid, cat, desc, units in INFLATION_SERIES:
+        dates, values = _fred_fetch_all(sid, units=units)
+        if dates is None:
+            results.append({"name": name, "series_id": sid, "category": cat,
+                            "description": desc, "error": True})
+            continue
+        results.append(_build_analytics(name, sid, cat, desc, dates, values,
+                                        to_bps=False))
+    order = {c: i for i, c in enumerate(
+        ["Realized (YoY %)", "Underlying Trend", "Market-Implied", "Expectations"])}
+    results.sort(key=lambda r: order.get(r.get("category", ""), 99))
+    return results
 
 
 def fetch_spread_history_fred(series_id: str, years: int = 5) -> dict | None:

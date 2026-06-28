@@ -378,6 +378,8 @@ def spreads_analytics(): import fi_spreads; return fi_spreads.fetch_spread_analy
 def rates_analytics():   import fi_spreads; return fi_spreads.fetch_rates_analytics()
 @st.cache_data(ttl=1800, show_spinner=False)
 def funding_analytics(): import fi_spreads; return fi_spreads.fetch_funding_analytics()
+@st.cache_data(ttl=1800, show_spinner=False)
+def inflation_analytics(): import fi_spreads; return fi_spreads.fetch_inflation_analytics()
 @st.cache_data(ttl=3600, show_spinner=False)
 def factor_data(cs=None, ce=None):
     import factors_data as fd; return fd.fetch_factors(custom_start=cs, custom_end=ce)
@@ -1500,7 +1502,7 @@ def tool_series_catalog():
                     "factor",(r["raw_dates"], r["raw_rets"]))
     except Exception: pass
     for loader,pfx in [(spreads_analytics,"Spread"),(rates_analytics,"Rate"),
-                       (funding_analytics,"Funding")]:
+                       (funding_analytics,"Funding"),(inflation_analytics,"Inflation")]:
         try:
             for r in loader():
                 if r.get("error") or not r.get("raw_dates"): continue
@@ -1794,7 +1796,7 @@ RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility",
              "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds",
              "Risk Premia":"risk_premia","AQR Strategies":"aqr","Crypto":"crypto"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
-TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors","Valuation"]
+TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","Inflation","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]
 
 def _dispatch(sel, k):
@@ -1802,6 +1804,7 @@ def _dispatch(sel, k):
     elif sel=="FI Spreads":   panel_analytics(spreads_analytics,"Spreads","JAWS_FI_Spreads.xlsx",k)
     elif sel=="Rates":        panel_analytics(rates_analytics,"Rates","JAWS_Rates.xlsx",k)
     elif sel=="Funding":      panel_analytics(funding_analytics,"Funding","JAWS_Funding.xlsx",k)
+    elif sel=="Inflation":    panel_analytics(inflation_analytics,"Inflation","JAWS_Inflation.xlsx",k)
     elif sel=="L/S Factors":  panel_factors(k)
     elif sel=="Valuation":    panel_valuation(k)
     elif sel=="Yield Curve":  panel_yield(k)
