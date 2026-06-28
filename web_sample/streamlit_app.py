@@ -236,12 +236,59 @@ def md_returns(key, custom_start=None, custom_end=None, absolute=False):
     return data, dmap[key]
 
 @st.cache_data(ttl=900, show_spinner=False)
-def md_history(sym, start=None, adjusted=True):
+def _md_history_remote(sym, start=None, adjusted=True):
     import market_data as md
     try:
         return md.price_history(sym, start=start, adjusted=adjusted)
     except TypeError:   # resilience if an older market_data is still in memory
         return md.price_history(sym, start=start)
+
+# ── User-uploaded custom time series (session-scoped) ──────────────
+def custom_store():
+    """{SYMBOL: {'name':str,'prices':pd.Series}} — user-uploaded series as price levels."""
+    return st.session_state.setdefault("cust", {})
+def custom_labels():
+    """{display_label: SYMBOL} for pickers/search."""
+    return {f"{v['name']} [{s}]": s for s,v in custom_store().items()}
+
+def md_history(sym, start=None, adjusted=True):
+    """Price history. User-uploaded custom identifiers take precedence over remote sources."""
+    cs=custom_store()
+    if sym in cs:
+        s=cs[sym]["prices"]
+        if start is not None:
+            s=s[s.index>=pd.Timestamp(start)]
+        return s.copy()
+    return _md_history_remote(sym, start=start, adjusted=adjusted)
+
+def parse_uploaded_series(file, kind):
+    """Parse an uploaded CSV/XLSX of time series into {SYMBOL:(name, price Series)}.
+    Wide format: first column = dates, each remaining column = one identifier.
+    kind: 'Prices' (use as-is) or 'Returns %' / 'Returns (decimal)' (compound to a price index=100)."""
+    name=file.name.lower()
+    if name.endswith((".xlsx",".xls")):
+        raw=pd.read_excel(file)
+    else:
+        raw=pd.read_csv(file)
+    if raw.shape[1]<2:
+        raise ValueError("Need a date column plus at least one data column.")
+    raw=raw.rename(columns={raw.columns[0]:"Date"})
+    raw["Date"]=pd.to_datetime(raw["Date"], errors="coerce")
+    raw=raw.dropna(subset=["Date"]).set_index("Date").sort_index()
+    out={}
+    for col in raw.columns:
+        ser=pd.to_numeric(raw[col], errors="coerce").dropna()
+        if ser.empty: continue
+        sym=str(col).strip().upper()
+        if kind=="Prices":
+            px=ser
+        else:
+            r=ser/100.0 if kind=="Returns %" else ser
+            px=(1.0+r).cumprod()*100.0
+        out[sym]=(str(col).strip(), px)
+    if not out:
+        raise ValueError("No numeric data columns found.")
+    return out
 
 @st.cache_data(ttl=900, show_spinner=False)
 def all_tickers():
@@ -258,6 +305,9 @@ def search_instruments(term):
     Returns [(label, symbol), ...] for streamlit-searchbox."""
     if not term or not term.strip(): return []
     t=term.strip().lower(); seen=set(); out=[]
+    for lbl,sym in custom_labels().items():        # user uploads first
+        if t in lbl.lower() or t in sym.lower():
+            if sym not in seen: out.append((lbl, sym)); seen.add(sym)
     for name,sym in all_tickers().items():
         if t in name.lower() or t in sym.lower():
             if sym not in seen: out.append((f"{name}  [{sym}]", sym)); seen.add(sym)
@@ -595,7 +645,7 @@ def panel_factors(k):
 def ticker_picker(k, default_labels):
     """Searchable multi-ticker picker. Returns {label: symbol} for the chosen set.
     Lets the user add ANY ticker (typed) or company name (resolved via Yahoo search)."""
-    tmap=all_tickers()
+    tmap={**all_tickers(), **custom_labels()}
     ek=k+"_extra"
     if ek not in st.session_state: st.session_state[ek]={}
     if _HAS_SEARCHBOX:
@@ -1002,6 +1052,42 @@ def panel_watchlist(k):
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
     st.caption("Total-return basis. Add or remove instruments above; the list persists for your session.")
     if rows: dl(pd.DataFrame(rows),"Export","JAWS_watchlist.xlsx",k+"_dl")
+
+def panel_custom(k):
+    """Custom tab — manage and preview user-uploaded time series."""
+    cs=custom_store()
+    if not cs:
+        st.info("No custom data yet. Use **⬆ Upload data** next to the logo to add a "
+                "spreadsheet of returns or prices. Uploaded series then work in every section "
+                "(Chart, Correlation, Regression, Dislocation Scanner, Watchlist, Bulk Export).")
+        return
+    cc1,cc2=st.columns([3,1])
+    rm=cc1.multiselect("Remove series", list(cs.keys()),
+                       format_func=lambda s: f"{cs[s]['name']} [{s}]", key=k+"_rm")
+    if cc2.button("Remove selected", key=k+"_rmbtn") and rm:
+        for s in rm: cs.pop(s,None)
+        st.cache_data.clear(); st.rerun()
+    # summary table
+    hdr=["Identifier","Ticker","Start","End","Points","Last (index)","Total ret%"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    for sym,v in cs.items():
+        px=v["prices"]
+        tot=(px.iloc[-1]/px.iloc[0]-1)*100 if len(px)>1 else 0.0
+        h+=(f"<tr><td>{v['name']}</td><td style='color:{TEXT3}'>{sym}</td>"
+            f"<td>{px.index[0].date()}</td><td>{px.index[-1].date()}</td>"
+            f"<td>{len(px)}</td><td>{px.iloc[-1]:,.2f}</td>"
+            f"<td style='color:{GREEN if tot>=0 else RED}'>{tot:+.2f}%</td></tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    # quick preview chart (rebased to 100)
+    fig=go.Figure()
+    for i,(sym,v) in enumerate(cs.items()):
+        px=v["prices"]; base=float(px.iloc[0]); r=px/base*100
+        fig.add_trace(go.Scatter(x=r.index,y=r.values,mode="lines",name=f"{v['name']} [{sym}]",
+            line=dict(color=PALETTE[i%len(PALETTE)],width=1.8)))
+    st.plotly_chart(base_layout(fig,"Uploaded series (rebased to 100)","",h=340),
+                    use_container_width=True, key=k+"_chart")
+    st.caption("Prices are stored as levels; uploaded returns are compounded to a base-100 index. "
+               "Search any identifier above by name or ticker in other sections to use it.")
 
 def panel_rolling_returns(k):
     chosen=ticker_picker(k, ["S&P 500"])
@@ -1729,13 +1815,33 @@ st.markdown(f"""
 # ════════════════════════════════════════════════════════════════
 # TOP BAR + 4-QUADRANT GRID  (top = data tables, bottom = panels)
 # ════════════════════════════════════════════════════════════════
-tb1,tb2=st.columns([5,1])
+tb1,tb2,tb3=st.columns([4,1.3,1])
 with tb1:
     st.markdown('<div class="topbar"><span class="jaws-logo">JAWS</span>'
                 '<span class="jaws-title">JW Market &amp; News Monitor</span>'
                 f'<span class="jaws-sub">&nbsp;&nbsp;{datetime.now().strftime("%Y-%m-%d %H:%M")}</span>'
                 '</div>', unsafe_allow_html=True)
 with tb2:
+    nc=len(custom_store())
+    with st.popover(f"⬆ Upload data{f' ({nc})' if nc else ''}", use_container_width=True):
+        st.caption("Upload a spreadsheet of time series. **Column 1 = dates**, each other "
+                   "column = one identifier (its header becomes the ticker). Series become "
+                   "available in every section (chart, correlation, regression, scanner, watchlist…).")
+        up=st.file_uploader("CSV or Excel", type=["csv","xlsx","xls"], key="cust_up")
+        kind=st.radio("Values are", ["Prices","Returns %","Returns (decimal)"],
+                      horizontal=True, key="cust_kind",
+                      help="Returns are compounded into a price index (base 100) so all tools work.")
+        if up is not None and st.button("Add to dashboard", key="cust_add", use_container_width=True):
+            try:
+                parsed=parse_uploaded_series(up, kind)
+                for sym,(nm,px) in parsed.items():
+                    custom_store()[sym]={"name":nm,"prices":px}
+                st.cache_data.clear()
+                st.success(f"Added {len(parsed)}: {', '.join(parsed.keys())}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not parse: {type(e).__name__}: {e}")
+with tb3:
     if st.button("↻ Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
 
@@ -1764,6 +1870,7 @@ _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
+_sec("CUST","Custom Data", panel_custom, "seccust")
 _sec("WL","Watchlist", panel_watchlist, "secwl")
 _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
