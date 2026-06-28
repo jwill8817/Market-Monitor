@@ -33,7 +33,7 @@ try:
     import market_data as _mdv
     _dv = sum(len(getattr(_mdv, _n, {})) for _n in
               ("INDICES","RATES","VOLATILITY","FX","FIXED_INCOME","MUNIS","FACTORS",
-               "COMMODITIES","SECTORS","HEDGE_FUNDS","FUNDING","RISK_PREMIA","AQR_FUNDS"))
+               "COMMODITIES","SECTORS","HEDGE_FUNDS","FUNDING","RISK_PREMIA","AQR_FUNDS","CRYPTO"))
     _h=_ver_holder()
     if _h["v"] != _dv:
         st.cache_data.clear(); _h["v"]=_dv
@@ -225,7 +225,8 @@ def md_returns(key, custom_start=None, custom_end=None, absolute=False):
           "commodities":md.COMMODITIES,"sectors":md.SECTORS,
           "hedge_funds":getattr(md,"HEDGE_FUNDS",{}),
           "risk_premia":getattr(md,"RISK_PREMIA",{}),
-          "aqr":getattr(md,"AQR_FUNDS",{})}
+          "aqr":getattr(md,"AQR_FUNDS",{}),
+          "crypto":getattr(md,"CRYPTO",{})}
     cs=pd.Timestamp(custom_start).date() if custom_start else None
     ce=pd.Timestamp(custom_end).date() if custom_end else None
     try:
@@ -249,7 +250,7 @@ def all_tickers():
     for dd in (md.INDICES,md.RATES,md.VOLATILITY,md.FX,md.FIXED_INCOME,md.MUNIS,
                md.FACTORS,md.FUNDING,md.COMMODITIES,md.SECTORS,
                getattr(md,"HEDGE_FUNDS",{}),getattr(md,"RISK_PREMIA",{}),
-               getattr(md,"AQR_FUNDS",{})): d.update(dd)
+               getattr(md,"AQR_FUNDS",{}),getattr(md,"CRYPTO",{})): d.update(dd)
     return d
 
 def search_instruments(term):
@@ -314,6 +315,52 @@ def news_data():
     from categorized_news import fetch_all_news_categorized
     return fetch_all_news_categorized()
 
+# Top finance/markets RSS sources (Reuters RSS is dead → omitted)
+_MKT_FEEDS={
+    "Bloomberg":      "https://feeds.bloomberg.com/markets/news.rss",
+    "WSJ Markets":    "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+    "Financial Times":"https://www.ft.com/rss/home",
+    "New York Times": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+    "CNBC":           "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "MarketWatch":    "http://feeds.marketwatch.com/marketwatch/topstories/",
+    "Yahoo Finance":  "https://finance.yahoo.com/news/rssindex",
+    "The Economist":  "https://www.economist.com/finance-and-economics/rss.xml",
+    "Guardian":       "https://www.theguardian.com/uk/business/rss",
+}
+@st.cache_data(ttl=900, show_spinner=False)
+def markets_news():
+    """Top markets/finance stories from major outlets (RSS) + NewsAPI business."""
+    import feedparser
+    out=[]; seen=set()
+    for src,url in _MKT_FEEDS.items():
+        try:
+            f=feedparser.parse(url)
+            for e in f.entries[:20]:
+                title=(e.get("title") or "").strip()
+                if not title or title.lower() in seen: continue
+                seen.add(title.lower())
+                out.append({"source":src,"title":title,"url":e.get("link",""),
+                            "published":e.get("published","") or e.get("updated","")})
+        except Exception: pass
+    key=os.environ.get("NEWS_API_KEY","")
+    if key:
+        try:
+            import urllib.request, json
+            url=("https://newsapi.org/v2/top-headlines?category=business&language=en"
+                 f"&pageSize=40&apiKey={key}")
+            req=urllib.request.Request(url, headers={"User-Agent":"JAWS/1.0"})
+            with urllib.request.urlopen(req, timeout=6) as r:
+                arts=json.loads(r.read()).get("articles",[])
+            for a in arts:
+                title=(a.get("title") or "").strip()
+                if not title or title.lower() in seen: continue
+                seen.add(title.lower())
+                out.append({"source":(a.get("source") or {}).get("name","NewsAPI"),
+                            "title":title,"url":a.get("url",""),
+                            "published":a.get("publishedAt","")})
+        except Exception: pass
+    return out
+
 # Credit curve by rating (latest effective yield from FRED)
 @st.cache_data(ttl=1800, show_spinner=False)
 def credit_curve():
@@ -329,8 +376,9 @@ def credit_curve():
         except Exception: pass
     return out
 
-NEWS_WEIGHT={"bloomberg":10,"wsj":9,"wall street journal":9,"reuters":8,
-             "financial times":8,"ft":8,"cnbc":7,"yahoo finance":6,"seeking alpha":5,"zero hedge":4}
+NEWS_WEIGHT={"bloomberg":10,"wsj":9,"wall street journal":9,"financial times":9,"ft":9,
+             "new york times":8,"nyt":8,"reuters":8,"economist":8,"cnbc":7,
+             "marketwatch":6,"yahoo finance":6,"guardian":5,"seeking alpha":5,"zero hedge":4}
 CAT_LABELS={"hedge_fund":"HF","ipo":"IPO","ma":"M&A","issuance":"ISS"}
 CAT_COLORS={"hedge_fund":CYAN,"ipo":GREEN,"ma":YELLOW,"issuance":PURPLE}
 
@@ -777,79 +825,116 @@ def panel_rvol(k):
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_realizedvol.xlsx",k+"_dl")
 
+_ZPER={"1D":1,"1W":5,"1M":21,"3M":63,"6M":126,"1Y":252}
 def panel_scanner(k):
-    UNIV={"S&P 500":"^GSPC","Nasdaq 100":"^NDX","Russell 2000":"^RUT","EAFE":"EFA","EM":"EEM",
-          "Tech":"XLK","Financials":"XLF","Energy":"XLE","Health":"XLV","Utilities":"XLU",
-          "10Y Yield":"^TNX","HY Bond":"HYG","IG Bond":"LQD","Gold":"GC=F","Oil":"CL=F",
-          "Copper":"HG=F","EUR/USD":"EURUSD=X","USD/JPY":"JPY=X","VIX":"^VIX","MOVE":"^MOVE"}
-    win=st.select_slider("Z window",[5,21,63,252],value=21,
-                         format_func=lambda d:f"{d}d",key=k+"_w")
-    @st.cache_data(ttl=900, show_spinner=True)
-    def scan(win):
-        import numpy as np; out=[]
-        for name,sym in UNIV.items():
-            try:
-                c=md_history(sym)
-                if c.empty or len(c)<win+10: continue
-                rets=c.pct_change().dropna(); window=rets.iloc[-win:]; hist=rets.iloc[:-win]
-                if len(hist)<5: continue
-                roll=float(window.sum())
-                hr=[float(rets.iloc[j:j+win].sum()) for j in range(0,len(hist)-win,max(1,win//5))]
-                if len(hr)<3: continue
-                mu=float(np.mean(hr)); sd=float(np.std(hr,ddof=1))
-                z=(roll-mu)/sd if sd>1e-9 else None
-                out.append({"Instrument":name,"Ticker":sym,"Last":float(c.iloc[-1]),
-                    "Move%":float(rets.iloc[-1])*100,"Z":z})
-            except Exception: continue
-        out.sort(key=lambda r:-(abs(r["Z"]) if r["Z"] is not None else 0)); return out
-    rows=scan(win)
-    hdr=["Instrument","Tkr","Last","1d%","Z","σ"]
+    # ── Universe: flip segments + search/add individual instruments ──
+    segs=seg_catalog()
+    seg_pick=st.multiselect("Add segments", list(segs.keys()),
+                            default=["Equity Indices","US Sectors"], key=k+"_segs")
+    if k+"_syms" not in st.session_state: st.session_state[k+"_syms"]=[]
+    if _HAS_SEARCHBOX:
+        sel=st_searchbox(search_instruments, placeholder="Search & add an instrument…", key=k+"_sb")
+        if sel and sel not in st.session_state[k+"_syms"]:
+            st.session_state[k+"_syms"].append(sel)
+    import re as _re
+    paste=st.text_input("…or paste tickers (comma separated)", "", key=k+"_paste")
+    pasted=[t.strip() for t in _re.split(r"[,\s]+", paste) if t.strip()]
+    if st.button("Clear added", key=k+"_clear"):
+        st.session_state[k+"_syms"]=[]; st.rerun()
+    items={}
+    for sg in seg_pick: items.update(segs[sg])
+    for sym in list(dict.fromkeys(st.session_state[k+"_syms"]+pasted)): items[sym]=sym
+
+    c1,c2=st.columns(2)
+    yrs=c1.select_slider("Lookback (years)",[1,2,3,5,10],value=10,key=k+"_yr")
+    zper=c2.selectbox("Z-score period",list(_ZPER.keys()),index=2,key=k+"_zp")
+    w=_ZPER[zper]
+    if not items:
+        st.info("Add segments or instruments above to scan."); return
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs))
+    rows=[]
+    with st.spinner(f"Scanning {len(items)} instruments…"):
+        for name,sym in items.items():
+            c=md_history(sym)
+            if c.empty: continue
+            c=c[c.index>=cutoff]
+            if len(c)<w+5: continue
+            r=(c.pct_change(w).dropna())*100          # w-period returns over lookback
+            if len(r)<5: continue
+            cur=float(r.iloc[-1]); mu=float(r.mean()); sd=float(r.std(ddof=1))
+            z=(cur-mu)/sd if sd>1e-9 else None
+            rows.append({"Instrument":name,"Ticker":sym,"Last":float(c.iloc[-1]),
+                         "Ret%":cur,"Avg%":mu,"Z":z})
+    rows.sort(key=lambda r:-(abs(r["Z"]) if r["Z"] is not None else 0))
+    hdr=["Instrument","Tkr","Last",f"{zper} Ret%",f"{zper} Avg%","Z","σ"]
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
     for r in rows:
         z=r["Z"]; az=abs(z) if z is not None else 0
-        zc=RED if az>=2 else (YELLOW if az>=1 else TEXT2); flag=f"{az:.1f}σ" if az>=1 else ""
-        mv=r["Move%"]; mc=GREEN if mv>=0 else RED
+        zc=RED if az>=2 else (YELLOW if az>=1 else TEXT2); flag=f"{az:+.1f}σ" if az>=1 else ""
+        rcl=GREEN if r["Ret%"]>=0 else RED
         h+=(f"<tr><td>{r['Instrument']}</td><td style='color:{TEXT3}'>{r['Ticker']}</td>"
-            f"<td>{f_price(r['Last'],r['Instrument'])}</td><td style='color:{mc}'>{mv:+.2f}%</td>"
+            f"<td>{f_price(r['Last'],r['Instrument'])}</td>"
+            f"<td style='color:{rcl}'>{r['Ret%']:+.2f}%</td>"
+            f"<td style='color:{TEXT2}'>{r['Avg%']:+.2f}%</td>"
             f"<td style='color:{zc}'>{(f'{z:+.2f}' if z is not None else '—')}</td>"
             f"<td style='color:{zc}'>{flag}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption(f"Z = (latest {zper} return − mean {zper} return over {yrs}y) ÷ {yrs}y std. "
+               f"Red ≥ |2σ| extreme move vs history.")
     dl(pd.DataFrame(rows),"Export","JAWS_scanner.xlsx",k+"_dl")
 
+def panel_rolling_returns(k):
+    chosen=ticker_picker(k, ["S&P 500"])
+    c1,c2,c3=st.columns(3)
+    win=int(c1.number_input("Rolling return window (days)", min_value=5, max_value=756,
+                            value=63, step=1, key=k+"_w"))
+    yrs=c2.select_slider("Lookback (years)",[1,2,3,5,10],value=5,key=k+"_yr")
+    bands=c3.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
+    for i,(label,sym) in enumerate(chosen.items()):
+        c=md_history(sym)
+        if c.empty: continue
+        rr=(c.pct_change(win).dropna())*100; rr=rr[rr.index>=cutoff]
+        if rr.empty: continue
+        col=PALETTE[i%len(PALETTE)]
+        fig.add_trace(go.Scatter(x=rr.index,y=rr.values,mode="lines",name=label,
+            line=dict(color=col,width=1.6))); exp[label]=rr
+        if bands:
+            mu=float(rr.mean()); sd=float(rr.std())
+            for yv,tag in [(mu,"avg"),(mu+2*sd,"+2σ"),(mu-2*sd,"-2σ")]:
+                fig.add_hline(y=yv, line=dict(color=col,dash="dot",width=1),
+                              annotation_text=f"{label} {tag}", annotation_font_size=9)
+    fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+    st.plotly_chart(base_layout(fig,f"Rolling {win}-day total return (%)","%",h=320),
+                    use_container_width=True, key=k+"_chart")
+    if exp:
+        df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
+        dl(df,"Export","JAWS_rolling_returns.xlsx",k+"_dl")
+
 def panel_news(k):
-    flt=st.radio("Filter",["All","HF","IPO","M&A","ISS"],horizontal=True,key=k+"_f")
-    with st.spinner("Fetching news…"):
-        try: allnews=news_data()
-        except Exception as e: allnews={}; st.error(f"News error: {e}")
+    with st.spinner("Fetching markets news…"):
+        try: items=markets_news()
+        except Exception as e: items=[]; st.error(f"News error: {e}")
     scored=[]
-    for cat,items in allnews.items():
-        for it in items:
-            src=(it.get("source") or it.get("publisher") or "").lower()
-            w=max((v for kk,v in NEWS_WEIGHT.items() if kk in src), default=3)
-            scored.append((w,cat,it))
-    scored.sort(key=lambda x:(x[0],x[2].get("published","") or ""),reverse=True)
-    st.markdown(f'<div style="max-height:430px;overflow:auto;">', unsafe_allow_html=True)
-    shown=0
-    for rank,(score,cat,it) in enumerate(scored):
-        lbl=CAT_LABELS.get(cat,cat.upper())
-        if flt!="All" and lbl!=flt: continue
-        if shown>=60: break
-        title=it.get("title") or it.get("headline") or "(no title)"
-        url=it.get("url") or it.get("link") or "#"
-        src=it.get("source") or it.get("publisher") or "Unknown"
-        pub=(it.get("published") or it.get("date") or "")[:16]; col=CAT_COLORS.get(cat,TEXT2)
+    for it in items:
+        src=(it.get("source") or "").lower()
+        w=max((v for kk,v in NEWS_WEIGHT.items() if kk in src), default=4)
+        scored.append((w,it))
+    scored.sort(key=lambda x:(x[0], x[1].get("published","") or ""), reverse=True)
+    st.markdown('<div style="max-height:440px;overflow:auto;">', unsafe_allow_html=True)
+    for rank,(w,it) in enumerate(scored[:90]):
+        title=it.get("title") or "(no title)"
+        url=it.get("url") or "#"; src=it.get("source") or "Unknown"
+        pub=(it.get("published") or "")[:16]
         st.markdown(f'<div style="background:{CARD2};border:1px solid {BORDER};border-radius:5px;'
             f'padding:6px 9px;margin-bottom:6px;">'
             f'<span style="color:{TEXT3};font-family:Consolas;font-size:10px;">#{rank+1}</span> '
-            f'<span style="background:{col};color:{BG};font-family:Consolas;font-size:9px;'
-            f'font-weight:700;padding:1px 4px;border-radius:3px;">{lbl}</span> '
-            f'<span style="color:{col};font-weight:600;font-size:12px;">{src}</span> '
+            f'<span style="color:{ACCENT};font-weight:600;font-size:12px;">{src}</span> '
             f'<span style="color:{TEXT3};font-size:10px;">{pub}</span><br>'
             f'<a href="{url}" target="_blank" style="color:{TEXT1};text-decoration:none;font-size:13px;">'
             f'{title}</a></div>', unsafe_allow_html=True)
-        shown+=1
     st.markdown("</div>", unsafe_allow_html=True)
-    if shown==0: st.info("No stories (check NEWS_API_KEY in app secrets).")
+    if not scored: st.info("No stories available right now.")
 
 def panel_valuation(k):
     # ── Current multiples cross-section ──
@@ -1199,7 +1284,8 @@ def seg_catalog():
             "Factor ETFs":dict(md.FACTORS),"Commodities":dict(md.COMMODITIES),"US Sectors":dict(md.SECTORS),
             "Hedge Funds":dict(getattr(md,"HEDGE_FUNDS",{})),
             "Risk Premia":dict(getattr(md,"RISK_PREMIA",{})),
-            "AQR Strategies":dict(getattr(md,"AQR_FUNDS",{}))}
+            "AQR Strategies":dict(getattr(md,"AQR_FUNDS",{})),
+            "Crypto":dict(getattr(md,"CRYPTO",{}))}
 
 def _corr_change_series(kind, payload, freq):
     """Return a period-change series (returns for prices/factors, diff for levels)."""
@@ -1471,7 +1557,7 @@ def panel_exporter():
 RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility","FX":"fx",
              "Fixed Income":"fixed_income","Municipals":"munis","Factor ETFs":"factors",
              "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds",
-             "Risk Premia":"risk_premia","AQR Strategies":"aqr"}
+             "Risk Premia":"risk_premia","AQR Strategies":"aqr","Crypto":"crypto"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
 TABLE_TABS=list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]
@@ -1565,6 +1651,7 @@ with r2[1]:
             with st.expander("details"): st.code(_tb.format_exc())
 
 # ── Full-width sections ──
+_sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
 _sec("SCAN","Market Scanner", panel_scanner, "secscan")

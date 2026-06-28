@@ -278,6 +278,21 @@ AQR_FUNDS = {
     "Risk Parity (QRPRX)":           "QRPRX",
 }
 
+# Crypto
+CRYPTO = {
+    "Bitcoin (BTC)":    "BTC-USD",
+    "Ethereum (ETH)":   "ETH-USD",
+    "Solana (SOL)":     "SOL-USD",
+    "XRP (XRP)":        "XRP-USD",
+    "BNB (BNB)":        "BNB-USD",
+    "Cardano (ADA)":    "ADA-USD",
+    "Dogecoin (DOGE)":  "DOGE-USD",
+    "Avalanche (AVAX)": "AVAX-USD",
+    "Chainlink (LINK)": "LINK-USD",
+    "Polkadot (DOT)":   "DOT-USD",
+    "Litecoin (LTC)":   "LTC-USD",
+}
+
 
 def _start_dates():
     today = datetime.date.today()
