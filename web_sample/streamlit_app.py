@@ -428,8 +428,11 @@ def dl(df, label, fname, key):
 
 def base_layout(fig, title, ysuffix="", h=330):
     fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=CARD,
-        height=h, margin=dict(l=44,r=14,t=40,b=28), title=dict(text=title,font=dict(size=13)),
-        font=dict(family="Consolas",color=TEXT2,size=11), legend=dict(bgcolor=CARD2,font=dict(size=10)))
+        height=h, margin=dict(l=44,r=14,t=58,b=28), title=dict(text=title,font=dict(size=13)),
+        font=dict(family="Consolas",color=TEXT2,size=11), showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0,
+                    bgcolor="rgba(28,33,40,0.92)", bordercolor=ACCENT, borderwidth=1,
+                    font=dict(size=11, color=TEXT1)))
     fig.update_xaxes(gridcolor=BORDER); fig.update_yaxes(gridcolor=BORDER,ticksuffix=ysuffix)
     return fig
 
@@ -634,8 +637,8 @@ def panel_chart(k):
                 "5Y":date.today()-relativedelta(years=5),"10Y":date.today()-relativedelta(years=10)}[per]
         cend=date.today()
     single = len(picks)==1
-    mode=c2.radio("Type",["Line","Bar"],horizontal=True,key=k+"_mode",disabled=not single)
-    dt=c3.radio("Data",["Price","Returns"],horizontal=True,key=k+"_dt",disabled=not single)
+    mode=c2.radio("Type",["Bar","Line"],horizontal=True,key=k+"_mode",disabled=not single)
+    dt=c3.radio("Data",["Returns","Price"],horizontal=True,key=k+"_dt",disabled=not single)
     fig=go.Figure(); exp={}
     for i,nm in enumerate(picks):
         sym=full.get(nm,nm)
@@ -646,7 +649,10 @@ def panel_chart(k):
         col=PALETTE[i%len(PALETTE)]
         if single and mode=="Bar":
             m=c.resample("ME").last().pct_change().dropna()*100
-            fig.add_trace(go.Bar(x=m.index,y=m.values,marker_color=[GREEN if v>=0 else RED for v in m.values]))
+            fig.add_trace(go.Bar(x=m.index,y=m.values,name=f"{nm} monthly %",
+                marker_color=[GREEN if v>=0 else RED for v in m.values],
+                text=[f"{v:+.1f}" for v in m.values], textposition="outside",
+                textfont=dict(size=9,color=TEXT1), cliponaxis=False))
             exp[nm+" m%"]=m
         elif single and dt=="Price":
             fig.add_trace(go.Scatter(x=c.index,y=c.values,mode="lines",line=dict(color=ACCENT,width=2),
@@ -751,24 +757,26 @@ def panel_curves(k):
     import yield_curve as yc
     opts=st.multiselect("Curves to show",
         ["Treasury (nominal)","TIPS (real)","Municipal (proxy)","Credit by rating"],
-        default=["Treasury (nominal)","TIPS (real)"], key=k+"_sel")
-    hist=st.selectbox("Treasury history overlay", ["None","-1M","-3M","-6M","-1Y","-2Y"], key=k+"_hist")
+        default=["Treasury (nominal)"], key=k+"_sel")
+    hist=st.multiselect("Treasury history overlays", ["-1M","-3M","-6M","-1Y","-2Y","-3Y"],
+                        default=["-1M","-3M","-6M","-1Y"], key=k+"_hist")
     fig=go.Figure(); exp={}
     if "Treasury (nominal)" in opts:
         row=_ust_curve(0)
         if row:
             mats=[m for m in yc.MATURITIES if m in _MATX and row["yields"].get(m) is not None]
             xs=[_MATX[m] for m in mats]; ys=[row["yields"][m] for m in mats]
-            fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Treasury",
-                line=dict(color=ACCENT,width=2.2))); exp["Treasury"]=dict(zip(mats,ys))
-        if hist!="None":
-            dmap={"-1M":30,"-3M":91,"-6M":182,"-1Y":365,"-2Y":730}
-            rh=_ust_curve(dmap[hist])
+            fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Today",
+                line=dict(color=ACCENT,width=2.6))); exp["Today"]=dict(zip(mats,ys))
+        dmap={"-1M":30,"-3M":91,"-6M":182,"-1Y":365,"-2Y":730,"-3Y":1095}
+        hcols=[BLUE,GREEN,YELLOW,PURPLE,CYAN,"#ff6b6b"]
+        for hi,hlbl in enumerate(hist):
+            rh=_ust_curve(dmap[hlbl])
             if rh:
                 mats=[m for m in yc.MATURITIES if m in _MATX and rh["yields"].get(m) is not None]
                 fig.add_trace(go.Scatter(x=[_MATX[m] for m in mats],
-                    y=[rh["yields"][m] for m in mats],mode="lines",name=f"Treasury {hist}",
-                    line=dict(color=ACCENT,width=1.3,dash="dot")))
+                    y=[rh["yields"][m] for m in mats],mode="lines",name=hlbl,
+                    line=dict(color=hcols[hi%len(hcols)],width=1.4,dash="dot")))
     if "TIPS (real)" in opts:
         try:
             t=yc.fetch_tips_curve_for_date(datetime.today())
@@ -806,6 +814,54 @@ def panel_curves(k):
         dl(pd.DataFrame(rows), "Export curves", "JAWS_curves.xlsx", k+"_dl")
     st.caption("Foreign sovereign full curves aren't freely available; Treasury/TIPS = US Treasury, "
                "Muni = ETF-proxy, Credit = ICE BofA effective yields.")
+
+# Muni/Treasury ratio: muni ETF (trailing yield) vs Treasury (FRED) by tenor
+_MUNI_RATIO={"Short (SHM ~2-3y)":("SHM","DGS2"),
+             "Core (MUB ~7y)":("MUB","DGS10"),
+             "Long (TFI ~8y)":("TFI","DGS20")}
+@st.cache_data(ttl=1800, show_spinner=False)
+def muni_ust_ratio_series(muni_etf, tsy_fred):
+    import yfinance as yf, fi_spreads as fs
+    try:
+        tk=yf.Ticker(muni_etf)
+        h=tk.history(period="10y", auto_adjust=False)
+        if h.empty: return None
+        if h.index.tz is not None: h.index=h.index.tz_localize(None)
+        px=h["Close"]
+        dd=h["Dividends"] if "Dividends" in h.columns else pd.Series(0.0,index=px.index)
+        muni=(dd.rolling(252,min_periods=60).sum()/px)*100          # trailing-12m yield %
+        d,v=fs._fred_fetch_all(tsy_fred)
+        if not d: return None
+        tsy=pd.Series(v,index=pd.to_datetime(d)).reindex(px.index, method="ffill")
+        return (muni/tsy*100).dropna()
+    except Exception:
+        return None
+
+def panel_muni_ratio(k):
+    tenors=st.multiselect("Tenor (muni ETF ÷ Treasury)", list(_MUNI_RATIO.keys()),
+                          default=["Core (MUB ~7y)"], key=k+"_t")
+    yrs=st.select_slider("Lookback (years)",[3,5,10],value=10,key=k+"_yr")
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
+    for i,t in enumerate(tenors):
+        etf,fred=_MUNI_RATIO[t]
+        r=muni_ust_ratio_series(etf,fred)
+        if r is None or r.empty: continue
+        r=r[r.index>=cutoff]
+        if r.empty: continue
+        col=PALETTE[i%len(PALETTE)]
+        fig.add_trace(go.Scatter(x=r.index,y=r.values,mode="lines",name=t,
+            line=dict(color=col,width=1.6))); exp[t]=r
+        mu=float(r.mean()); sd=float(r.std())
+        for yv,tag in [(mu,"avg"),(mu+2*sd,"+2σ (cheap)"),(mu-2*sd,"-2σ (rich)")]:
+            fig.add_hline(y=yv,line=dict(color=col,dash="dot",width=1),
+                          annotation_text=f"{t} {tag}", annotation_font_size=9)
+    st.plotly_chart(base_layout(fig,"Muni / Treasury yield ratio (%) — ETF proxy","%",h=340),
+                    use_container_width=True, key=k+"_chart")
+    st.caption("Muni yield = ETF trailing-12m distribution ÷ price; ratio = muni ÷ Treasury yield. "
+               "LOW ratio = munis rich/expensive; HIGH (→100%+) = munis cheap vs Treasuries.")
+    if exp:
+        df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
+        dl(df,"Export","JAWS_muni_ust_ratio.xlsx",k+"_dl")
 
 def panel_rvol(k):
     chosen=ticker_picker(k, ["S&P 500"])
@@ -925,15 +981,16 @@ def panel_news(k):
     with st.spinner("Fetching markets news…"):
         try: items=markets_news()
         except Exception as e: items=[]; st.error(f"News error: {e}")
-    # Cap to 5 per source, then rank by source quality + recency
+    # Cap to 3 per source, rank by source quality + recency, show ~24 (compact)
     per={}; capped=[]
     for it in items:
         s=it.get("source","")
-        if per.get(s,0)>=5: continue
+        if per.get(s,0)>=3: continue
         per[s]=per.get(s,0)+1; capped.append(it)
     for it in capped:
         it["_w"]=max((v for kk,v in NEWS_WEIGHT.items() if kk in (it.get("source") or "").lower()), default=4)
     capped.sort(key=lambda it:(it["_w"], it.get("published","") or ""), reverse=True)
+    capped=capped[:24]
     if not capped:
         st.info("No stories available right now."); return
     cols=st.columns(2)
@@ -1648,6 +1705,7 @@ def _sec(tag, title, fn, *a):
 
 # ── Full-width sections (stacked) ──
 _sec("CRV","Curves", panel_curves, "q3")
+_sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
