@@ -534,13 +534,19 @@ def dl(df, label, fname, key):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 def base_layout(fig, title, ysuffix="", h=330):
+    # Title sits in its own band at the very top (left-aligned, bright white);
+    # legend drops below the plot so the two never overlap (esp. on mobile).
     fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=CARD,
-        height=h, margin=dict(l=44,r=14,t=58,b=28), title=dict(text=title,font=dict(size=13)),
-        font=dict(family="Consolas",color=TEXT2,size=11), showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0,
+        height=h, margin=dict(l=48,r=16,t=64,b=70),
+        title=dict(text=title, x=0.0, xanchor="left", xref="paper",
+                   y=0.97, yanchor="top", yref="container",
+                   font=dict(size=15, color="#ffffff"), pad=dict(l=6,t=4)),
+        font=dict(family="Consolas",color=TEXT1,size=11), showlegend=True,
+        legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.0, xanchor="left",
                     bgcolor="rgba(28,33,40,0.92)", bordercolor=ACCENT, borderwidth=1,
                     font=dict(size=11, color=TEXT1)))
-    fig.update_xaxes(gridcolor=BORDER); fig.update_yaxes(gridcolor=BORDER,ticksuffix=ysuffix)
+    fig.update_xaxes(gridcolor=BORDER, color=TEXT1)
+    fig.update_yaxes(gridcolor=BORDER, ticksuffix=ysuffix, color=TEXT1)
     return fig
 
 # ── Valuation data ──────────────────────────────────────────────
