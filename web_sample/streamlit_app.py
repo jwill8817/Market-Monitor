@@ -434,25 +434,37 @@ _MKT_FEEDS={
     "The Economist":  "https://www.economist.com/finance-and-economics/rss.xml",
     "Guardian":       "https://www.theguardian.com/uk/business/rss",
 }
+def _entry_ts(e):
+    """UTC epoch seconds from a feedparser entry's normalized time, or None."""
+    import calendar
+    pp=e.get("published_parsed") or e.get("updated_parsed")
+    if pp:
+        try: return calendar.timegm(pp)
+        except Exception: return None
+    return None
+
 @st.cache_data(ttl=900, show_spinner=False)
 def markets_news():
-    """Top markets/finance stories from major outlets (RSS) + NewsAPI business."""
-    import feedparser
-    out=[]; seen=set()
+    """Top markets/finance stories from major outlets (RSS) + NewsAPI business.
+    Each item carries a UTC 'ts' (epoch) so dates can be filtered/normalized."""
+    import feedparser, time as _t
+    out=[]; seen=set(); now=_t.time()
     for src,url in _MKT_FEEDS.items():
         try:
             f=feedparser.parse(url)
-            for e in f.entries[:6]:
+            for e in f.entries[:10]:
                 title=(e.get("title") or "").strip()
                 if not title or title.lower() in seen: continue
+                ts=_entry_ts(e)
+                if ts and ts>now+6*3600: ts=now   # clamp obviously-future timestamps
                 seen.add(title.lower())
-                out.append({"source":src,"title":title,"url":e.get("link",""),
-                            "published":e.get("published","") or e.get("updated","")})
+                out.append({"source":src,"title":title,"url":e.get("link",""),"ts":ts})
         except Exception: pass
     key=os.environ.get("NEWS_API_KEY","")
     if key:
         try:
             import urllib.request, json
+            from datetime import datetime
             url=("https://newsapi.org/v2/top-headlines?category=business&language=en"
                  f"&pageSize=40&apiKey={key}")
             req=urllib.request.Request(url, headers={"User-Agent":"JAWS/1.0"})
@@ -462,11 +474,24 @@ def markets_news():
                 title=(a.get("title") or "").strip()
                 if not title or title.lower() in seen: continue
                 seen.add(title.lower())
+                ts=None
+                try: ts=datetime.fromisoformat((a.get("publishedAt") or "").replace("Z","+00:00")).timestamp()
+                except Exception: pass
                 out.append({"source":(a.get("source") or {}).get("name","NewsAPI"),
-                            "title":title,"url":a.get("url",""),
-                            "published":a.get("publishedAt","")})
+                            "title":title,"url":a.get("url",""),"ts":ts})
         except Exception: pass
     return out
+
+def _fmt_age(ts, now):
+    """Human, timezone-safe relative date label."""
+    if not ts: return ""
+    import datetime as _dt
+    d=now-ts
+    if d<0: d=0
+    if d<3600:   return "just now" if d<300 else f"{int(d//60)}m ago"
+    if d<86400:  return f"{int(d//3600)}h ago"
+    if d<2*86400:return "Yesterday"
+    return _dt.datetime.utcfromtimestamp(ts).strftime("%b %d")
 
 # Credit curve by rating (latest effective yield from FRED)
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -1186,32 +1211,40 @@ def panel_rolling_returns(k):
         dl(df,"Export","JAWS_rolling_returns.xlsx",k+"_dl")
 
 def panel_news(k):
+    import time as _t
     with st.spinner("Fetching markets news…"):
         try: items=markets_news()
         except Exception as e: items=[]; st.error(f"News error: {e}")
-    # Cap to 3 per source, rank by source quality + recency, show ~24 (compact)
+    now=_t.time()
+    # Keep today/yesterday (last ~36h). If feeds carried no usable dates, don't
+    # drop everything — fall back to the full list so the section never goes blank.
+    dated=[it for it in items if it.get("ts")]
+    recent=[it for it in dated if (now-it["ts"])<=36*3600]
+    pool=recent or dated or items
+    # Cap to 3 per source, then rank newest-first (proxy for "most read today"),
+    # with source quality as the tie-break.
     per={}; capped=[]
-    for it in items:
+    for it in sorted(pool, key=lambda x: x.get("ts") or 0, reverse=True):
         s=it.get("source","")
         if per.get(s,0)>=3: continue
         per[s]=per.get(s,0)+1; capped.append(it)
     for it in capped:
         it["_w"]=max((v for kk,v in NEWS_WEIGHT.items() if kk in (it.get("source") or "").lower()), default=4)
-    capped.sort(key=lambda it:(it["_w"], it.get("published","") or ""), reverse=True)
-    capped=capped[:24]
+    capped.sort(key=lambda it:(it.get("ts") or 0, it["_w"]), reverse=True)
+    capped=capped[:20]
     if not capped:
-        st.info("No stories available right now."); return
+        st.info("No recent stories available right now."); return
     cols=st.columns(2)
     for i,it in enumerate(capped):
         title=it.get("title") or "(no title)"; url=it.get("url") or "#"
-        src=it.get("source") or "Unknown"; pub=(it.get("published") or "")[:16]
+        src=it.get("source") or "Unknown"; age=_fmt_age(it.get("ts"), now)
         scol=_src_color(src)
         with cols[i%2]:
             st.markdown(f'<div style="background:{CARD2};border:1px solid {BORDER};border-left:3px solid {scol};'
-                f'border-radius:5px;padding:6px 9px;margin-bottom:6px;">'
-                f'<span style="color:{scol};font-weight:700;font-size:12px;">{src}</span> '
-                f'<span style="color:{TEXT3};font-size:10px;">{pub}</span><br>'
-                f'<a href="{url}" target="_blank" style="color:{TEXT1};text-decoration:none;font-size:13px;">'
+                f'border-radius:4px;padding:3px 7px;margin-bottom:4px;line-height:1.25;">'
+                f'<span style="color:{scol};font-weight:700;font-size:10px;">{src}</span>'
+                f'<span style="color:{TEXT3};font-size:9px;"> · {age}</span><br>'
+                f'<a href="{url}" target="_blank" style="color:{TEXT1};text-decoration:none;font-size:12px;">'
                 f'{title}</a></div>', unsafe_allow_html=True)
 
 def panel_valuation(k):
