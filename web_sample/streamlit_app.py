@@ -3,7 +3,7 @@ JW Market & News Monitor — full web app (Streamlit), 4-quadrant dashboard.
 Reuses desktop data modules unchanged. Dark Bloomberg theme + Plotly.
 """
 import os, sys, io
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -2050,11 +2050,19 @@ st.markdown(f"""
 # ════════════════════════════════════════════════════════════════
 # TOP BAR + 4-QUADRANT GRID  (top = data tables, bottom = panels)
 # ════════════════════════════════════════════════════════════════
+def _now_et():
+    """Current time in US Eastern (market) time — the server runs in UTC."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        return datetime.utcnow()-timedelta(hours=4)   # crude EDT fallback
 tb1,tb2,tb3=st.columns([4,1.3,1])
 with tb1:
+    _ts=_now_et().strftime("%a %b %d, %Y · %I:%M %p ET").replace(" 0"," ").replace("·  ","· ")
     st.markdown('<div class="topbar"><span class="jaws-logo">JAWS</span>'
                 '<span class="jaws-title">JW Market &amp; News Monitor</span>'
-                f'<span class="jaws-sub">&nbsp;&nbsp;{datetime.now().strftime("%Y-%m-%d %H:%M")}</span>'
+                f'<span class="jaws-sub">&nbsp;&nbsp;Updated {_ts}</span>'
                 '</div>', unsafe_allow_html=True)
 with tb2:
     st.markdown("<div style='height:34px'></div>", unsafe_allow_html=True)

@@ -13,4 +13,5 @@ openpyxl
 xlrd
 xlsxwriter
 scipy
+tzdata
 streamlit-searchbox==0.1.24
