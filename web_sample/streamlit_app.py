@@ -1071,18 +1071,48 @@ def panel_muni_ratio(k):
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_muni_ust_ratio.xlsx",k+"_dl")
 
+def _is_monthly(s):
+    """True if a price series is (at most) ~monthly frequency."""
+    if s is None or len(s)<3: return False
+    try:
+        gap=s.index.to_series().diff().dt.days.median()
+    except Exception:
+        return False
+    return gap is not None and gap>=20
+
+def _resolve_freq(fmode, series_list):
+    """Decide whether to compute on a monthly grid. Returns (use_monthly, note)."""
+    any_m=any(_is_monthly(s) for s in series_list)
+    if fmode=="Monthly":
+        return True, ""
+    if fmode=="Daily":
+        return False, ("⚠ A selected series is monthly-only — daily view will look sparse. "
+                       "Switch to Monthly/Auto for an apples-to-apples comparison." if any_m else "")
+    if any_m:   # Auto
+        return True, "Auto → Monthly: a selected series is monthly-only, so all series are resampled to month-end."
+    return False, ""
+
 def panel_rvol(k):
     chosen=ticker_picker(k, ["S&P 500"])
-    c1,c2,c3=st.columns([1,1,1])
-    win=int(c1.number_input("Rolling window (days)", min_value=10, max_value=756,
-                            value=63, step=1, key=k+"_w"))
-    yrs=c2.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
-    bands=c3.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
+    series={lbl:md_history(sym) for lbl,sym in chosen.items()}
+    series={lbl:s for lbl,s in series.items() if s is not None and not s.empty}
+    c1,c2,c3,c4=st.columns([1.1,1,1,1])
+    fmode=c1.radio("Frequency",["Auto","Daily","Monthly"],horizontal=True,key=k+"_fm",
+                   help="Monthly resamples every series to month-end so daily and "
+                        "monthly-only series (e.g. factors) line up apples-to-apples.")
+    use_monthly,note=_resolve_freq(fmode, list(series.values()))
+    if use_monthly:
+        win=int(c2.number_input("Window (months)", min_value=2, max_value=60, value=6, step=1, key=k+"_wm"))
+        ann=12**0.5; unit="month"
+    else:
+        win=int(c2.number_input("Window (days)", min_value=10, max_value=756, value=63, step=1, key=k+"_wd"))
+        ann=252**0.5; unit="day"
+    yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
+    bands=c4.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
     fig=go.Figure(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); exp={}
-    for i,(label,sym) in enumerate(chosen.items()):
-        c=md_history(sym)
-        if c.empty: continue
-        rv=(c.pct_change().dropna().rolling(win).std()*(252**0.5)*100).dropna()
+    for i,(label,c) in enumerate(series.items()):
+        if use_monthly: c=c.resample("ME").last().dropna()
+        rv=(c.pct_change().dropna().rolling(win).std()*ann*100).dropna()
         rv=rv[rv.index>=cutoff]
         if rv.empty: continue
         col=PALETTE[i%len(PALETTE)]
@@ -1093,8 +1123,9 @@ def panel_rvol(k):
             for yv,tag in [(mu,"avg"),(mu+2*sd,"+2σ"),(mu-2*sd,"-2σ")]:
                 fig.add_hline(y=yv, line=dict(color=col,dash="dot",width=1),
                               annotation_text=f"{label} {tag}", annotation_font_size=9)
-    st.plotly_chart(base_layout(fig,f"Realized Volatility (annualized) · {win}-day rolling","%",h=320),
+    st.plotly_chart(base_layout(fig,f"Realized Volatility (annualized) · {win}-{unit} rolling","%",h=320),
                     use_container_width=True, key=k+"_chart")
+    if note: st.caption(note)
     if exp:
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_realizedvol.xlsx",k+"_dl")
@@ -1253,15 +1284,22 @@ def panel_custom(k):
 
 def panel_rolling_returns(k):
     chosen=ticker_picker(k, ["S&P 500"])
-    c1,c2,c3=st.columns(3)
-    win=int(c1.number_input("Rolling return window (days)", min_value=5, max_value=756,
-                            value=63, step=1, key=k+"_w"))
-    yrs=c2.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
-    bands=c3.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
+    series={lbl:md_history(sym) for lbl,sym in chosen.items()}
+    series={lbl:s for lbl,s in series.items() if s is not None and not s.empty}
+    c1,c2,c3,c4=st.columns([1.1,1,1,1])
+    fmode=c1.radio("Frequency",["Auto","Daily","Monthly"],horizontal=True,key=k+"_fm",
+                   help="Monthly resamples every series to month-end so daily and "
+                        "monthly-only series (e.g. factors) line up apples-to-apples.")
+    use_monthly,note=_resolve_freq(fmode, list(series.values()))
+    if use_monthly:
+        win=int(c2.number_input("Window (months)", min_value=1, max_value=60, value=6, step=1, key=k+"_wm")); unit="month"
+    else:
+        win=int(c2.number_input("Window (days)", min_value=5, max_value=756, value=63, step=1, key=k+"_wd")); unit="day"
+    yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
+    bands=c4.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
-    for i,(label,sym) in enumerate(chosen.items()):
-        c=md_history(sym)
-        if c.empty: continue
+    for i,(label,c) in enumerate(series.items()):
+        if use_monthly: c=c.resample("ME").last().dropna()
         rr=(c.pct_change(win).dropna())*100; rr=rr[rr.index>=cutoff]
         if rr.empty: continue
         col=PALETTE[i%len(PALETTE)]
@@ -1273,8 +1311,9 @@ def panel_rolling_returns(k):
                 fig.add_hline(y=yv, line=dict(color=col,dash="dot",width=1),
                               annotation_text=f"{label} {tag}", annotation_font_size=9)
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-    st.plotly_chart(base_layout(fig,f"Rolling {win}-day total return (%)","%",h=320),
+    st.plotly_chart(base_layout(fig,f"Rolling {win}-{unit} total return (%)","%",h=320),
                     use_container_width=True, key=k+"_chart")
+    if note: st.caption(note)
     if exp:
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_rolling_returns.xlsx",k+"_dl")
