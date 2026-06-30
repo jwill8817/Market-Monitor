@@ -2100,11 +2100,17 @@ with tb3:
     st.markdown("<div style='height:34px'></div>", unsafe_allow_html=True)
     if st.button("↻ Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
-    auto=st.checkbox("Auto 15m", value=True, key="auto_rf",
-                     help="Re-pull data every 15 minutes automatically.") if _HAS_AUTOREFRESH else False
-if auto:
-    # Rerun every 15 min; cache TTLs (~15m) mean data actually re-fetches.
-    st_autorefresh(interval=15*60*1000, key="auto_refresh_tick")
+    _AUTO_OPTS={"Off":0,"5 min":5,"15 min":15,"30 min":30,"60 min":60}
+    auto_choice=st.selectbox("Auto-refresh", list(_AUTO_OPTS), index=2, key="auto_rf",
+                             help="Re-pull data on this interval automatically.") \
+                if _HAS_AUTOREFRESH else "Off"
+_auto_min=_AUTO_OPTS.get(auto_choice,0) if _HAS_AUTOREFRESH else 0
+if _auto_min>0:
+    # Rerun on the chosen interval; cache TTLs mean data re-fetches when stale.
+    try:
+        st_autorefresh(interval=_auto_min*60*1000, key="auto_refresh_tick")
+    except Exception:
+        pass
 
 r1=st.columns(2)
 with r1[0]:
