@@ -194,6 +194,12 @@ def _auth():
     return False
 if not _auth(): st.stop()
 
+try:
+    from streamlit_autorefresh import st_autorefresh
+    _HAS_AUTOREFRESH=True
+except Exception:
+    _HAS_AUTOREFRESH=False
+
 # ── Formatting ──────────────────────────────────────────────────
 def f_pct(v):
     if v is None: return f'<span style="color:{TEXT3}">—</span>'
@@ -2094,6 +2100,11 @@ with tb3:
     st.markdown("<div style='height:34px'></div>", unsafe_allow_html=True)
     if st.button("↻ Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
+    auto=st.checkbox("Auto 15m", value=True, key="auto_rf",
+                     help="Re-pull data every 15 minutes automatically.") if _HAS_AUTOREFRESH else False
+if auto:
+    # Rerun every 15 min; cache TTLs (~15m) mean data actually re-fetches.
+    st_autorefresh(interval=15*60*1000, key="auto_refresh_tick")
 
 r1=st.columns(2)
 with r1[0]:
