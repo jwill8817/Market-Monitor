@@ -649,6 +649,25 @@ def base_layout(fig, title, ysuffix="", h=330):
     fig.update_yaxes(gridcolor=BORDER, ticksuffix=ysuffix, color=TEXT1)
     return fig
 
+def add_stat_bands(fig, y, color, label, show_avg, show_sd,
+                   avg_tag="avg", up_tag="+2σ", dn_tag="-2σ"):
+    """Overlay independently-toggled mean and ±2σ horizontal bands for a series.
+    show_avg / show_sd are separate booleans so each can be turned on alone."""
+    if not (show_avg or show_sd): return
+    try:
+        v=pd.Series(y).dropna()
+        if len(v)<2: return
+        mu=float(v.mean()); sd=float(v.std())
+    except Exception:
+        return
+    if show_avg:
+        fig.add_hline(y=mu, line=dict(color=color,dash="dot",width=1),
+                      annotation_text=f"{label} {avg_tag}", annotation_font_size=9)
+    if show_sd:
+        for yv,tag in [(mu+2*sd,up_tag),(mu-2*sd,dn_tag)]:
+            fig.add_hline(y=yv, line=dict(color=color,dash="dash",width=1),
+                          annotation_text=f"{label} {tag}", annotation_font_size=9)
+
 # ── Valuation data ──────────────────────────────────────────────
 VAL_INDEX_ETFS={"S&P 500 (SPY)":"SPY","Nasdaq 100 (QQQ)":"QQQ","Russell 2000 (IWM)":"IWM",
     "Dow (DIA)":"DIA","S&P MidCap (MDY)":"MDY","EAFE (EFA)":"EFA","EM (EEM)":"EEM",
@@ -864,6 +883,9 @@ def panel_chart(k):
     single = len(picks)==1
     mode=c2.radio("Type",["Bar","Line"],horizontal=True,key=k+"_mode",disabled=not single)
     dt=c3.radio("Data",["Returns","Price"],horizontal=True,key=k+"_dt",disabled=not single)
+    b1,b2=st.columns(2)
+    show_avg=b1.checkbox("Show average", value=False, key=k+"_avg")
+    show_sd=b2.checkbox("Show ±2σ bands", value=False, key=k+"_sd")
     fig=go.Figure(); exp={}; ends={}
     for i,nm in enumerate(picks):
         sym=full.get(nm,nm)
@@ -880,13 +902,16 @@ def panel_chart(k):
                 text=[f"{v:+.1f}" for v in m.values], textposition="outside",
                 textfont=dict(size=9,color=TEXT1), cliponaxis=False))
             exp[nm+" m%"]=m
+            add_stat_bands(fig, m.values, ACCENT, nm, show_avg, show_sd)
         elif single and dt=="Price":
             fig.add_trace(go.Scatter(x=c.index,y=c.values,mode="lines",line=dict(color=ACCENT,width=2),
                 fill="tozeroy",fillcolor="rgba(247,129,102,0.10)")); exp[nm]=c
+            add_stat_bands(fig, c.values, ACCENT, nm, show_avg, show_sd)
         else:
             base=float(c.iloc[0]); r=(c-base)/base*100
             fig.add_trace(go.Scatter(x=c.index,y=r.values,mode="lines",name=f"{nm} ({r.iloc[-1]:+.1f}%)",
                 line=dict(color=col,width=1.8))); exp[nm+" %"]=r
+            add_stat_bands(fig, r.values, col, nm, show_avg, show_sd)
     suffix="%" if not (single and dt=="Price") else ""
     ttl="Comparison · normalized %" if len(picks)>1 else (picks[0] if picks else "Chart")
     st.plotly_chart(base_layout(fig,f"{ttl} · {per}",suffix,h=320),use_container_width=True,key=k+"_chart")
@@ -1074,7 +1099,10 @@ def muni_ust_ratio_series(muni_etf, tsy_fred):
 def panel_muni_ratio(k):
     tenors=st.multiselect("Tenor (muni ETF ÷ Treasury)", list(_MUNI_RATIO.keys()),
                           default=["Core (MUB ~7y)"], key=k+"_t")
-    yrs=st.select_slider("Lookback (years)",[3,5,10,15,20,25],value=10,key=k+"_yr")
+    cc1,cc2,cc3=st.columns([2,1,1])
+    yrs=cc1.select_slider("Lookback (years)",[3,5,10,15,20,25],value=10,key=k+"_yr")
+    show_avg=cc2.checkbox("Avg", value=True, key=k+"_avg")
+    show_sd=cc3.checkbox("±2σ", value=True, key=k+"_sd")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
     for i,t in enumerate(tenors):
         etf,fred=_MUNI_RATIO[t]
@@ -1085,10 +1113,8 @@ def panel_muni_ratio(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=r.index,y=r.values,mode="lines",name=t,
             line=dict(color=col,width=1.6))); exp[t]=r
-        mu=float(r.mean()); sd=float(r.std())
-        for yv,tag in [(mu,"avg"),(mu+2*sd,"+2σ (cheap)"),(mu-2*sd,"-2σ (rich)")]:
-            fig.add_hline(y=yv,line=dict(color=col,dash="dot",width=1),
-                          annotation_text=f"{t} {tag}", annotation_font_size=9)
+        add_stat_bands(fig, r.values, col, t, show_avg, show_sd,
+                       up_tag="+2σ (cheap)", dn_tag="-2σ (rich)")
     st.plotly_chart(base_layout(fig,"Muni / Treasury yield ratio (%) — ETF proxy","%",h=340),
                     use_container_width=True, key=k+"_chart")
     st.caption("Muni yield = ETF trailing-12m distribution ÷ price; ratio = muni ÷ Treasury yield. "
@@ -1134,7 +1160,8 @@ def panel_rvol(k):
         win=int(c2.number_input("Window (days)", min_value=10, max_value=756, value=63, step=1, key=k+"_wd"))
         ann=252**0.5; unit="day"
     yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
-    bands=c4.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
+    show_avg=c4.checkbox("Avg", value=True, key=k+"_avg")
+    show_sd=c4.checkbox("±2σ", value=True, key=k+"_sd")
     fig=go.Figure(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); exp={}
     for i,(label,c) in enumerate(series.items()):
         if use_monthly: c=c.resample("ME").last().dropna()
@@ -1144,11 +1171,7 @@ def panel_rvol(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=rv.index,y=rv.values,mode="lines",name=label,
             line=dict(color=col,width=1.6))); exp[label]=rv
-        if bands:
-            mu=float(rv.mean()); sd=float(rv.std())
-            for yv,tag in [(mu,"avg"),(mu+2*sd,"+2σ"),(mu-2*sd,"-2σ")]:
-                fig.add_hline(y=yv, line=dict(color=col,dash="dot",width=1),
-                              annotation_text=f"{label} {tag}", annotation_font_size=9)
+        add_stat_bands(fig, rv.values, col, label, show_avg, show_sd)
     st.plotly_chart(base_layout(fig,f"Realized Volatility (annualized) · {win}-{unit} rolling","%",h=320),
                     use_container_width=True, key=k+"_chart")
     if note: st.caption(note)
@@ -1322,7 +1345,8 @@ def panel_rolling_returns(k):
     else:
         win=int(c2.number_input("Window (days)", min_value=5, max_value=756, value=63, step=1, key=k+"_wd")); unit="day"
     yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
-    bands=c4.checkbox("Avg ± 2σ bands", value=True, key=k+"_bands")
+    show_avg=c4.checkbox("Avg", value=True, key=k+"_avg")
+    show_sd=c4.checkbox("±2σ", value=True, key=k+"_sd")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
     for i,(label,c) in enumerate(series.items()):
         if use_monthly: c=c.resample("ME").last().dropna()
@@ -1331,11 +1355,7 @@ def panel_rolling_returns(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=rr.index,y=rr.values,mode="lines",name=label,
             line=dict(color=col,width=1.6))); exp[label]=rr
-        if bands:
-            mu=float(rr.mean()); sd=float(rr.std())
-            for yv,tag in [(mu,"avg"),(mu+2*sd,"+2σ"),(mu-2*sd,"-2σ")]:
-                fig.add_hline(y=yv, line=dict(color=col,dash="dot",width=1),
-                              annotation_text=f"{label} {tag}", annotation_font_size=9)
+        add_stat_bands(fig, rr.values, col, label, show_avg, show_sd)
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
     st.plotly_chart(base_layout(fig,f"Rolling {win}-{unit} total return (%)","%",h=320),
                     use_container_width=True, key=k+"_chart")
@@ -1640,6 +1660,9 @@ def panel_regression():
         bs=rb4.date_input("Series start", value=date.today()-relativedelta(years=10),
                           min_value=date(1950,1,1), key="reg_rbs")
         be=rb5.date_input("Series end", value=date.today(), key="reg_rbe")
+        bb1,bb2=st.columns(2)
+        beta_avg=bb1.checkbox("Beta: show average", value=True, key="reg_rb_avg")
+        beta_sd=bb2.checkbox("Beta: show ±2σ bands", value=True, key="reg_rb_sd")
         for lbl,sym in [("X",bx),("Y",by)]:
             if sym:
                 nm,px=resolve_ticker(sym)
@@ -1671,10 +1694,13 @@ def panel_regression():
         with bcol:
             bf=go.Figure()
             bf.add_trace(go.Scatter(x=rb.index,y=rb.values,mode="lines",line=dict(color=ACCENT,width=1.6)))
-            _bmu=float(rb.mean()); _bsd=float(rb.std())
-            bf.add_hline(y=_bmu,line=dict(color=BLUE,dash="dot"),annotation_text=f"avg {_bmu:.2f}")
-            bf.add_hline(y=_bmu+2*_bsd,line=dict(color=RED,dash="dot"),annotation_text="+2σ")
-            bf.add_hline(y=_bmu-2*_bsd,line=dict(color=GREEN,dash="dot"),annotation_text="-2σ")
+            if beta_avg:
+                bf.add_hline(y=float(rb.mean()),line=dict(color=BLUE,dash="dot"),
+                             annotation_text=f"avg {float(rb.mean()):.2f}")
+            if beta_sd:
+                _bmu=float(rb.mean()); _bsd=float(rb.std())
+                bf.add_hline(y=_bmu+2*_bsd,line=dict(color=RED,dash="dash"),annotation_text="+2σ")
+                bf.add_hline(y=_bmu-2*_bsd,line=dict(color=GREEN,dash="dash"),annotation_text="-2σ")
             bf.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
             base_layout(bf,f"Rolling {w}{unit} Beta · {ylbl} on {xlbl}  (now {rb.iloc[-1]:.2f})",h=290)
             st.plotly_chart(bf, use_container_width=True, key="reg_rbeta")
@@ -1863,6 +1889,9 @@ def panel_corr():
         rs=rc4.date_input("Series start", value=date.today()-relativedelta(years=10),
                           min_value=date(1950,1,1), key="corr_rstart")
         re_=rc5.date_input("Series end", value=date.today(), key="corr_rend")
+        rcb1,rcb2=st.columns(2)
+        rc_avg=rcb1.checkbox("Show average", value=True, key="corr_roll_avg")
+        rc_sd=rcb2.checkbox("Show ±2σ bands", value=True, key="corr_roll_sd")
         # live confirmation
         for lbl,sym in [("A",a),("B",b)]:
             if sym:
@@ -1890,11 +1919,13 @@ def panel_corr():
                 rfig.add_trace(go.Scatter(x=roll.index,y=roll.values,mode="lines",
                     line=dict(color=ACCENT,width=1.6)))
                 rfig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-                _mu=float(roll.mean()); _sd=float(roll.std())
-                rfig.add_hline(y=_mu,line=dict(color=BLUE,dash="dot"),
-                               annotation_text=f"avg {_mu:.2f}")
-                rfig.add_hline(y=_mu+2*_sd,line=dict(color=RED,dash="dot"),annotation_text="+2σ")
-                rfig.add_hline(y=_mu-2*_sd,line=dict(color=GREEN,dash="dot"),annotation_text="-2σ")
+                if rc_avg:
+                    rfig.add_hline(y=float(roll.mean()),line=dict(color=BLUE,dash="dot"),
+                                   annotation_text=f"avg {float(roll.mean()):.2f}")
+                if rc_sd:
+                    _mu=float(roll.mean()); _sd=float(roll.std())
+                    rfig.add_hline(y=_mu+2*_sd,line=dict(color=RED,dash="dash"),annotation_text="+2σ")
+                    rfig.add_hline(y=_mu-2*_sd,line=dict(color=GREEN,dash="dash"),annotation_text="-2σ")
                 base_layout(rfig,f"Rolling {win}-{'mo' if freq=='Monthly' else 'd'} correlation · "
                             f"{a} vs {b}  (now {roll.iloc[-1]:+.2f})", h=300)
                 rfig.update_yaxes(range=[-1,1])
