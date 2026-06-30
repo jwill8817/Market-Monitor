@@ -884,8 +884,10 @@ def panel_chart(k):
     mode=c2.radio("Type",["Bar","Line"],horizontal=True,key=k+"_mode",disabled=not single)
     dt=c3.radio("Data",["Returns","Price"],horizontal=True,key=k+"_dt",disabled=not single)
     b1,b2=st.columns(2)
-    show_avg=b1.checkbox("Show average", value=False, key=k+"_avg")
-    show_sd=b2.checkbox("Show ±2σ bands", value=False, key=k+"_sd")
+    avg_for=b1.multiselect("Show average for", picks, default=[], key=k+"_avg",
+                           help="Pick which series get a mean line.")
+    sd_for=b2.multiselect("Show ±2σ bands for", picks, default=[], key=k+"_sd",
+                          help="Pick which series get ±2σ bands.")
     fig=go.Figure(); exp={}; ends={}
     for i,nm in enumerate(picks):
         sym=full.get(nm,nm)
@@ -902,16 +904,16 @@ def panel_chart(k):
                 text=[f"{v:+.1f}" for v in m.values], textposition="outside",
                 textfont=dict(size=9,color=TEXT1), cliponaxis=False))
             exp[nm+" m%"]=m
-            add_stat_bands(fig, m.values, ACCENT, nm, show_avg, show_sd)
+            add_stat_bands(fig, m.values, ACCENT, nm, nm in avg_for, nm in sd_for)
         elif single and dt=="Price":
             fig.add_trace(go.Scatter(x=c.index,y=c.values,mode="lines",line=dict(color=ACCENT,width=2),
                 fill="tozeroy",fillcolor="rgba(247,129,102,0.10)")); exp[nm]=c
-            add_stat_bands(fig, c.values, ACCENT, nm, show_avg, show_sd)
+            add_stat_bands(fig, c.values, ACCENT, nm, nm in avg_for, nm in sd_for)
         else:
             base=float(c.iloc[0]); r=(c-base)/base*100
             fig.add_trace(go.Scatter(x=c.index,y=r.values,mode="lines",name=f"{nm} ({r.iloc[-1]:+.1f}%)",
                 line=dict(color=col,width=1.8))); exp[nm+" %"]=r
-            add_stat_bands(fig, r.values, col, nm, show_avg, show_sd)
+            add_stat_bands(fig, r.values, col, nm, nm in avg_for, nm in sd_for)
     suffix="%" if not (single and dt=="Price") else ""
     ttl="Comparison · normalized %" if len(picks)>1 else (picks[0] if picks else "Chart")
     st.plotly_chart(base_layout(fig,f"{ttl} · {per}",suffix,h=320),use_container_width=True,key=k+"_chart")
@@ -1099,10 +1101,10 @@ def muni_ust_ratio_series(muni_etf, tsy_fred):
 def panel_muni_ratio(k):
     tenors=st.multiselect("Tenor (muni ETF ÷ Treasury)", list(_MUNI_RATIO.keys()),
                           default=["Core (MUB ~7y)"], key=k+"_t")
-    cc1,cc2,cc3=st.columns([2,1,1])
-    yrs=cc1.select_slider("Lookback (years)",[3,5,10,15,20,25],value=10,key=k+"_yr")
-    show_avg=cc2.checkbox("Avg", value=True, key=k+"_avg")
-    show_sd=cc3.checkbox("±2σ", value=True, key=k+"_sd")
+    yrs=st.select_slider("Lookback (years)",[3,5,10,15,20,25],value=10,key=k+"_yr")
+    b1,b2=st.columns(2)
+    avg_for=b1.multiselect("Show average for", tenors, default=tenors, key=k+"_avg")
+    sd_for=b2.multiselect("Show ±2σ bands for", tenors, default=tenors, key=k+"_sd")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
     for i,t in enumerate(tenors):
         etf,fred=_MUNI_RATIO[t]
@@ -1113,7 +1115,7 @@ def panel_muni_ratio(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=r.index,y=r.values,mode="lines",name=t,
             line=dict(color=col,width=1.6))); exp[t]=r
-        add_stat_bands(fig, r.values, col, t, show_avg, show_sd,
+        add_stat_bands(fig, r.values, col, t, t in avg_for, t in sd_for,
                        up_tag="+2σ (cheap)", dn_tag="-2σ (rich)")
     st.plotly_chart(base_layout(fig,"Muni / Treasury yield ratio (%) — ETF proxy","%",h=340),
                     use_container_width=True, key=k+"_chart")
@@ -1148,7 +1150,7 @@ def panel_rvol(k):
     chosen=ticker_picker(k, ["S&P 500"])
     series={lbl:md_history(sym) for lbl,sym in chosen.items()}
     series={lbl:s for lbl,s in series.items() if s is not None and not s.empty}
-    c1,c2,c3,c4=st.columns([1.1,1,1,1])
+    c1,c2,c3=st.columns([1.2,1,1])
     fmode=c1.radio("Frequency",["Auto","Daily","Monthly"],horizontal=True,key=k+"_fm",
                    help="Monthly resamples every series to month-end so daily and "
                         "monthly-only series (e.g. factors) line up apples-to-apples.")
@@ -1160,8 +1162,10 @@ def panel_rvol(k):
         win=int(c2.number_input("Window (days)", min_value=10, max_value=756, value=63, step=1, key=k+"_wd"))
         ann=252**0.5; unit="day"
     yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
-    show_avg=c4.checkbox("Avg", value=True, key=k+"_avg")
-    show_sd=c4.checkbox("±2σ", value=True, key=k+"_sd")
+    labels=list(series.keys())
+    b1,b2=st.columns(2)
+    avg_for=b1.multiselect("Show average for", labels, default=labels, key=k+"_avg")
+    sd_for=b2.multiselect("Show ±2σ bands for", labels, default=labels, key=k+"_sd")
     fig=go.Figure(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); exp={}
     for i,(label,c) in enumerate(series.items()):
         if use_monthly: c=c.resample("ME").last().dropna()
@@ -1171,7 +1175,7 @@ def panel_rvol(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=rv.index,y=rv.values,mode="lines",name=label,
             line=dict(color=col,width=1.6))); exp[label]=rv
-        add_stat_bands(fig, rv.values, col, label, show_avg, show_sd)
+        add_stat_bands(fig, rv.values, col, label, label in avg_for, label in sd_for)
     st.plotly_chart(base_layout(fig,f"Realized Volatility (annualized) · {win}-{unit} rolling","%",h=320),
                     use_container_width=True, key=k+"_chart")
     if note: st.caption(note)
@@ -1335,7 +1339,7 @@ def panel_rolling_returns(k):
     chosen=ticker_picker(k, ["S&P 500"])
     series={lbl:md_history(sym) for lbl,sym in chosen.items()}
     series={lbl:s for lbl,s in series.items() if s is not None and not s.empty}
-    c1,c2,c3,c4=st.columns([1.1,1,1,1])
+    c1,c2,c3=st.columns([1.2,1,1])
     fmode=c1.radio("Frequency",["Auto","Daily","Monthly"],horizontal=True,key=k+"_fm",
                    help="Monthly resamples every series to month-end so daily and "
                         "monthly-only series (e.g. factors) line up apples-to-apples.")
@@ -1345,8 +1349,10 @@ def panel_rolling_returns(k):
     else:
         win=int(c2.number_input("Window (days)", min_value=5, max_value=756, value=63, step=1, key=k+"_wd")); unit="day"
     yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
-    show_avg=c4.checkbox("Avg", value=True, key=k+"_avg")
-    show_sd=c4.checkbox("±2σ", value=True, key=k+"_sd")
+    labels=list(series.keys())
+    b1,b2=st.columns(2)
+    avg_for=b1.multiselect("Show average for", labels, default=labels, key=k+"_avg")
+    sd_for=b2.multiselect("Show ±2σ bands for", labels, default=labels, key=k+"_sd")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
     for i,(label,c) in enumerate(series.items()):
         if use_monthly: c=c.resample("ME").last().dropna()
@@ -1355,7 +1361,7 @@ def panel_rolling_returns(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=rr.index,y=rr.values,mode="lines",name=label,
             line=dict(color=col,width=1.6))); exp[label]=rr
-        add_stat_bands(fig, rr.values, col, label, show_avg, show_sd)
+        add_stat_bands(fig, rr.values, col, label, label in avg_for, label in sd_for)
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
     st.plotly_chart(base_layout(fig,f"Rolling {win}-{unit} total return (%)","%",h=320),
                     use_container_width=True, key=k+"_chart")
