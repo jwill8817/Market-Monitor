@@ -272,11 +272,44 @@ def custom_labels():
     """{display_label: SYMBOL} for pickers/search."""
     return {f"{v['name']} [{s}]": s for s,v in custom_store().items()}
 
+# ── Academic L/S factors as searchable pseudo-instruments ──────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def factor_price_store():
+    """{PSEUDO_SYM: {'name':label,'prices':price Series}} — every L/S academic
+    factor (Ken French + AQR, incl. Betting-Against-Beta) as a growth-of-100 index
+    so it can be charted/correlated/regressed like any other instrument."""
+    out={}
+    try:
+        data=factor_data()
+    except Exception:
+        return out
+    for sect in ("daily","monthly"):
+        for r in data.get(sect,[]):
+            if r.get("error") or not r.get("raw_dates"): continue
+            prod=1.0; idx=[]
+            for x in r["raw_rets"]:
+                prod*=(1.0+x); idx.append(prod*100.0)
+            s=pd.Series(idx, index=pd.to_datetime(r["raw_dates"])).sort_index()
+            s=s[~s.index.duplicated(keep="last")]
+            tag="D" if r["is_daily"] else "M"
+            out[f"FAC:{r['name']}:{tag}"]={"name":f"{r['name']} ({tag})","prices":s}
+    return out
+def factor_labels():
+    """{display_label: PSEUDO_SYM} for pickers/search."""
+    return {f"{v['name']} [factor]": s for s,v in factor_price_store().items()}
+
 def md_history(sym, start=None, adjusted=True):
-    """Price history. User-uploaded custom identifiers take precedence over remote sources."""
+    """Price history. User-uploaded customs and academic factors take precedence
+    over remote (yfinance) sources."""
     cs=custom_store()
     if sym in cs:
         s=cs[sym]["prices"]
+        if start is not None:
+            s=s[s.index>=pd.Timestamp(start)]
+        return s.copy()
+    fp=factor_price_store()
+    if sym in fp:
+        s=fp[sym]["prices"]
         if start is not None:
             s=s[s.index>=pd.Timestamp(start)]
         return s.copy()
@@ -359,12 +392,16 @@ def search_instruments(term):
     """Type-ahead search: local tool instruments first, then live Yahoo results.
     Returns [(label, symbol), ...] for streamlit-searchbox."""
     if not term or not term.strip(): return []
-    t=term.strip().lower(); seen=set(); out=[]
+    _n=lambda x:(x or "").lower().replace("-"," ")   # hyphen/space-insensitive match
+    t=_n(term.strip()); seen=set(); out=[]
     for lbl,sym in custom_labels().items():        # user uploads first
-        if t in lbl.lower() or t in sym.lower():
+        if t in _n(lbl) or t in _n(sym):
+            if sym not in seen: out.append((lbl, sym)); seen.add(sym)
+    for lbl,sym in factor_labels().items():        # academic L/S factors
+        if t in _n(lbl) or t in _n(sym):
             if sym not in seen: out.append((lbl, sym)); seen.add(sym)
     for name,sym in all_tickers().items():
-        if t in name.lower() or t in sym.lower():
+        if t in _n(name) or t in _n(sym):
             if sym not in seen: out.append((f"{name}  [{sym}]", sym)); seen.add(sym)
     if len(t)>=2:                      # remote search once 2+ chars typed
         for sym,name in yf_search(term.strip()):
@@ -733,7 +770,7 @@ def panel_factors(k):
 def ticker_picker(k, default_labels):
     """Searchable multi-ticker picker. Returns {label: symbol} for the chosen set.
     Lets the user add ANY ticker (typed) or company name (resolved via Yahoo search)."""
-    tmap={**all_tickers(), **custom_labels()}
+    tmap={**all_tickers(), **factor_labels(), **custom_labels()}
     ek=k+"_extra"
     if ek not in st.session_state: st.session_state[ek]={}
     if _HAS_SEARCHBOX:
