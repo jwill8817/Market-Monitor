@@ -764,16 +764,27 @@ def panel_factors(k):
     cend=c2.date_input("Custom end", value=None, key=k+"_ce")
     with st.spinner("Downloading factor data…"):
         fdata=factor_data(cstart, cend)
-    keys=["1D","1W","1M","MTD","QTD","3M","YTD","1Y","3Y","5Y","7Y","10Y","Custom"]
+    # No 1D/1W: academic factors (Ken French/AQR) publish on a ~1-month lag, so a
+    # "1-day" move here is the last available factor day, NOT yesterday — misleading
+    # as a live snapshot. Shortest meaningful window starts at MTD.
+    keys=["MTD","1M","QTD","3M","YTD","1Y","3Y","5Y","7Y","10Y","Custom"]
     FCOLS=["Factor"]+keys
+    # As-of date per section (latest underlying observation)
+    asof={}
+    for sect in ("daily","monthly"):
+        ds=[r["raw_dates"][-1] for r in fdata.get(sect,[]) if r.get("raw_dates")]
+        if ds: asof[sect]=max(ds)
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in FCOLS)+"</tr>"
     for sect,lbl in [("daily","DAILY (Ken French US)"),("monthly","MONTHLY (US/Dev/EM + AQR)")]:
-        h+=f'<tr><td class="jaws-cat" colspan="{len(FCOLS)}">{lbl}</td></tr>'
+        tag=f"  ·  as of {asof[sect]}" if asof.get(sect) else ""
+        h+=f'<tr><td class="jaws-cat" colspan="{len(FCOLS)}">{lbl}{tag}</td></tr>'
         for r in fdata.get(sect,[]):
             if r.get("error"): continue
             w=r["windows"]
             h+="<tr><td>"+r["name"]+"</td>"+"".join(f"<td>{f_pct(w.get(x))}</td>" for x in keys)+"</tr>"
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("Academic factors update on a lag (Ken French ~monthly); 1-day/1-week columns are "
+               "omitted because they would not reflect yesterday's market. See the 'as of' dates above.")
     import factors_data as fd
     allf=[r for s in ("daily","monthly") for r in fdata.get(s,[]) if not r.get("error")]
     names=[r["name"]+(" (D)" if r["is_daily"] else " (M)") for r in allf]
