@@ -298,6 +298,28 @@ def factor_labels():
     """{display_label: PSEUDO_SYM} for pickers/search."""
     return {f"{v['name']} [factor]": s for s,v in factor_price_store().items()}
 
+# ── FRED macro series (yields/spreads/funding/inflation) as instruments ──
+@st.cache_data(ttl=1800, show_spinner=False)
+def macro_price_store():
+    """{PSEUDO_SYM: {'name':label,'prices':level Series}} — every FRED level series
+    shown on the Spreads/Rates/Funding/Inflation tabs, exposed as a plottable
+    instrument so it can be charted/scanned anywhere. Pseudo-symbols start 'FRED:'."""
+    out={}
+    try:
+        cat=tool_series_catalog()
+    except Exception:
+        return out
+    for label,(kind,payload) in cat.items():
+        if kind!="level": continue          # factors handled by factor_price_store
+        ds,vs=payload
+        s=pd.Series(vs, index=pd.to_datetime(ds)).sort_index()
+        s=s[~s.index.duplicated(keep="last")]
+        out[f"FRED:{label}"]={"name":label,"prices":s}
+    return out
+def macro_labels():
+    """{display_label: PSEUDO_SYM} for pickers/search."""
+    return {f"{v['name']} [macro]": s for s,v in macro_price_store().items()}
+
 def md_history(sym, start=None, adjusted=True):
     """Price history. User-uploaded customs and academic factors take precedence
     over remote (yfinance) sources."""
@@ -313,6 +335,13 @@ def md_history(sym, start=None, adjusted=True):
         if start is not None:
             s=s[s.index>=pd.Timestamp(start)]
         return s.copy()
+    if isinstance(sym,str) and sym.startswith("FRED:"):
+        mp=macro_price_store()
+        if sym in mp:
+            s=mp[sym]["prices"]
+            if start is not None:
+                s=s[s.index>=pd.Timestamp(start)]
+            return s.copy()
     return _md_history_remote(sym, start=start, adjusted=adjusted)
 
 def parse_uploaded_series(file, kind):
@@ -398,6 +427,9 @@ def search_instruments(term):
         if t in _n(lbl) or t in _n(sym):
             if sym not in seen: out.append((lbl, sym)); seen.add(sym)
     for lbl,sym in factor_labels().items():        # academic L/S factors
+        if t in _n(lbl) or t in _n(sym):
+            if sym not in seen: out.append((lbl, sym)); seen.add(sym)
+    for lbl,sym in macro_labels().items():         # FRED yields/spreads/funding/inflation
         if t in _n(lbl) or t in _n(sym):
             if sym not in seen: out.append((lbl, sym)); seen.add(sym)
     for name,sym in all_tickers().items():
@@ -770,7 +802,7 @@ def panel_factors(k):
 def ticker_picker(k, default_labels):
     """Searchable multi-ticker picker. Returns {label: symbol} for the chosen set.
     Lets the user add ANY ticker (typed) or company name (resolved via Yahoo search)."""
-    tmap={**all_tickers(), **factor_labels(), **custom_labels()}
+    tmap={**all_tickers(), **factor_labels(), **macro_labels(), **custom_labels()}
     ek=k+"_extra"
     if ek not in st.session_state: st.session_state[ek]={}
     if _HAS_SEARCHBOX:
@@ -1639,7 +1671,10 @@ def _corr_change_series(kind, payload, freq):
     """Return a period-change series (returns for prices/factors, diff for levels)."""
     import fi_spreads as fs
     s=None
-    if kind=="ticker":
+    if isinstance(payload,str) and payload.startswith("FRED:"):
+        kind="level_series"                  # macro pseudo-instrument → diff, not pct
+        s=md_history(payload)
+    elif kind=="ticker":
         s=md_history(payload)
     elif kind=="auto":                       # individual entry: ticker, else FRED
         s=md_history(payload)
@@ -1656,7 +1691,7 @@ def _corr_change_series(kind, payload, freq):
         if freq=="Monthly": s=(1+s).resample("ME").prod()-1
         return s.dropna()                    # periodic return (corr is scale-invariant)
     if freq=="Monthly": s=s.resample("ME").last()
-    chg = s.diff() if kind=="level" else s.pct_change()
+    chg = s.diff() if kind in ("level","level_series") else s.pct_change()
     return chg.dropna()
 
 def panel_corr():
