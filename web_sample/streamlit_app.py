@@ -847,13 +847,14 @@ def panel_chart(k):
     single = len(picks)==1
     mode=c2.radio("Type",["Bar","Line"],horizontal=True,key=k+"_mode",disabled=not single)
     dt=c3.radio("Data",["Returns","Price"],horizontal=True,key=k+"_dt",disabled=not single)
-    fig=go.Figure(); exp={}
+    fig=go.Figure(); exp={}; ends={}
     for i,nm in enumerate(picks):
         sym=full.get(nm,nm)
         c=md_history(sym, start=cstart.strftime("%Y-%m-%d"))
         if c.empty: continue
         c=c[c.index<=pd.Timestamp(cend)]
         if c.empty: continue
+        ends[nm]=c.index[-1].date()
         col=PALETTE[i%len(PALETTE)]
         if single and mode=="Bar":
             m=c.resample("ME").last().pct_change().dropna()*100
@@ -872,6 +873,14 @@ def panel_chart(k):
     suffix="%" if not (single and dt=="Price") else ""
     ttl="Comparison · normalized %" if len(picks)>1 else (picks[0] if picks else "Chart")
     st.plotly_chart(base_layout(fig,f"{ttl} · {per}",suffix,h=320),use_container_width=True,key=k+"_chart")
+    # Flag series whose data ends materially earlier than the most-recent one
+    # (e.g. Ken French daily factors publish on a ~monthly lag).
+    if len(ends)>1:
+        newest=max(ends.values())
+        lagging=[f"{nm} (through {d:%b %d})" for nm,d in ends.items() if (newest-d).days>5]
+        if lagging:
+            st.caption("⏳ Some series update on a lag, so their lines stop earlier: "
+                       + "; ".join(lagging) + ". Academic factors (Ken French) refresh ~monthly.")
     if exp:
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df, "Export chart data", "JAWS_chart.xlsx", k+"_dl")
