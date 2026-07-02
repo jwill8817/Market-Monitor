@@ -1370,6 +1370,81 @@ def panel_rolling_returns(k):
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_rolling_returns.xlsx",k+"_dl")
 
+_PER_START={"MTD":lambda:date.today().replace(day=1),
+            "3M":lambda:date.today()-relativedelta(months=3),
+            "6M":lambda:date.today()-relativedelta(months=6),
+            "YTD":lambda:date.today().replace(month=1,day=1),
+            "1Y":lambda:date.today()-relativedelta(years=1),
+            "3Y":lambda:date.today()-relativedelta(years=3),
+            "5Y":lambda:date.today()-relativedelta(years=5),
+            "10Y":lambda:date.today()-relativedelta(years=10),
+            "20Y":lambda:date.today()-relativedelta(years=20),
+            "Max":lambda:date(1900,1,1)}
+
+def panel_outperf(k):
+    """Outperformance of series A vs series B — rolling excess return or cumulative
+    relative performance, with average/±2σ bands, rolling window, and full-period control."""
+    chosen=ticker_picker(k, ["S&P 500","NASDAQ"])
+    labels=list(chosen.keys())
+    if len(labels)<2:
+        st.info("Pick **two** series above. The **first** is A (target), the **second** is B "
+                "(benchmark). Outperformance = A − B."); return
+    if len(labels)>2:
+        st.caption(f"Using the first two: **A = {labels[0]}**, **B = {labels[1]}** (others ignored).")
+    A,B=labels[0],labels[1]; symA,symB=chosen[A],chosen[B]
+    c1,c2,c3=st.columns([2,1,1])
+    per=c1.select_slider("Period",list(_PER_START)+["Custom"],value="5Y",key=k+"_per")
+    if per=="Custom":
+        d1,d2=st.columns(2)
+        cstart=d1.date_input("Start", value=date.today()-relativedelta(years=5),
+                             min_value=date(1900,1,1), key=k+"_cs")
+        cend=d2.date_input("End", value=date.today(), key=k+"_ce")
+    else:
+        cstart=_PER_START[per](); cend=date.today()
+    basis=c2.radio("Basis",["Rolling","Cumulative"],horizontal=True,key=k+"_basis",
+                   help="Rolling = A's window return minus B's. Cumulative = growth of A "
+                        "relative to B since the start of the period.")
+    fmode=c3.radio("Frequency",["Auto","Daily","Monthly"],horizontal=True,key=k+"_fm")
+    sA=md_history(symA, start=cstart.strftime("%Y-%m-%d"))
+    sB=md_history(symB, start=cstart.strftime("%Y-%m-%d"))
+    if sA is None or sA.empty or sB is None or sB.empty:
+        st.warning("One of the series returned no data for this range."); return
+    sA=sA[sA.index<=pd.Timestamp(cend)]; sB=sB[sB.index<=pd.Timestamp(cend)]
+    use_monthly,note=_resolve_freq(fmode,[sA,sB])
+    if use_monthly:
+        sA=sA.resample("ME").last().dropna(); sB=sB.resample("ME").last().dropna()
+    df=pd.concat([sA.rename("a"),sB.rename("b")],axis=1,join="inner").dropna()
+    if len(df)<3:
+        st.warning("Not enough overlapping data between the two series for this range."); return
+    b1,b2=st.columns(2)
+    show_avg=b1.checkbox("Show average", value=True, key=k+"_avg")
+    show_sd=b2.checkbox("Show ±2σ bands", value=True, key=k+"_sd")
+    fig=go.Figure()
+    if basis=="Rolling":
+        wc=st.columns([1,3])[0]
+        if use_monthly:
+            win=int(wc.number_input("Rolling window (months)",min_value=1,max_value=60,value=6,step=1,key=k+"_wm")); unit="month"
+        else:
+            win=int(wc.number_input("Rolling window (days)",min_value=5,max_value=756,value=63,step=1,key=k+"_wd")); unit="day"
+        out=((df["a"].pct_change(win)-df["b"].pct_change(win)).dropna())*100
+        if out.empty: st.warning("Window too long for the selected period."); return
+        ttl=f"Rolling {win}-{unit} outperformance · {A} − {B} (now {out.iloc[-1]:+.1f}%)"
+    else:
+        rel=((df["a"]/float(df["a"].iloc[0]))/(df["b"]/float(df["b"].iloc[0]))-1.0)*100
+        out=rel.dropna()
+        ttl=f"Cumulative outperformance · {A} vs {B} (now {out.iloc[-1]:+.1f}%)"
+    col=GREEN if out.iloc[-1]>=0 else RED
+    fig.add_trace(go.Scatter(x=out.index,y=out.values,mode="lines",name=f"{A} − {B}",
+        line=dict(color=col,width=1.8),fill="tozeroy",
+        fillcolor="rgba(63,185,80,0.10)" if out.iloc[-1]>=0 else "rgba(248,81,73,0.10)"))
+    fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+    add_stat_bands(fig, out.values, ACCENT, f"{A}−{B}", show_avg, show_sd)
+    st.plotly_chart(base_layout(fig,ttl,"%",h=340),use_container_width=True,key=k+"_chart")
+    st.caption(("Positive = A outperforming B. " )+(note or
+               "Rolling = difference in trailing-window returns; Cumulative = relative growth since period start."))
+    ex=pd.DataFrame({"Date":out.index,f"{A} - {B} (%)":out.values})
+    dl(ex,"Export","JAWS_outperformance.xlsx",k+"_dl")
+
 def panel_news(k):
     import time as _t
     with st.spinner("Fetching markets news…"):
@@ -2173,6 +2248,7 @@ _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
+_sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
 _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
