@@ -2082,7 +2082,11 @@ def panel_regression():
         mfreq=mf1.radio("Frequency",["Monthly","Daily"],horizontal=True,key="mfr_freq")
         ydict=ticker_picker("mfr_y", ["S&P 500"])
         ylabel=list(ydict.keys())[0] if ydict else None
-        xdict=ticker_picker("mfr_x", ["Factor ETFs"] if False else ["US 10Y","Gold"])
+        # Default X = all MONTHLY L/S academic factors from the Factors tab (BAB, QMJ,
+        # Fama-French, momentum, reversals, Dev/EM). Monthly-only avoids daily/monthly
+        # duplicate columns that would be collinear once resampled to a common grid.
+        _fac_default=[l for l in factor_labels() if "(M)" in l]
+        xdict=ticker_picker("mfr_x", _fac_default or ["US 10Y","Gold"])
         d1,d2,d3=st.columns([1,1,1])
         mstart=d1.date_input("Start", value=date.today()-relativedelta(years=5),
                              min_value=date(1950,1,1), key="mfr_start")
