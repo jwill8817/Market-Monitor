@@ -1938,64 +1938,103 @@ def panel_regression():
                     '<span class="jaws-title" style="font-size:15px;">Regression Lab</span> '
                     '<span class="jaws-sub">OLS · any tool data or your own monthly CSV</span>',
                     unsafe_allow_html=True)
-        freq=st.radio("Frequency",["Monthly","Daily"],horizontal=True,key="reg_freq")
-        cX,cY=st.columns(2)
-        with cX: xsrc,xsym,xfred,xfac,xup,xtf=_reg_var_ui("X","reg")
-        with cY: ysrc,ysym,yfred,yfac,yup,ytf=_reg_var_ui("Y","reg")
+        import numpy as np
+        from scipy import stats
+        cf1,cf2,cf3=st.columns([1,1,1])
+        freq=cf1.radio("Frequency",["Monthly","Daily"],horizontal=True,key="reg_freq")
+        use_step=cf2.checkbox("Stepwise elimination", value=False, key="reg_step",
+                              help="Backward-eliminate factors whose p-value exceeds the cutoff.")
+        cutoff=cf3.number_input("p-value cutoff", min_value=0.01, max_value=0.5, value=0.05,
+                                step=0.01, key="reg_cut", disabled=not use_step)
+        ydict=ticker_picker("reg_y", ["S&P 500"])
+        ylabel=list(ydict.keys())[0] if ydict else None
+        st.caption("Dependent variable **Y** above; explanatory variable(s) **X** below. Pick **one X** for a "
+                   "simple regression, or **several** to run multi-factor. Default X = the monthly L/S factors.")
+        _fac_default=[l for l in factor_labels() if "(M)" in l]
+        xdict=ticker_picker("reg_x", _fac_default or ["US 10Y"])
         d1,d2=st.columns(2)
         start=d1.date_input("Start", value=date.today()-relativedelta(years=10),
                             min_value=date(1950,1,1), key="reg_start")
         end=d2.date_input("End", value=date.today(), key="reg_end")
-        sx=_reg_build_series(xsrc,xsym,xfred,xup,xfac,xtf,freq)
-        sy=_reg_build_series(ysrc,ysym,yfred,yup,yfac,ytf,freq)
-        # ── Verify each series resolved correctly ──
-        def _ver(s, label, src, sym, fred, fac=""):
-            who = sym or fred or fac or "uploaded CSV"
-            if s is None or len(s)==0:
-                return False, f"❌ **{label}** — `{who}` returned NO data (check the ticker/id)"
-            return True, (f"✅ **{label}** — `{who}` · {len(s)} pts · "
-                          f"{s.index[0].date()} → {s.index[-1].date()} · last {s.iloc[-1]:.2f}")
-        okx,mx=_ver(sx,"X",xsrc,xsym,xfred,xfac); oky,my=_ver(sy,"Y",ysrc,ysym,yfred,yfac)
-        st.markdown(mx); st.markdown(my)
-        if xtf!=ytf:
-            st.warning(f"⚠ X uses **{xtf}** but Y uses **{ytf}**. For a beta vs an index, set "
-                       f"**both** to *Return %*.")
-        if not okx or not oky:
-            st.error("Fix the series above and re-run."); return
-        df=pd.concat([sx.rename("x"),sy.rename("y")],axis=1,join="inner").dropna()
-        df=df[(df.index>=pd.Timestamp(start))&(df.index<=pd.Timestamp(end))]
-        if len(df)<3:
-            st.error(f"Only {len(df)} overlapping points — widen the date range or check frequency."); return
-        from scipy import stats
-        lr=stats.linregress(df["x"].values, df["y"].values)
-        tstat = lr.slope/lr.stderr if lr.stderr else float("nan")
-        r2=lr.rvalue**2
-        xlbl=f"{xsym or xfred or xfac or 'X'} ({xtf})"; ylbl=f"{ysym or yfred or yfac or 'Y'} ({ytf})"
-        m=st.columns(6)
-        m[0].metric("R²", f"{r2:.3f}")
-        m[1].metric("Beta (slope)", f"{lr.slope:.4f}")
-        m[2].metric("Intercept", f"{lr.intercept:.4f}")
-        m[3].metric("t-stat", f"{tstat:.2f}")
-        m[4].metric("p-value", f"{lr.pvalue:.4f}")
-        m[5].metric("N obs", f"{len(df)}")
-        sig = "significant" if lr.pvalue<0.05 else "not significant"
-        st.caption(f"Correlation r = {lr.rvalue:+.3f} · slope {sig} at 95% · "
-                   f"{df.index[0].date()} → {df.index[-1].date()} · {freq.lower()}")
-        # Scatter + fit
-        import numpy as np
-        fig=go.Figure()
-        fig.add_trace(go.Scatter(x=df["x"],y=df["y"],mode="markers",
-            marker=dict(color=BLUE,size=6,opacity=0.7),name="obs"))
-        xr=np.array([df["x"].min(),df["x"].max()])
-        fig.add_trace(go.Scatter(x=xr,y=lr.intercept+lr.slope*xr,mode="lines",
-            line=dict(color=ACCENT,width=2),name=f"fit  y={lr.slope:.3f}x+{lr.intercept:.2f}"))
-        fig.update_layout(template="plotly_dark",paper_bgcolor=BG,plot_bgcolor=CARD,height=380,
-            margin=dict(l=50,r=20,t=40,b=44),title=dict(text=f"{ylbl}  vs  {xlbl}",font=dict(size=13)),
-            font=dict(family="Consolas",color=TEXT2,size=11),legend=dict(bgcolor=CARD2,font=dict(size=10)))
-        fig.update_xaxes(gridcolor=BORDER,title=xlbl); fig.update_yaxes(gridcolor=BORDER,title=ylbl)
-        st.plotly_chart(fig, use_container_width=True, key="reg_chart")
-        out=df.copy(); out.insert(0,"Date",out.index)
-        dl(out.rename(columns={"x":xlbl,"y":ylbl}), "Export aligned data", "JAWS_regression.xlsx", "reg_dl")
+        if not ylabel or not xdict:
+            st.caption("Select a Y series and at least one X."); return
+        ys=_corr_change_series("auto", ydict[ylabel], freq)
+        xser={lbl:_corr_change_series("auto", sym, freq) for lbl,sym in xdict.items()}
+        xser={l:s for l,s in xser.items() if s is not None and not s.empty}
+        if ys is None or ys.empty or not xser:
+            st.warning("Couldn't resolve the Y series or any X for that setup."); return
+        frame=pd.concat([ys.rename("__Y__")]+[s.rename(l) for l,s in xser.items()],
+                        axis=1, join="inner").dropna()
+        frame=frame[(frame.index>=pd.Timestamp(start))&(frame.index<=pd.Timestamp(end))]
+        Xall=frame.drop(columns="__Y__"); yv=frame["__Y__"]
+        if len(frame)<len(Xall.columns)+3:
+            st.warning(f"Only {len(frame)} overlapping points — widen the range or reduce factors."); return
+        cols=list(Xall.columns)
+        if use_step: cols=_stepwise_backward(yv.values, Xall, cutoff)
+        fit=_ols_fit(yv.values, Xall[cols].values)
+        if fit is None:
+            st.warning("Regression could not be estimated (singular design or too few points)."); return
+        beta=fit["beta"]; tvals=fit["t"]; pvals=fit["p"]
+        hdr=["Term","Beta","t-stat","p-value"]
+        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+        for i,term in enumerate(["Alpha (intercept)"]+cols):
+            sig=GREEN if pvals[i]<0.05 else (YELLOW if pvals[i]<0.10 else TEXT2)
+            h+=(f"<tr><td>{term}</td><td>{beta[i]:+.4f}</td>"
+                f"<td>{tvals[i]:+.2f}</td><td style='color:{sig}'>{pvals[i]:.4f}</td></tr>")
+        st.markdown(h+"</table></div>", unsafe_allow_html=True)
+        m=st.columns(4)
+        m[0].metric("R²", f"{fit['r2']:.3f}")
+        m[1].metric("Adj R²", f"{fit['adj_r2']:.3f}")
+        m[2].metric("N obs", f"{fit['n']}")
+        m[3].metric("Factors", f"{len(cols)}"+(" (stepwise)" if use_step else ""))
+        if use_step and len(cols)<len(Xall.columns):
+            st.caption(f"Stepwise dropped (p > {cutoff}): {', '.join(c for c in Xall.columns if c not in cols)}")
+        # Scatter + fit line — only meaningful for a single X
+        if len(cols)==1:
+            xc=Xall[cols[0]].values
+            fig=go.Figure()
+            fig.add_trace(go.Scatter(x=xc,y=yv.values,mode="markers",
+                marker=dict(color=BLUE,size=6,opacity=0.7),name="obs"))
+            xr=np.array([xc.min(),xc.max()])
+            fig.add_trace(go.Scatter(x=xr,y=beta[0]+beta[1]*xr,mode="lines",
+                line=dict(color=ACCENT,width=2),name=f"fit β={beta[1]:.3f}"))
+            base_layout(fig,f"{ylabel} vs {cols[0]}",h=320)
+            fig.update_xaxes(title=cols[0]); fig.update_yaxes(title=ylabel)
+            st.plotly_chart(fig, use_container_width=True, key="reg_chart")
+
+        # ── Return attribution: factor (β·X) vs idiosyncratic, annualized bars by horizon ──
+        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Return attribution — annualized return split into factor-driven (β·X) vs '
+                    'idiosyncratic (α + residual) over each horizon</span>', unsafe_allow_html=True)
+        ppy=12 if freq=="Monthly" else 252
+        hz=[("1M",21),("1Y",252),("3Y",756),("5Y",1260),("10Y",2520),("Full",None)]
+        if freq=="Monthly": hz=[("1M",1),("1Y",12),("3Y",36),("5Y",60),("10Y",120),("Full",None)]
+        labels=[]; facv=[]; idiov=[]; totv=[]
+        for lbl,N in hz:
+            sub=frame if N is None else (frame.iloc[-N:] if N<=len(frame) else None)
+            if sub is None or len(sub)<1: continue
+            ysub=sub["__Y__"].values; fac=float((sub[cols].values@beta[1:]).sum())
+            tot=float(ysub.sum()); idio=tot-fac; ann=ppy/len(sub)
+            labels.append(lbl); facv.append(fac*ann*100); idiov.append(idio*ann*100); totv.append(tot*ann*100)
+        if labels:
+            bar=go.Figure()
+            bar.add_trace(go.Bar(x=labels,y=facv,name="From factors (β·X)",marker_color=BLUE))
+            bar.add_trace(go.Bar(x=labels,y=idiov,name="Idiosyncratic (α+resid)",marker_color=YELLOW))
+            base_layout(bar,f"{ylabel} — annualized return attribution by horizon","%",h=330)
+            bar.update_layout(barmode="relative")
+            bar.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+            for i,l in enumerate(labels):
+                bar.add_annotation(x=l,y=totv[i],text=f"{totv[i]:+.0f}%",showarrow=False,
+                                   yshift=11 if totv[i]>=0 else -13,font=dict(size=11,color=TEXT1))
+            st.plotly_chart(bar, use_container_width=True, key="reg_attr_bar")
+            atab=pd.DataFrame({"Horizon":labels,"Total ann %":[round(x,1) for x in totv],
+                               "From factors %":[round(x,1) for x in facv],
+                               "Idiosyncratic %":[round(x,1) for x in idiov]})
+            st.caption("Each bar = annualized total return for that horizon, split into **factor-driven** "
+                       "(β·X, blue) and **idiosyncratic** (α + residual, yellow); the label is the total. "
+                       "Betas come from the regression above; horizons longer than the loaded history are "
+                       "skipped. 1M is an annualized single-period read (noisy).")
+            dl(atab, "Export attribution", "JAWS_regression_attribution.xlsx", "reg_attr_dl")
 
         # ── Rolling beta & p-value (own choice menu) ──
         st.divider()
@@ -2070,99 +2109,6 @@ def panel_regression():
             st.plotly_chart(pf, use_container_width=True, key="reg_rp")
         rolldf=pd.DataFrame({"Date":rb.index,"Beta":rb.values,"p_value":rp.values})
         dl(rolldf, "Export rolling beta/p-value", "JAWS_rolling_regression.xlsx", "reg_roll_dl")
-
-        # ── Multi-factor regression + return attribution ──
-        st.divider()
-        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
-                    'Multi-factor OLS — pick a dependent series and several factors; optional '
-                    'stepwise elimination; decomposes return into factor vs idiosyncratic</span>',
-                    unsafe_allow_html=True)
-        import numpy as np
-        mf1,mf2=st.columns([1,2])
-        mfreq=mf1.radio("Frequency",["Monthly","Daily"],horizontal=True,key="mfr_freq")
-        ydict=ticker_picker("mfr_y", ["S&P 500"])
-        ylabel=list(ydict.keys())[0] if ydict else None
-        # Default X = all MONTHLY L/S academic factors from the Factors tab (BAB, QMJ,
-        # Fama-French, momentum, reversals, Dev/EM). Monthly-only avoids daily/monthly
-        # duplicate columns that would be collinear once resampled to a common grid.
-        _fac_default=[l for l in factor_labels() if "(M)" in l]
-        xdict=ticker_picker("mfr_x", _fac_default or ["US 10Y","Gold"])
-        d1,d2,d3=st.columns([1,1,1])
-        mstart=d1.date_input("Start", value=date.today()-relativedelta(years=5),
-                             min_value=date(1950,1,1), key="mfr_start")
-        mend=d2.date_input("End", value=date.today(), key="mfr_end")
-        use_step=d3.checkbox("Stepwise (drop p >)", value=False, key="mfr_step")
-        cutoff=d3.number_input("p-value cutoff", min_value=0.01, max_value=0.5, value=0.05,
-                               step=0.01, key="mfr_cut", disabled=not use_step)
-        if not ylabel or not xdict:
-            st.caption("Select a Y series and at least one X factor.")
-        else:
-            ys=_corr_change_series("auto", ydict[ylabel], mfreq)
-            xser={lbl:_corr_change_series("auto", sym, mfreq) for lbl,sym in xdict.items()}
-            xser={l:s for l,s in xser.items() if s is not None and not s.empty}
-            if ys is None or ys.empty or not xser:
-                st.warning("Couldn't resolve the Y series or any X factor for that setup.")
-            else:
-                frame=pd.concat([ys.rename("__Y__")]+[s.rename(l) for l,s in xser.items()],
-                                axis=1, join="inner").dropna()
-                lo=pd.Timestamp(mstart); hi=pd.Timestamp(mend)
-                frame=frame[(frame.index>=lo)&(frame.index<=hi)]
-                Xdf=frame.drop(columns="__Y__"); yv=frame["__Y__"]
-                if len(frame)<len(Xdf.columns)+3:
-                    st.warning(f"Only {len(frame)} overlapping points — widen the range or reduce factors.")
-                else:
-                    cols=list(Xdf.columns)
-                    if use_step:
-                        cols=_stepwise_backward(yv.values, Xdf, cutoff)
-                    fit=_ols_fit(yv.values, Xdf[cols].values)
-                    if fit is None:
-                        st.warning("Regression could not be estimated (singular / too few points).")
-                    else:
-                        beta=fit["beta"]; tvals=fit["t"]; pvals=fit["p"]
-                        hdr=["Term","Beta","t-stat","p-value"]
-                        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
-                        terms=["Alpha (const)"]+cols
-                        for i,term in enumerate(terms):
-                            sig=GREEN if pvals[i]<0.05 else (YELLOW if pvals[i]<0.10 else TEXT2)
-                            h+=(f"<tr><td>{term}</td><td>{beta[i]:+.4f}</td>"
-                                f"<td>{tvals[i]:+.2f}</td><td style='color:{sig}'>{pvals[i]:.4f}</td></tr>")
-                        st.markdown(h+"</table></div>", unsafe_allow_html=True)
-                        sc=st.columns(4)
-                        sc[0].metric("R²", f"{fit['r2']:.3f}")
-                        sc[1].metric("Adj R²", f"{fit['adj_r2']:.3f}")
-                        sc[2].metric("N obs", f"{fit['n']}")
-                        sc[3].metric("Factors", f"{len(cols)}"+(" (stepwise)" if use_step else ""))
-                        if use_step and len(cols)<len(Xdf.columns):
-                            dropped=[c for c in Xdf.columns if c not in cols]
-                            st.caption(f"Stepwise dropped (p > {cutoff}): {', '.join(dropped)}")
-                        # ── Return attribution: factor-driven vs idiosyncratic ──
-                        alpha=beta[0]
-                        fac_t=Xdf[cols].values @ beta[1:]           # per-period factor return
-                        idio_t=yv.values - fac_t                    # alpha + residual (everything not factor)
-                        tot=float(yv.sum()); facsum=float(fac_t.sum()); idiosum=float(idio_t.sum())
-                        af=go.Figure()
-                        af.add_trace(go.Scatter(x=frame.index,y=np.cumsum(yv.values)*100,mode="lines",
-                            name=f"{ylabel} total", line=dict(color=ACCENT,width=2)))
-                        af.add_trace(go.Scatter(x=frame.index,y=np.cumsum(fac_t)*100,mode="lines",
-                            name="Factor-explained", line=dict(color=BLUE,width=1.6)))
-                        af.add_trace(go.Scatter(x=frame.index,y=np.cumsum(idio_t)*100,mode="lines",
-                            name="Idiosyncratic (α+resid)", line=dict(color=YELLOW,width=1.6)))
-                        af.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-                        base_layout(af,f"Return attribution · {ylabel} = factors + idiosyncratic "
-                                    f"(cumulative, arithmetic)","%",h=300)
-                        st.plotly_chart(af, use_container_width=True, key="mfr_attr")
-                        at=st.columns(3)
-                        share=(lambda x: f"{x/tot*100:+.0f}% of total" if abs(tot)>1e-9 else "—")
-                        at[0].metric("Total return (Σ)", f"{tot*100:+.1f}%")
-                        at[1].metric("From factors", f"{facsum*100:+.1f}%", share(facsum))
-                        at[2].metric("Idiosyncratic", f"{idiosum*100:+.1f}%", share(idiosum))
-                        st.caption("Per-period return = α + Σ(βᵢ·factorᵢ) + residual. **Factor-explained** = "
-                                   "Σ(βᵢ·factorᵢ); **idiosyncratic** = α + residual (everything the factors "
-                                   "don't capture). Cumulatives are arithmetic sums so the parts add to the "
-                                   "total exactly. R² = share of Y's variance explained by the factors.")
-                        expd=pd.DataFrame({"Date":frame.index,f"{ylabel}":yv.values,
-                                           "Factor_explained":fac_t,"Idiosyncratic":idio_t})
-                        dl(expd,"Export attribution","JAWS_multifactor_attribution.xlsx","mfr_dl")
 
 # ════════════════════════════════════════════════════════════════
 # BULK DATA EXPORTER
