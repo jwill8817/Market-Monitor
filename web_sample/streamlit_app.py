@@ -1529,6 +1529,85 @@ def panel_energy_curve(k):
     for p in valid:
         for l,v in curves[p]["points"]: rows.append({"Product":p,"Contract":l,"Price":v})
     dl(pd.DataFrame(rows),"Export","JAWS_futures_curves.xlsx",k+"_dl")
+    # Equity index futures-vs-spot basis (annualized implied carry = financing − dividends)
+    eq={"S&P 500 E-mini (ES)":"^GSPC","Nasdaq-100 E-mini (NQ)":"^IXIC",
+        "Dow E-mini (YM)":"^DJI","Russell 2000 E-mini (RTY)":"^RUT"}
+    eqsel=[p for p in valid if p in eq]
+    if eqsel:
+        st.markdown("**Equity futures basis vs cash index** (annualized implied carry)")
+        bc=st.columns(len(eqsel))
+        for i,p in enumerate(eqsel):
+            pts=curves[p]["points"]; F=pts[0][1]; lbl=pts[0][0]
+            spot=md_history(eq[p]);
+            if spot is None or spot.empty: continue
+            s0=float(spot.iloc[-1]); dte=_days_to_expiry(lbl)
+            basis=(F/s0-1.0)*(365.0/max(dte,1))*100 if s0 else None
+            bc[i].metric(f"{p.split('(')[0].strip()} basis",
+                         f"{basis:+.2f}%" if basis is not None else "—",
+                         help=f"Front {lbl} future {F:,.0f} vs spot {s0:,.0f}, annualized over ~{dte}d. "
+                              "Positive = futures rich (financing > dividends).")
+
+def _days_to_expiry(mon_label):
+    """Approx calendar days to a quarterly contract's 3rd-Friday expiry from its 'Mon YY' label."""
+    try:
+        mon=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].index(mon_label[:3])+1
+        yr=2000+int(mon_label[-2:])
+        d=date(yr,mon,1)
+        # first Friday, then +14 for the 3rd Friday
+        first_fri=1+((4-d.weekday())%7)
+        exp=date(yr,mon,first_fri+14)
+        return max((exp-date.today()).days,1)
+    except Exception:
+        return 30
+
+def panel_commodity_spreads(k):
+    legs_defs={
+        "Brent − WTI ($/bbl)":            (["BZ=F","CL=F"], lambda r: r["BZ=F"]-r["CL=F"], "$/bbl"),
+        "3-2-1 Crack ($/bbl)":            (["RB=F","HO=F","CL=F"],
+                                           lambda r:(2*r["RB=F"]*42+r["HO=F"]*42-3*r["CL=F"])/3, "$/bbl"),
+        "Gasoline Crack (RBOB−WTI)":      (["RB=F","CL=F"], lambda r: r["RB=F"]*42-r["CL=F"], "$/bbl"),
+        "Distillate Crack (HO−WTI)":      (["HO=F","CL=F"], lambda r: r["HO=F"]*42-r["CL=F"], "$/bbl"),
+        "Soybean Crush ($/bu)":           (["ZM=F","ZL=F","ZS=F"],
+                                           lambda r: r["ZM=F"]*0.022+11*r["ZL=F"]/100-r["ZS=F"]/100, "$/bu"),
+        "Gold / Silver ratio":            (["GC=F","SI=F"], lambda r: r["GC=F"]/r["SI=F"], "ratio"),
+        "Corn / Wheat ratio":             (["ZC=F","ZW=F"], lambda r: r["ZC=F"]/r["ZW=F"], "ratio"),
+        "Soybean / Corn ratio":           (["ZS=F","ZC=F"], lambda r: r["ZS=F"]/r["ZC=F"], "ratio"),
+    }
+    name=st.selectbox("Spread / ratio", list(legs_defs), key=k+"_sel")
+    legs,fn,unit=legs_defs[name]
+    c1,c2,c3=st.columns([1.4,1,1])
+    yrs=c1.select_slider("Lookback (years)",[1,2,3,5,10],value=3,key=k+"_yr")
+    show_avg=c2.checkbox("Avg", value=True, key=k+"_avg")
+    show_sd=c3.checkbox("±2σ", value=True, key=k+"_sd")
+    ser={}
+    for s in legs:
+        h=md_history(s)
+        if h is None or h.empty:
+            st.warning(f"Leg {s} unavailable right now — hit ↻ Refresh."); return
+        ser[s]=h
+    df=pd.concat([ser[s].rename(s) for s in legs],axis=1,join="inner").sort_index().dropna()
+    spr=fn(df).dropna()
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); spr=spr[spr.index>=cutoff]
+    if spr.empty:
+        st.warning("No overlapping history for that lookback."); return
+    cur=float(spr.iloc[-1]); mu=float(spr.mean()); sd=float(spr.std())
+    z=(cur-mu)/sd if sd>1e-9 else None
+    fig=go.Figure()
+    fig.add_trace(go.Scatter(x=spr.index,y=spr.values,mode="lines",line=dict(color=ACCENT,width=1.7),name=name))
+    add_stat_bands(fig, spr.values, BLUE, name, show_avg, show_sd)
+    st.plotly_chart(base_layout(fig,f"{name} · now {cur:,.2f} {unit}","",h=320),
+        use_container_width=True, key=k+"_chart")
+    m=st.columns(4)
+    m[0].metric("Current", f"{cur:,.2f}")
+    m[1].metric("Average", f"{mu:,.2f}")
+    m[2].metric("Std dev", f"{sd:,.2f}")
+    m[3].metric("Z-score", f"{z:+.2f}" if z is not None else "—",
+                help="Rich/cheap vs own history: >0 = wide/expensive, <0 = narrow/cheap.")
+    st.caption("Crack = product value − crude (product $/gal × 42 → $/bbl); 3-2-1 = (2·gasoline + 1·distillate "
+               "− 3·crude)/3. Crush ($/bu) = meal×0.022 + oil×11¢ − soybeans. Built from continuous front "
+               "contracts (Yahoo, delayed) — absolute levels carry some roll-timing basis, so the **z-score** "
+               "(rich vs cheap vs history) is the primary read.")
+    dl(pd.DataFrame({"Date":spr.index, name:spr.values}),"Export","JAWS_commodity_spread.xlsx",k+"_dl")
 
 def panel_fed(k):
     import futures_data as fx
@@ -2404,6 +2483,7 @@ _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
 _sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
 _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "secenrg")
+_sec("SPRD","Commodity Spreads (crack · crush · ratios)", panel_commodity_spreads, "secsprd")
 _sec("FED","Fed Rate Expectations & Hike/Cut Odds", panel_fed, "secfed")
 _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
