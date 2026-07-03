@@ -19,7 +19,7 @@ for _k in ("FRED_API_KEY", "NEWS_API_KEY"):
 # Force-reload data modules so deployed code changes always take effect, even when
 # Streamlit reruns the script without restarting the process (avoids stale modules).
 import importlib
-for _m in ("market_data", "fi_spreads", "factors_data", "yield_curve"):
+for _m in ("market_data", "fi_spreads", "factors_data", "yield_curve", "futures_data"):
     try:
         importlib.reload(importlib.import_module(_m))
     except Exception:
@@ -489,6 +489,16 @@ def rates_analytics():   import fi_spreads; return fi_spreads.fetch_rates_analyt
 def funding_analytics(): import fi_spreads; return fi_spreads.fetch_funding_analytics()
 @st.cache_data(ttl=1800, show_spinner=False)
 def inflation_analytics(): import fi_spreads; return fi_spreads.fetch_inflation_analytics()
+@st.cache_data(ttl=1800, show_spinner=False)
+def vix_term(): import futures_data as fx; return fx.fetch_vix_term_structure()
+@st.cache_data(ttl=1800, show_spinner=False)
+def vix_hist(sym): import futures_data as fx; return fx.fetch_vix_history(sym)
+@st.cache_data(ttl=3600, show_spinner=False)
+def energy_curve(): import futures_data as fx; return fx.fetch_energy_curve()
+@st.cache_data(ttl=1800, show_spinner=False)
+def rate_path(): import futures_data as fx; return fx.fetch_rate_expectation_path()
+@st.cache_data(ttl=1800, show_spinner=False)
+def zq_strip_auto(): import futures_data as fx; return fx.fetch_zq_strip()
 @st.cache_data(ttl=3600, show_spinner=False)
 def factor_data(cs=None, ce=None):
     import factors_data as fd; return fd.fetch_factors(custom_start=cs, custom_end=ce)
@@ -1445,6 +1455,123 @@ def panel_outperf(k):
     ex=pd.DataFrame({"Date":out.index,f"{A} - {B} (%)":out.values})
     dl(ex,"Export","JAWS_outperformance.xlsx",k+"_dl")
 
+def panel_vix_term(k):
+    v=vix_term()
+    if v.get("error") or not v["points"]:
+        st.warning(f"VIX term structure unavailable: {v.get('error')}"); return
+    pts=v["points"]
+    fig=go.Figure()
+    fig.add_trace(go.Scatter(x=[d for _,d,_ in pts], y=[x for *_,x in pts],
+        mode="lines+markers+text", text=[f"{x:.1f}" for *_,x in pts], textposition="top center",
+        textfont=dict(size=10,color=TEXT1), line=dict(color=ACCENT,width=2.4), marker=dict(size=8),
+        name="Vol (annualized %)"))
+    fig.update_xaxes(tickvals=[d for _,d,_ in pts], ticktext=[l.split()[0] for l,_,_ in pts])
+    slope=pts[-1][2]-pts[0][2]
+    shape="contango — calm now, more vol priced further out" if slope>0 else "backwardation — near-term stress"
+    st.plotly_chart(base_layout(fig,f"VIX term structure · as of {v['as_of']}  ({shape})","",h=310),
+        use_container_width=True, key=k+"_chart")
+    c1,c2,c3=st.columns([1.4,1,1])
+    yrs=c1.select_slider("Slope history (years)",[1,2,3,5,10],value=3,key=k+"_yr")
+    show_avg=c2.checkbox("Avg",value=True,key=k+"_avg"); show_sd=c3.checkbox("±2σ",value=True,key=k+"_sd")
+    try:
+        a=pd.Series(dict(vix_hist("VIX"))); b=pd.Series(dict(vix_hist("VIX3M")))
+        a.index=pd.to_datetime(a.index); b.index=pd.to_datetime(b.index)
+        d=pd.concat([a.rename("s"),b.rename("l")],axis=1,join="inner").dropna()
+        spr=(d["s"]-d["l"]); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs))
+        spr=spr[spr.index>=cutoff]
+        f2=go.Figure()
+        f2.add_trace(go.Scatter(x=spr.index,y=spr.values,mode="lines",line=dict(color=BLUE,width=1.4),
+            name="VIX − VIX3M"))
+        f2.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+        add_stat_bands(f2, spr.values, ACCENT, "VIX−VIX3M", show_avg, show_sd)
+        st.plotly_chart(base_layout(f2,"Slope: VIX − VIX3M (below 0 = contango/calm; above = inverted/stress)","",h=270),
+            use_container_width=True, key=k+"_slope")
+    except Exception as e:
+        st.caption(f"Slope history unavailable: {e}")
+    st.caption("Constant-maturity CBOE vol indices (free, no futures license). Upward slope = contango "
+               "(a roll cost to hold long volatility); inverted = acute near-term stress.")
+    dl(pd.DataFrame([{"Label":l,"Maturity_days":d,"Vol":x} for l,d,x in pts]),
+       "Export","JAWS_vix_term.xlsx",k+"_dl")
+
+def panel_energy_curve(k):
+    ec=energy_curve()
+    if ec.get("error")=="no_key":
+        st.info("**Energy futures curve needs a free EIA API key** (2-minute setup):\n\n"
+                "1. Register (instant, free): https://www.eia.gov/opendata/register.php\n"
+                "2. On Streamlit Cloud → your app → **Settings → Secrets**, add:\n"
+                "   `EIA_API_KEY = \"your_key_here\"`  (locally: put it in `.env`).\n"
+                "3. Save — WTI crude & Henry Hub gas contracts 1–4 (curve shape + roll yield) appear here.")
+        return
+    if ec.get("error"):
+        st.warning(f"EIA feed unavailable: {ec['error']}"); return
+    prods=[p for p in ec if p!="error" and ec[p].get("contracts")]
+    if not prods:
+        st.warning("No energy contract data returned."); return
+    fig=go.Figure()
+    for i,p in enumerate(prods):
+        cs=ec[p]["contracts"]
+        fig.add_trace(go.Scatter(x=[f"C{n}" for n,_ in cs], y=[val for _,val in cs],
+            mode="lines+markers+text", text=[f"{val:.2f}" for _,val in cs], textposition="top center",
+            textfont=dict(size=10,color=TEXT1), name=p, line=dict(color=PALETTE[i%len(PALETTE)],width=2),
+            marker=dict(size=8)))
+    st.plotly_chart(base_layout(fig,"Energy futures curve · NYMEX settlement (EIA)","",h=320),
+        use_container_width=True, key=k+"_chart")
+    cols=st.columns(len(prods))
+    for i,p in enumerate(prods):
+        ry=ec[p]["roll_yield_pct"]
+        cols[i].metric(f"{p.split('(')[0].strip()} roll yield (ann.)",
+                       f"{ry:+.1f}%" if ry is not None else "—",
+                       help="≈ (C1−C2)/C2 × 12. Negative = contango (roll drag for longs); "
+                            "positive = backwardation (roll gain).")
+    st.caption(f"Contracts 1–4 = successive monthly expiries. Downward (backwardation) → positive roll "
+               f"yield for long futures; upward (contango) → negative. As of {ec[prods[0]].get('as_of')}.")
+
+def panel_fed(k):
+    import futures_data as fx
+    rp=rate_path()
+    if not rp.get("error") and rp["points"]:
+        fig=go.Figure()
+        fig.add_trace(go.Scatter(x=[y for _,y,_ in rp["points"]], y=[val for *_,val in rp["points"]],
+            mode="lines+markers+text", text=[f"{val:.2f}" for *_,val in rp["points"]],
+            textposition="top center", textfont=dict(size=10,color=TEXT1),
+            line=dict(color=ACCENT,width=2.2), marker=dict(size=8), name="Implied avg rate"))
+        if rp["effr"] is not None:
+            fig.add_hline(y=rp["effr"], line=dict(color=TEXT3,dash="dash"),
+                          annotation_text=f"current EFFR {rp['effr']:.2f}%")
+        fig.update_xaxes(tickvals=[y for _,y,_ in rp["points"]], ticktext=[l for l,_,_ in rp["points"]])
+        st.plotly_chart(base_layout(fig,f"Market-implied expected rate path · as of {rp['as_of']}","%",h=290),
+            use_container_width=True, key=k+"_path")
+        st.caption("Approximation from the front Treasury curve + EFFR (embeds term/liquidity premium). "
+                   "Shows expected direction — NOT true meeting-by-meeting probabilities.")
+    st.divider()
+    st.markdown("**Meeting-implied hike/cut probabilities — Fed Funds futures (ZQ)**")
+    strip=zq_strip_auto(); src="live futures key" if strip else None
+    if not strip:
+        st.caption("No futures key configured, so probabilities are computed from a ZQ strip you paste "
+                   "(exact FedWatch method). To automate, add `BARCHART_API_KEY` to secrets. "
+                   "Get ZQ settlements from CME → *30-Day Fed Funds Settlements*.")
+        paste=st.text_area("Paste rows — `YYYY-MM, price`  or  `ZQN26, price` (one per line):",
+                           key=k+"_paste", height=110,
+                           placeholder="2026-07, 96.62\n2026-08, 96.63\n2026-09, 96.75")
+        rows=[]
+        for ln in paste.splitlines():
+            parts=[x.strip() for x in ln.replace("\t",",").split(",") if x.strip()]
+            if len(parts)>=2: rows.append((parts[0],parts[1]))
+        if rows: strip=fx.parse_zq_upload(rows); src="pasted strip"
+    if strip:
+        probs=fx.fedwatch_probabilities(strip)
+        hdr=["Contract month","Implied avg rate","Δ bps","P(move)","Direction"]
+        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+        for r in probs:
+            dc=GREEN if r["direction"]=="cut" else (RED if r["direction"]=="hike" else TEXT2)
+            h+=(f"<tr><td>{r['month']}</td><td>{r['implied_rate']:.3f}%</td>"
+                f"<td style='color:{dc}'>{r['delta_bps']:+.0f}</td>"
+                f"<td>{r['p_move']:.0f}%</td><td style='color:{dc}'>{r['direction']}</td></tr>")
+        st.markdown(h+"</table></div>", unsafe_allow_html=True)
+        st.caption(f"Source: {src}. Month-over-month FedWatch approximation (Δ implied avg rate ÷ 25bp; "
+                   "implied rate = 100 − ZQ price). A meeting-date-weighted refinement is the exact CME method.")
+        dl(pd.DataFrame(probs),"Export","JAWS_fed_probs.xlsx",k+"_dl")
+
 def panel_news(k):
     import time as _t
     with st.spinner("Fetching markets news…"):
@@ -2250,6 +2377,9 @@ _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
+_sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
+_sec("ENRG","Energy Futures Curve & Roll Yield", panel_energy_curve, "secenrg")
+_sec("FED","Fed Rate Expectations & Hike/Cut Odds", panel_fed, "secfed")
 _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
 # Self-headed analytical sections
