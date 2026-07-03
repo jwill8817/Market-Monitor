@@ -1496,10 +1496,12 @@ def panel_vix_term(k):
 def panel_energy_curve(k):
     import futures_data as fx
     opts=list(fx.CURVE_PRODUCTS.keys())
-    c1,c2=st.columns([3,1])
-    sel=c1.multiselect("Futures", opts,
-                       default=["WTI Crude ($/bbl)","Nat Gas ($/MMBtu)","Gold ($/oz)"], key=k+"_sel")
+    c1,c2,c3=st.columns([3,1,1])
+    sel=c1.multiselect("Futures", opts, default=["WTI Crude ($/bbl)"], key=k+"_sel")
     n=int(c2.select_slider("Months out",[6,9,12,18,24],value=12,key=k+"_n"))
+    dual=c3.checkbox("2nd on right axis", value=False, key=k+"_dual",
+                     help="Plot the second selected contract on a separate right-hand axis "
+                          "(useful when two markets have very different price scales).")
     if not sel:
         st.info("Pick one or more futures to plot the curve."); return
     curves=commodity_curves(tuple(sel), n)
@@ -1507,13 +1509,18 @@ def panel_energy_curve(k):
     for i,p in enumerate(sel):
         pts=(curves.get(p) or {}).get("points") or []
         if len(pts)<2: continue
+        onR = dual and len(valid)==1          # second plotted series → right axis
         valid.append(p)
         fig.add_trace(go.Scatter(x=[l for l,_ in pts], y=[v for _,v in pts], mode="lines+markers",
-            name=p, line=dict(color=PALETTE[i%len(PALETTE)],width=2), marker=dict(size=6)))
+            name=p+(" (R)" if onR else ""), line=dict(color=PALETTE[i%len(PALETTE)],width=2),
+            marker=dict(size=6), yaxis="y2" if onR else "y"))
     if not valid:
         st.warning("No contract data returned right now — hit ↻ Refresh."); return
-    st.plotly_chart(base_layout(fig,"Futures curves · dated NYMEX/COMEX/CBOT contracts","",h=340),
-        use_container_width=True, key=k+"_chart")
+    base_layout(fig,"Futures curves · dated NYMEX/COMEX/CBOT contracts","",h=340)
+    if dual and len(valid)>=2:
+        fig.update_layout(yaxis2=dict(overlaying="y", side="right", gridcolor=BORDER,
+                                      color=TEXT1, tickfont=dict(color=TEXT1)))
+    st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     cols=st.columns(len(valid))
     for i,p in enumerate(valid):
         ry=curves[p]["roll_yield_pct"]
@@ -1891,6 +1898,39 @@ def _reg_var_ui(side, k):
                         index=1, key=f"{k}_{side}_tf")
     return src,sym,fred,fac,up,tf
 
+def _ols_fit(y, X):
+    """OLS with intercept. X: (n,k) design WITHOUT constant. Returns coeffs, t, p, R²,
+    fitted, residuals — no statsmodels dependency (numpy + scipy)."""
+    import numpy as np
+    from scipy import stats
+    y=np.asarray(y,float); X=np.atleast_2d(np.asarray(X,float))
+    if X.shape[0]!=len(y): X=X.T
+    n=len(y); Xd=np.column_stack([np.ones(n), X]); k=Xd.shape[1]
+    if n<=k: return None
+    beta,_,_,_=np.linalg.lstsq(Xd,y,rcond=None)
+    resid=y-Xd@beta; sse=float(resid@resid); dof=n-k
+    try: XtX_inv=np.linalg.inv(Xd.T@Xd)
+    except np.linalg.LinAlgError: return None
+    se=np.sqrt(np.maximum(np.diag((sse/dof)*XtX_inv),0)); se[se==0]=1e-12
+    t=beta/se; p=2*(1-stats.t.cdf(np.abs(t),dof))
+    sst=float(((y-y.mean())**2).sum()); r2=1-sse/sst if sst>0 else 0.0
+    adj=1-(1-r2)*(n-1)/dof if dof>0 else r2
+    return {"beta":beta,"se":se,"t":t,"p":p,"resid":resid,"fitted":Xd@beta,
+            "r2":r2,"adj_r2":adj,"n":n,"dof":dof}
+
+def _stepwise_backward(y, Xdf, cutoff):
+    """Backward elimination: drop the least-significant factor while its p-value > cutoff."""
+    import numpy as np
+    cols=list(Xdf.columns)
+    while len(cols)>1:
+        fit=_ols_fit(y, Xdf[cols].values)
+        if fit is None: break
+        pv=fit["p"][1:]
+        worst=int(np.argmax(pv))
+        if pv[worst]>cutoff: cols.pop(worst)
+        else: break
+    return cols
+
 def panel_regression():
     st.markdown(f'<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
     with st.container(border=True):
@@ -2030,6 +2070,95 @@ def panel_regression():
             st.plotly_chart(pf, use_container_width=True, key="reg_rp")
         rolldf=pd.DataFrame({"Date":rb.index,"Beta":rb.values,"p_value":rp.values})
         dl(rolldf, "Export rolling beta/p-value", "JAWS_rolling_regression.xlsx", "reg_roll_dl")
+
+        # ── Multi-factor regression + return attribution ──
+        st.divider()
+        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Multi-factor OLS — pick a dependent series and several factors; optional '
+                    'stepwise elimination; decomposes return into factor vs idiosyncratic</span>',
+                    unsafe_allow_html=True)
+        import numpy as np
+        mf1,mf2=st.columns([1,2])
+        mfreq=mf1.radio("Frequency",["Monthly","Daily"],horizontal=True,key="mfr_freq")
+        ydict=ticker_picker("mfr_y", ["S&P 500"])
+        ylabel=list(ydict.keys())[0] if ydict else None
+        xdict=ticker_picker("mfr_x", ["Factor ETFs"] if False else ["US 10Y","Gold"])
+        d1,d2,d3=st.columns([1,1,1])
+        mstart=d1.date_input("Start", value=date.today()-relativedelta(years=5),
+                             min_value=date(1950,1,1), key="mfr_start")
+        mend=d2.date_input("End", value=date.today(), key="mfr_end")
+        use_step=d3.checkbox("Stepwise (drop p >)", value=False, key="mfr_step")
+        cutoff=d3.number_input("p-value cutoff", min_value=0.01, max_value=0.5, value=0.05,
+                               step=0.01, key="mfr_cut", disabled=not use_step)
+        if not ylabel or not xdict:
+            st.caption("Select a Y series and at least one X factor.")
+        else:
+            ys=_corr_change_series("auto", ydict[ylabel], mfreq)
+            xser={lbl:_corr_change_series("auto", sym, mfreq) for lbl,sym in xdict.items()}
+            xser={l:s for l,s in xser.items() if s is not None and not s.empty}
+            if ys is None or ys.empty or not xser:
+                st.warning("Couldn't resolve the Y series or any X factor for that setup.")
+            else:
+                frame=pd.concat([ys.rename("__Y__")]+[s.rename(l) for l,s in xser.items()],
+                                axis=1, join="inner").dropna()
+                lo=pd.Timestamp(mstart); hi=pd.Timestamp(mend)
+                frame=frame[(frame.index>=lo)&(frame.index<=hi)]
+                Xdf=frame.drop(columns="__Y__"); yv=frame["__Y__"]
+                if len(frame)<len(Xdf.columns)+3:
+                    st.warning(f"Only {len(frame)} overlapping points — widen the range or reduce factors.")
+                else:
+                    cols=list(Xdf.columns)
+                    if use_step:
+                        cols=_stepwise_backward(yv.values, Xdf, cutoff)
+                    fit=_ols_fit(yv.values, Xdf[cols].values)
+                    if fit is None:
+                        st.warning("Regression could not be estimated (singular / too few points).")
+                    else:
+                        beta=fit["beta"]; tvals=fit["t"]; pvals=fit["p"]
+                        hdr=["Term","Beta","t-stat","p-value"]
+                        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+                        terms=["Alpha (const)"]+cols
+                        for i,term in enumerate(terms):
+                            sig=GREEN if pvals[i]<0.05 else (YELLOW if pvals[i]<0.10 else TEXT2)
+                            h+=(f"<tr><td>{term}</td><td>{beta[i]:+.4f}</td>"
+                                f"<td>{tvals[i]:+.2f}</td><td style='color:{sig}'>{pvals[i]:.4f}</td></tr>")
+                        st.markdown(h+"</table></div>", unsafe_allow_html=True)
+                        sc=st.columns(4)
+                        sc[0].metric("R²", f"{fit['r2']:.3f}")
+                        sc[1].metric("Adj R²", f"{fit['adj_r2']:.3f}")
+                        sc[2].metric("N obs", f"{fit['n']}")
+                        sc[3].metric("Factors", f"{len(cols)}"+(" (stepwise)" if use_step else ""))
+                        if use_step and len(cols)<len(Xdf.columns):
+                            dropped=[c for c in Xdf.columns if c not in cols]
+                            st.caption(f"Stepwise dropped (p > {cutoff}): {', '.join(dropped)}")
+                        # ── Return attribution: factor-driven vs idiosyncratic ──
+                        alpha=beta[0]
+                        fac_t=Xdf[cols].values @ beta[1:]           # per-period factor return
+                        idio_t=yv.values - fac_t                    # alpha + residual (everything not factor)
+                        tot=float(yv.sum()); facsum=float(fac_t.sum()); idiosum=float(idio_t.sum())
+                        af=go.Figure()
+                        af.add_trace(go.Scatter(x=frame.index,y=np.cumsum(yv.values)*100,mode="lines",
+                            name=f"{ylabel} total", line=dict(color=ACCENT,width=2)))
+                        af.add_trace(go.Scatter(x=frame.index,y=np.cumsum(fac_t)*100,mode="lines",
+                            name="Factor-explained", line=dict(color=BLUE,width=1.6)))
+                        af.add_trace(go.Scatter(x=frame.index,y=np.cumsum(idio_t)*100,mode="lines",
+                            name="Idiosyncratic (α+resid)", line=dict(color=YELLOW,width=1.6)))
+                        af.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+                        base_layout(af,f"Return attribution · {ylabel} = factors + idiosyncratic "
+                                    f"(cumulative, arithmetic)","%",h=300)
+                        st.plotly_chart(af, use_container_width=True, key="mfr_attr")
+                        at=st.columns(3)
+                        share=(lambda x: f"{x/tot*100:+.0f}% of total" if abs(tot)>1e-9 else "—")
+                        at[0].metric("Total return (Σ)", f"{tot*100:+.1f}%")
+                        at[1].metric("From factors", f"{facsum*100:+.1f}%", share(facsum))
+                        at[2].metric("Idiosyncratic", f"{idiosum*100:+.1f}%", share(idiosum))
+                        st.caption("Per-period return = α + Σ(βᵢ·factorᵢ) + residual. **Factor-explained** = "
+                                   "Σ(βᵢ·factorᵢ); **idiosyncratic** = α + residual (everything the factors "
+                                   "don't capture). Cumulatives are arithmetic sums so the parts add to the "
+                                   "total exactly. R² = share of Y's variance explained by the factors.")
+                        expd=pd.DataFrame({"Date":frame.index,f"{ylabel}":yv.values,
+                                           "Factor_explained":fac_t,"Idiosyncratic":idio_t})
+                        dl(expd,"Export attribution","JAWS_multifactor_attribution.xlsx","mfr_dl")
 
 # ════════════════════════════════════════════════════════════════
 # BULK DATA EXPORTER

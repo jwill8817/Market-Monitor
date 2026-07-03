@@ -132,31 +132,50 @@ CURVE_PRODUCTS = {
     "Nat Gas ($/MMBtu)":       ("NG", "NYM"),
     "RBOB Gasoline ($/gal)":   ("RB", "NYM"),
     "Heating Oil ($/gal)":     ("HO", "NYM"),
+    "Ethanol ($/gal)":         ("EH", "CBT"),
     # Metals
     "Gold ($/oz)":             ("GC", "CMX"),
     "Silver ($/oz)":           ("SI", "CMX"),
     "Copper ($/lb)":           ("HG", "CMX"),
-    # Grains
+    "Platinum ($/oz)":         ("PL", "NYM"),
+    "Palladium ($/oz)":        ("PA", "NYM"),
+    # Grains / softs / livestock
     "Corn (¢/bu)":             ("ZC", "CBT"),
     "Soybeans (¢/bu)":         ("ZS", "CBT"),
     "Wheat (¢/bu)":            ("ZW", "CBT"),
+    "Soybean Oil (¢/lb)":      ("ZL", "CBT"),
+    "Soybean Meal ($/ton)":    ("ZM", "CBT"),
+    "Coffee (¢/lb)":           ("KC", "NYB"),
+    "Sugar (¢/lb)":            ("SB", "NYB"),
+    "Cotton (¢/lb)":           ("CT", "NYB"),
+    "Cocoa ($/ton)":           ("CC", "NYB"),
+    "Live Cattle (¢/lb)":      ("LE", "CME"),
+    "Lean Hogs (¢/lb)":        ("HE", "CME"),
     # Equity index (quarterly)
     "S&P 500 E-mini (ES)":     ("ES", "CME"),
     "Nasdaq-100 E-mini (NQ)":  ("NQ", "CME"),
     "Dow E-mini (YM)":         ("YM", "CBT"),
     "Russell 2000 E-mini (RTY)": ("RTY", "CME"),
     # Rates (quarterly Treasuries; SR3 monthly = SOFR forward curve)
-    "10Y T-Note (ZN)":         ("ZN", "CBT"),
-    "30Y T-Bond (ZB)":         ("ZB", "CBT"),
     "2Y T-Note (ZT)":          ("ZT", "CBT"),
     "5Y T-Note (ZF)":          ("ZF", "CBT"),
+    "10Y T-Note (ZN)":         ("ZN", "CBT"),
+    "Ultra 10Y (TN)":          ("TN", "CBT"),
+    "30Y T-Bond (ZB)":         ("ZB", "CBT"),
+    "Ultra Bond (UB)":         ("UB", "CBT"),
     "3M SOFR (SR3)":           ("SR3", "CME"),
     # FX
     "Euro FX (6E)":            ("6E", "CME"),
     "Japanese Yen (6J)":       ("6J", "CME"),
     "British Pound (6B)":      ("6B", "CME"),
+    "Canadian Dollar (6C)":    ("6C", "CME"),
+    "Australian Dollar (6A)":  ("6A", "CME"),
+    "Swiss Franc (6S)":        ("6S", "CME"),
+    "NZ Dollar (6N)":          ("6N", "CME"),
+    "Mexican Peso (6M)":       ("6M", "CME"),
     # Crypto
     "Bitcoin (BTC)":           ("BTC", "CME"),
+    "Ether (ETH)":             ("ETH", "CME"),
 }
 _MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
