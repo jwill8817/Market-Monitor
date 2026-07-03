@@ -1561,18 +1561,37 @@ def panel_fed(k):
     if not strip:
         st.caption("Fed Funds futures strip is unavailable right now — hit ↻ Refresh, or paste one above.")
     if strip:
-        probs=fx.fedwatch_probabilities(strip)
-        hdr=["Contract month","Implied avg rate","Δ bps","P(move)","Direction"]
+        mp=fx.fedwatch_meeting_probs(strip)
+        if not mp:
+            st.caption("No upcoming FOMC meetings within the available futures horizon."); return
+        def _pcell(v, color):
+            return f"<td style='color:{TEXT3}'>—</td>" if v<=0 else f"<td style='color:{color}'>{v:.0f}%</td>"
+        hdr=["FOMC meeting","Implied rate in→out","Δ bps","Cut ≥25bp","Hold","Hike ≥25bp","Most likely"]
         h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
-        for r in probs:
-            dc=GREEN if r["direction"]=="cut" else (RED if r["direction"]=="hike" else TEXT2)
-            h+=(f"<tr><td>{r['month']}</td><td>{r['implied_rate']:.3f}%</td>"
-                f"<td style='color:{dc}'>{r['delta_bps']:+.0f}</td>"
-                f"<td>{r['p_move']:.0f}%</td><td style='color:{dc}'>{r['direction']}</td></tr>")
+        for r in mp:
+            p_cut=p_hold=p_hike=0.0
+            for kk,vv in r["outcomes"].items():
+                b=int(kk)
+                if b<0: p_cut+=vv
+                elif b>0: p_hike+=vv
+                else: p_hold+=vv
+            mlb=r["most_likely_bps"]
+            mlc=GREEN if mlb<0 else (RED if mlb>0 else TEXT2)
+            mll="hold" if mlb==0 else (f"{mlb:+d}bp "+("cut" if mlb<0 else "hike"))
+            dc=GREEN if r["change_bps"]<-0.5 else (RED if r["change_bps"]>0.5 else TEXT2)
+            h+=(f"<tr><td>{r['date']}</td><td>{r['r_in']:.2f} → {r['r_out']:.2f}%</td>"
+                f"<td style='color:{dc}'>{r['change_bps']:+.0f}</td>"
+                f"{_pcell(p_cut,GREEN)}<td>{p_hold:.0f}%</td>{_pcell(p_hike,RED)}"
+                f"<td style='color:{mlc}'>{mll} @ {r['p_most']:.0f}%</td></tr>")
         st.markdown(h+"</table></div>", unsafe_allow_html=True)
-        st.caption(f"Source: {src}. Month-over-month FedWatch approximation (Δ implied avg rate ÷ 25bp; "
-                   "implied rate = 100 − ZQ price). A meeting-date-weighted refinement is the exact CME method.")
-        dl(pd.DataFrame(probs),"Export","JAWS_fed_probs.xlsx",k+"_dl")
+        st.caption(f"Source: {src}. **Meeting-date-weighted FedWatch method**: each contract month's "
+                   "implied average rate (100 − ZQ price) is split by the FOMC meeting day to solve the "
+                   "expected post-meeting rate, then distributed over the nearest 25bp outcomes; rates "
+                   "chain meeting-to-meeting. 2027 dates are the Fed's tentative schedule.")
+        exp=[{"Meeting":r["date"],"Rate_in":r["r_in"],"Rate_out":r["r_out"],"Change_bps":r["change_bps"],
+              "MostLikely_bps":r["most_likely_bps"],"P_most":r["p_most"],
+              **{f"P({kk}bp)":vv for kk,vv in r["outcomes"].items()}} for r in mp]
+        dl(pd.DataFrame(exp),"Export","JAWS_fed_meeting_probs.xlsx",k+"_dl")
 
 def panel_news(k):
     import time as _t

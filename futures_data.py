@@ -250,6 +250,78 @@ def fedwatch_probabilities(strip, step=0.25):
 def futures_key_enabled():
     return bool(_cfg("BARCHART_API_KEY") or _cfg("FUTURES_API_KEY"))
 
+# ── FOMC meeting calendar (announcement / 2nd-day dates) ──
+# 2025–2026 are the Fed's published dates; 2027 are the tentative schedule.
+FOMC_DATES = [
+    (2025,1,29),(2025,3,19),(2025,5,7),(2025,6,18),(2025,7,30),(2025,9,17),(2025,10,29),(2025,12,10),
+    (2026,1,28),(2026,3,18),(2026,4,29),(2026,6,17),(2026,7,29),(2026,9,16),(2026,10,28),(2026,12,9),
+    (2027,1,27),(2027,3,17),(2027,4,28),(2027,6,16),(2027,7,28),(2027,9,22),(2027,10,27),(2027,12,8),
+]
+
+def _next_month(ym):
+    y, m = int(ym[:4]), int(ym[5:7])
+    m += 1
+    if m > 12: m = 1; y += 1
+    return f"{y:04d}-{m:02d}"
+
+def _distribute(change_pct, step=0.25):
+    """Split an expected rate change across the two bracketing 25bp grid points."""
+    import math
+    if abs(change_pct) < 0.005:
+        return {0.0: 1.0}
+    lo = math.floor(round(change_pct / step, 6)) * step
+    hi = lo + step
+    p_hi = (change_pct - lo) / step
+    p_hi = min(max(p_hi, 0.0), 1.0)
+    return {round(lo, 4): round(1 - p_hi, 4), round(hi, 4): round(p_hi, 4)}
+
+def fedwatch_meeting_probs(strip, step=0.25, start_rate=None):
+    """Meeting-date-weighted FedWatch probabilities (the exact CME approach).
+
+    For each FOMC meeting, the contract month's implied average rate is split by the
+    meeting day: avg = (d/N)·r_in + ((N-d)/N)·r_out, solved for r_out. The per-meeting
+    expected change is then distributed over the nearest 25bp outcomes. r_out chains
+    forward as the next meeting's r_in.
+    strip: [(YYYY-MM, implied_avg_rate)] ascending. Returns list of per-meeting dicts."""
+    import calendar
+    if not strip:
+        return []
+    imp = {m: r for m, r in strip}
+    first_month = min(imp)
+    if start_rate is None:
+        _, effr = _fred_latest("DFF")
+        start_rate = effr if effr is not None else strip[0][1]
+    r_prev = float(start_rate); out = []
+    for (yy, mm, dd) in FOMC_DATES:
+        ym = f"{yy:04d}-{mm:02d}"
+        if ym < first_month:
+            continue
+        if ym not in imp:
+            break
+        N = calendar.monthrange(yy, mm)[1]
+        w_after = (N - dd) / N
+        avg_M = imp[ym]; nxt = _next_month(ym)
+        if w_after < 0.25 and nxt in imp:       # meeting late in month → use next month
+            r_end = imp[nxt]
+        elif w_after <= 0:
+            r_end = imp.get(nxt, avg_M)
+        else:
+            r_end = (avg_M - (dd / N) * r_prev) / w_after
+        change = r_end - r_prev
+        probs = _distribute(change, step)
+        best = max(probs, key=probs.get)
+        out.append({
+            "date": f"{yy:04d}-{mm:02d}-{dd:02d}",
+            "r_in": round(r_prev, 3), "r_out": round(r_end, 3),
+            "change_bps": round(change * 100, 1),
+            "outcomes": {f"{int(round(k*100)):+d}": round(v * 100, 1)
+                         for k, v in sorted(probs.items())},
+            "most_likely_bps": int(round(best * 100)),
+            "p_most": round(probs[best] * 100, 1),
+        })
+        r_prev = r_end
+    return out
+
 def _yahoo_last(sym):
     """Latest price for a Yahoo symbol via the public chart endpoint, or None."""
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
