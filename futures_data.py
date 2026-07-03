@@ -123,19 +123,40 @@ def fetch_vix_history(sym):
 # 2) FUTURES CURVES + ROLL YIELD  (dated NYMEX/COMEX/CBOT contracts via
 #    Yahoo — free, current, no key. EIA's daily futures were discontinued.)
 # ══════════════════════════════════════════════════════════════════
-# label -> (Yahoo root, exchange suffix)
+# label -> (Yahoo root, exchange suffix). Missing (non-listed) months are skipped,
+# so quarterly-only roots (equity index, Treasuries) return their real curve too.
 CURVE_PRODUCTS = {
+    # Energy
     "WTI Crude ($/bbl)":       ("CL", "NYM"),
     "Brent Crude ($/bbl)":     ("BZ", "NYM"),
     "Nat Gas ($/MMBtu)":       ("NG", "NYM"),
     "RBOB Gasoline ($/gal)":   ("RB", "NYM"),
     "Heating Oil ($/gal)":     ("HO", "NYM"),
+    # Metals
     "Gold ($/oz)":             ("GC", "CMX"),
     "Silver ($/oz)":           ("SI", "CMX"),
     "Copper ($/lb)":           ("HG", "CMX"),
+    # Grains
     "Corn (¢/bu)":             ("ZC", "CBT"),
     "Soybeans (¢/bu)":         ("ZS", "CBT"),
     "Wheat (¢/bu)":            ("ZW", "CBT"),
+    # Equity index (quarterly)
+    "S&P 500 E-mini (ES)":     ("ES", "CME"),
+    "Nasdaq-100 E-mini (NQ)":  ("NQ", "CME"),
+    "Dow E-mini (YM)":         ("YM", "CBT"),
+    "Russell 2000 E-mini (RTY)": ("RTY", "CME"),
+    # Rates (quarterly Treasuries; SR3 monthly = SOFR forward curve)
+    "10Y T-Note (ZN)":         ("ZN", "CBT"),
+    "30Y T-Bond (ZB)":         ("ZB", "CBT"),
+    "2Y T-Note (ZT)":          ("ZT", "CBT"),
+    "5Y T-Note (ZF)":          ("ZF", "CBT"),
+    "3M SOFR (SR3)":           ("SR3", "CME"),
+    # FX
+    "Euro FX (6E)":            ("6E", "CME"),
+    "Japanese Yen (6J)":       ("6J", "CME"),
+    "British Pound (6B)":      ("6B", "CME"),
+    # Crypto
+    "Bitcoin (BTC)":           ("BTC", "CME"),
 }
 _MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
@@ -164,10 +185,22 @@ def fetch_futures_curve(product, n=12):
             px = None
         if px is not None and px > 0:
             pts.append((label, px))
+    # Annualized front-to-next roll yield, using the ACTUAL month gap between the
+    # first two available contracts (quarterly roots have a 3-month gap, not 1).
     roll = None
     if len(pts) >= 2 and pts[1][1]:
-        roll = (pts[0][1] - pts[1][1]) / pts[1][1] * 100 * 12
+        gap = _label_gap(pts[0][0], pts[1][0]) or 1
+        roll = (pts[0][1] - pts[1][1]) / pts[1][1] * (12.0 / gap) * 100
     return {"points": pts, "roll_yield_pct": roll, "product": product}
+
+def _label_gap(l1, l2):
+    """Months between two 'Mon YY' labels."""
+    try:
+        m1 = _MONTHS_ABBR.index(l1[:3]) + 1; y1 = int(l1[-2:])
+        m2 = _MONTHS_ABBR.index(l2[:3]) + 1; y2 = int(l2[-2:])
+        return (y2 - y1) * 12 + (m2 - m1)
+    except Exception:
+        return None
 
 def fetch_commodity_curves(products, n=12):
     """{product: curve dict} for the selected products."""

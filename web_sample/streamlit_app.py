@@ -1521,8 +1521,10 @@ def panel_energy_curve(k):
                        f"{ry:+.1f}%" if ry is not None else "—",
                        help="Annualized front-to-next. Positive = backwardation (roll gain for a long); "
                             "negative = contango (roll drag).")
-    st.caption("Curve = successive monthly expiries (front → deferred). Downward slope = backwardation "
-               "(positive roll yield for longs); upward = contango (negative). Prices via Yahoo (delayed).")
+    st.caption("Curve = successive listed expiries (front → deferred; equity-index & Treasury futures are "
+               "quarterly). Downward = backwardation (positive roll yield); upward = contango (negative). "
+               "For financial futures the roll yield is the annualized calendar carry (financing − dividends "
+               "for equities; rate differential for FX). Prices via Yahoo (delayed).")
     rows=[]
     for p in valid:
         for l,v in curves[p]["points"]: rows.append({"Product":p,"Contract":l,"Price":v})
