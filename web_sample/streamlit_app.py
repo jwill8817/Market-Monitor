@@ -493,8 +493,8 @@ def inflation_analytics(): import fi_spreads; return fi_spreads.fetch_inflation_
 def vix_term(): import futures_data as fx; return fx.fetch_vix_term_structure()
 @st.cache_data(ttl=1800, show_spinner=False)
 def vix_hist(sym): import futures_data as fx; return fx.fetch_vix_history(sym)
-@st.cache_data(ttl=3600, show_spinner=False)
-def energy_curve(): import futures_data as fx; return fx.fetch_energy_curve()
+@st.cache_data(ttl=1800, show_spinner=False)
+def commodity_curves(products, n): import futures_data as fx; return fx.fetch_commodity_curves(products, n)
 @st.cache_data(ttl=1800, show_spinner=False)
 def rate_path(): import futures_data as fx; return fx.fetch_rate_expectation_path()
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -1494,37 +1494,39 @@ def panel_vix_term(k):
        "Export","JAWS_vix_term.xlsx",k+"_dl")
 
 def panel_energy_curve(k):
-    ec=energy_curve()
-    if ec.get("error")=="no_key":
-        st.info("**Energy futures curve needs a free EIA API key** (2-minute setup):\n\n"
-                "1. Register (instant, free): https://www.eia.gov/opendata/register.php\n"
-                "2. On Streamlit Cloud → your app → **Settings → Secrets**, add:\n"
-                "   `EIA_API_KEY = \"your_key_here\"`  (locally: put it in `.env`).\n"
-                "3. Save — WTI crude & Henry Hub gas contracts 1–4 (curve shape + roll yield) appear here.")
-        return
-    if ec.get("error"):
-        st.warning(f"EIA feed unavailable: {ec['error']}"); return
-    prods=[p for p in ec if p!="error" and ec[p].get("contracts")]
-    if not prods:
-        st.warning("No energy contract data returned."); return
-    fig=go.Figure()
-    for i,p in enumerate(prods):
-        cs=ec[p]["contracts"]
-        fig.add_trace(go.Scatter(x=[f"C{n}" for n,_ in cs], y=[val for _,val in cs],
-            mode="lines+markers+text", text=[f"{val:.2f}" for _,val in cs], textposition="top center",
-            textfont=dict(size=10,color=TEXT1), name=p, line=dict(color=PALETTE[i%len(PALETTE)],width=2),
-            marker=dict(size=8)))
-    st.plotly_chart(base_layout(fig,"Energy futures curve · NYMEX settlement (EIA)","",h=320),
+    import futures_data as fx
+    opts=list(fx.CURVE_PRODUCTS.keys())
+    c1,c2=st.columns([3,1])
+    sel=c1.multiselect("Futures", opts,
+                       default=["WTI Crude ($/bbl)","Nat Gas ($/MMBtu)","Gold ($/oz)"], key=k+"_sel")
+    n=int(c2.select_slider("Months out",[6,9,12,18,24],value=12,key=k+"_n"))
+    if not sel:
+        st.info("Pick one or more futures to plot the curve."); return
+    curves=commodity_curves(tuple(sel), n)
+    fig=go.Figure(); valid=[]
+    for i,p in enumerate(sel):
+        pts=(curves.get(p) or {}).get("points") or []
+        if len(pts)<2: continue
+        valid.append(p)
+        fig.add_trace(go.Scatter(x=[l for l,_ in pts], y=[v for _,v in pts], mode="lines+markers",
+            name=p, line=dict(color=PALETTE[i%len(PALETTE)],width=2), marker=dict(size=6)))
+    if not valid:
+        st.warning("No contract data returned right now — hit ↻ Refresh."); return
+    st.plotly_chart(base_layout(fig,"Futures curves · dated NYMEX/COMEX/CBOT contracts","",h=340),
         use_container_width=True, key=k+"_chart")
-    cols=st.columns(len(prods))
-    for i,p in enumerate(prods):
-        ry=ec[p]["roll_yield_pct"]
-        cols[i].metric(f"{p.split('(')[0].strip()} roll yield (ann.)",
+    cols=st.columns(len(valid))
+    for i,p in enumerate(valid):
+        ry=curves[p]["roll_yield_pct"]
+        cols[i].metric(f"{p.split('(')[0].strip()} roll yld",
                        f"{ry:+.1f}%" if ry is not None else "—",
-                       help="≈ (C1−C2)/C2 × 12. Negative = contango (roll drag for longs); "
-                            "positive = backwardation (roll gain).")
-    st.caption(f"Contracts 1–4 = successive monthly expiries. Downward (backwardation) → positive roll "
-               f"yield for long futures; upward (contango) → negative. As of {ec[prods[0]].get('as_of')}.")
+                       help="Annualized front-to-next. Positive = backwardation (roll gain for a long); "
+                            "negative = contango (roll drag).")
+    st.caption("Curve = successive monthly expiries (front → deferred). Downward slope = backwardation "
+               "(positive roll yield for longs); upward = contango (negative). Prices via Yahoo (delayed).")
+    rows=[]
+    for p in valid:
+        for l,v in curves[p]["points"]: rows.append({"Product":p,"Contract":l,"Price":v})
+    dl(pd.DataFrame(rows),"Export","JAWS_futures_curves.xlsx",k+"_dl")
 
 def panel_fed(k):
     import futures_data as fx
@@ -2399,7 +2401,7 @@ _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
 _sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
-_sec("ENRG","Energy Futures Curve & Roll Yield", panel_energy_curve, "secenrg")
+_sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "secenrg")
 _sec("FED","Fed Rate Expectations & Hike/Cut Odds", panel_fed, "secfed")
 _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 

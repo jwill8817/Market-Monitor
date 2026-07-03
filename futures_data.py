@@ -3,7 +3,8 @@ Futures curves, roll yield, and rate-expectations data.
 
 Free / redistribution-safe sources only (fits the public shared app):
   • VIX term structure — CBOE constant-maturity index CSVs (cdn.cboe.com), no key.
-  • Energy futures curve (WTI / Henry Hub, contracts 1-4) — EIA API, free key.
+  • Commodity futures curves + roll yield (WTI, Brent, NatGas, metals, grains) —
+    dated NYMEX/COMEX/CBOT contracts via Yahoo, free & current, no key.
   • Fed expectations — FRED Treasury/EFFR (auto expected-rate PATH), plus a
     credential-gated futures path (Fed Funds / SOFR) that computes true FedWatch
     style probabilities when a futures-data key or an uploaded ZQ strip is present.
@@ -119,56 +120,58 @@ def fetch_vix_history(sym):
 
 
 # ══════════════════════════════════════════════════════════════════
-# 2) ENERGY FUTURES CURVE + ROLL YIELD  (EIA API — free key)
+# 2) FUTURES CURVES + ROLL YIELD  (dated NYMEX/COMEX/CBOT contracts via
+#    Yahoo — free, current, no key. EIA's daily futures were discontinued.)
 # ══════════════════════════════════════════════════════════════════
-# EIA legacy series ids: WTI crude contracts 1-4 and Henry Hub nat gas 1-4.
-_EIA_PRODUCTS = {
-    "WTI Crude ($/bbl)":   ["RCLC1", "RCLC2", "RCLC3", "RCLC4"],
-    "Henry Hub Gas ($/MMBtu)": ["RNGC1", "RNGC2", "RNGC3", "RNGC4"],
+# label -> (Yahoo root, exchange suffix)
+CURVE_PRODUCTS = {
+    "WTI Crude ($/bbl)":       ("CL", "NYM"),
+    "Brent Crude ($/bbl)":     ("BZ", "NYM"),
+    "Nat Gas ($/MMBtu)":       ("NG", "NYM"),
+    "RBOB Gasoline ($/gal)":   ("RB", "NYM"),
+    "Heating Oil ($/gal)":     ("HO", "NYM"),
+    "Gold ($/oz)":             ("GC", "CMX"),
+    "Silver ($/oz)":           ("SI", "CMX"),
+    "Copper ($/lb)":           ("HG", "CMX"),
+    "Corn (¢/bu)":             ("ZC", "CBT"),
+    "Soybeans (¢/bu)":         ("ZS", "CBT"),
+    "Wheat (¢/bu)":            ("ZW", "CBT"),
 }
+_MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
-def eia_enabled():
-    return bool(_cfg("EIA_API_KEY"))
-
-def _eia_series(series_id, key):
-    """Latest value + date for one EIA legacy series id via the v2 seriesid route."""
-    url = (f"https://api.eia.gov/v2/seriesid/{series_id}"
-           f"?api_key={key}&sort[0][column]=period&sort[0][direction]=desc&length=1")
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
-        j = json.loads(r.read())
-    data = (j.get("response") or {}).get("data") or []
-    if not data:
-        return None, None
-    row = data[0]
-    val = row.get("value")
-    return (row.get("period"), float(val)) if val is not None else (row.get("period"), None)
-
-def fetch_energy_curve():
-    """{product: {'contracts':[(n, price)], 'roll_yield_pct':x, 'as_of':date}} or error."""
-    key = _cfg("EIA_API_KEY")
-    if not key:
-        return {"error": "no_key"}
-    out = {"error": None}
-    for prod, sids in _EIA_PRODUCTS.items():
-        contracts = []; as_of = None
-        for n, sid in enumerate(sids, start=1):
-            try:
-                period, val = _eia_series(sid, key)
-                if val is not None:
-                    contracts.append((n, val))
-                    if period and (as_of is None or str(period) > str(as_of)):
-                        as_of = period
-            except Exception:
-                continue
-        roll = None
-        if len(contracts) >= 2:
-            c1 = contracts[0][1]; c2 = contracts[1][1]
-            # Front-to-next annualized roll yield (≈ monthly gap × 12).
-            if c2:
-                roll = (c1 - c2) / c2 * 100 * 12
-        out[prod] = {"contracts": contracts, "roll_yield_pct": roll, "as_of": as_of}
+def _curve_symbols(root, suffix, n):
+    """Yield (symbol, 'Mon YY') for the next n monthly contracts."""
+    today = datetime.date.today()
+    y, m = today.year, today.month
+    out = []
+    for _ in range(n):
+        out.append((f"{root}{_MCODE[m]}{str(y)[-2:]}.{suffix}", f"{_MONTHS_ABBR[m-1]} {str(y)[-2:]}"))
+        m += 1
+        if m > 12: m = 1; y += 1
     return out
+
+def fetch_futures_curve(product, n=12):
+    """Curve for one product: {'points':[(label, price)], 'roll_yield_pct':x, 'product':name}.
+    Roll yield ≈ (front − next)/next × 12 (annualized): positive = backwardation."""
+    if product not in CURVE_PRODUCTS:
+        return None
+    root, suffix = CURVE_PRODUCTS[product]
+    pts = []
+    for sym, label in _curve_symbols(root, suffix, n):
+        try:
+            px = _yahoo_last(sym)
+        except Exception:
+            px = None
+        if px is not None and px > 0:
+            pts.append((label, px))
+    roll = None
+    if len(pts) >= 2 and pts[1][1]:
+        roll = (pts[0][1] - pts[1][1]) / pts[1][1] * 100 * 12
+    return {"points": pts, "roll_yield_pct": roll, "product": product}
+
+def fetch_commodity_curves(products, n=12):
+    """{product: curve dict} for the selected products."""
+    return {p: fetch_futures_curve(p, n) for p in products}
 
 
 # ══════════════════════════════════════════════════════════════════
