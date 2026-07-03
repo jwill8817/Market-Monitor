@@ -250,16 +250,56 @@ def fedwatch_probabilities(strip, step=0.25):
 def futures_key_enabled():
     return bool(_cfg("BARCHART_API_KEY") or _cfg("FUTURES_API_KEY"))
 
-def fetch_zq_strip():
-    """Fetch the 30-Day Fed Funds (ZQ) monthly strip from a credential-gated vendor.
-    Returns [(month, implied_rate)] or None if no key / unavailable.
-    Dormant unless BARCHART_API_KEY (or FUTURES_API_KEY) is configured."""
+def _yahoo_last(sym):
+    """Latest price for a Yahoo symbol via the public chart endpoint, or None."""
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+           f"?range=5d&interval=1d")
+    req = urllib.request.Request(url, headers=_UA)
+    with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
+        j = json.loads(r.read())
+    res = (j.get("chart") or {}).get("result")
+    if not res:
+        return None
+    meta = res[0].get("meta") or {}
+    px = meta.get("regularMarketPrice")
+    if px is not None:
+        return float(px)
+    # fallback: last non-null close
+    try:
+        closes = res[0]["indicators"]["quote"][0]["close"]
+        for c in reversed(closes):
+            if c is not None:
+                return float(c)
+    except Exception:
+        pass
+    return None
+
+def fetch_zq_strip(n=16):
+    """30-Day Fed Funds (ZQ) monthly strip, FREE & automated via Yahoo dated contracts
+    (symbols like ZQN26.CBT). Returns [(month 'YYYY-MM', implied_avg_rate)] or None.
+
+    implied_avg_rate = 100 - settlement price. Prices are delayed (fine for FedWatch,
+    which uses daily settlements). Falls back to a credential-gated vendor if configured
+    and Yahoo is unavailable."""
+    strip = []
+    for sym in _zq_symbols(n):                      # e.g. ZQN26 -> ZQN26.CBT
+        try:
+            px = _yahoo_last(f"{sym}.CBT")
+            if px is not None and 80.0 < px < 101.0:
+                strip.append((_zq_month_from_symbol(sym), 100.0 - px))
+        except Exception:
+            continue
+    strip = [s for s in strip if s[0]]
+    strip.sort()
+    if strip:
+        return strip
+    return _fetch_zq_strip_vendor()
+
+def _fetch_zq_strip_vendor():
+    """Optional credential-gated vendor fallback (dormant unless a key is set)."""
     key = _cfg("BARCHART_API_KEY")
     if not key:
         return None
-    # Barchart getQuote: ZQ front months. Symbols like ZQN26 etc.; here we request the
-    # continuous root and let the vendor expand — exact params depend on your plan, so
-    # this is wired defensively and returns None on any deviation.
     try:
         months = _zq_symbols(12)
         url = ("https://marketdata.websol.barchart.com/getQuote.json?"

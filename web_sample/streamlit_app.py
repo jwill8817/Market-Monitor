@@ -1545,19 +1545,21 @@ def panel_fed(k):
                    "Shows expected direction — NOT true meeting-by-meeting probabilities.")
     st.divider()
     st.markdown("**Meeting-implied hike/cut probabilities — Fed Funds futures (ZQ)**")
-    strip=zq_strip_auto(); src="live futures key" if strip else None
-    if not strip:
-        st.caption("No futures key configured, so probabilities are computed from a ZQ strip you paste "
-                   "(exact FedWatch method). To automate, add `BARCHART_API_KEY` to secrets. "
-                   "Get ZQ settlements from CME → *30-Day Fed Funds Settlements*.")
-        paste=st.text_area("Paste rows — `YYYY-MM, price`  or  `ZQN26, price` (one per line):",
-                           key=k+"_paste", height=110,
-                           placeholder="2026-07, 96.62\n2026-08, 96.63\n2026-09, 96.75")
+    strip=zq_strip_auto(); src="CBOT 30-Day Fed Funds via Yahoo (delayed settlements)" if strip else None
+    with st.expander("Override with a manually pasted ZQ strip (optional)"):
+        st.caption("Leave blank to use the automatic feed. To override, paste CME settlements as "
+                   "`YYYY-MM, price` or `ZQN26, price` (one per line).")
+        paste=st.text_area("Pasted strip", key=k+"_paste", height=110, label_visibility="collapsed",
+                           placeholder="2026-07, 96.37\n2026-08, 96.32\n2026-09, 96.27")
         rows=[]
         for ln in paste.splitlines():
             parts=[x.strip() for x in ln.replace("\t",",").split(",") if x.strip()]
             if len(parts)>=2: rows.append((parts[0],parts[1]))
-        if rows: strip=fx.parse_zq_upload(rows); src="pasted strip"
+        if rows:
+            ov=fx.parse_zq_upload(rows)
+            if ov: strip=ov; src="pasted strip"
+    if not strip:
+        st.caption("Fed Funds futures strip is unavailable right now — hit ↻ Refresh, or paste one above.")
     if strip:
         probs=fx.fedwatch_probabilities(strip)
         hdr=["Contract month","Implied avg rate","Δ bps","P(move)","Direction"]
