@@ -2027,13 +2027,29 @@ def panel_regression():
                 bar.add_annotation(x=l,y=totv[i],text=f"{totv[i]:+.0f}%",showarrow=False,
                                    yshift=11 if totv[i]>=0 else -13,font=dict(size=11,color=TEXT1))
             st.plotly_chart(bar, use_container_width=True, key="reg_attr_bar")
+            # Companion: share of return (each bar sums to 100%)
+            pf=[(facv[i]/totv[i]*100 if abs(totv[i])>1e-9 else 0.0) for i in range(len(labels))]
+            pi=[(idiov[i]/totv[i]*100 if abs(totv[i])>1e-9 else 0.0) for i in range(len(labels))]
+            pbar=go.Figure()
+            pbar.add_trace(go.Bar(x=labels,y=pf,name="From factors %",marker_color=BLUE,
+                text=[f"{v:.0f}%" for v in pf],textposition="inside",insidetextanchor="middle"))
+            pbar.add_trace(go.Bar(x=labels,y=pi,name="Idiosyncratic %",marker_color=YELLOW,
+                text=[f"{v:.0f}%" for v in pi],textposition="inside",insidetextanchor="middle"))
+            base_layout(pbar,f"{ylabel} — share of return (factors vs idiosyncratic = 100%)","%",h=300)
+            pbar.update_layout(barmode="relative")
+            pbar.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+            pbar.add_hline(y=100,line=dict(color=TEXT3,dash="dot"))
+            st.plotly_chart(pbar, use_container_width=True, key="reg_attr_share")
             atab=pd.DataFrame({"Horizon":labels,"Total ann %":[round(x,1) for x in totv],
                                "From factors %":[round(x,1) for x in facv],
-                               "Idiosyncratic %":[round(x,1) for x in idiov]})
-            st.caption("Each bar = annualized total return for that horizon, split into **factor-driven** "
-                       "(β·X, blue) and **idiosyncratic** (α + residual, yellow); the label is the total. "
-                       "Betas come from the regression above; horizons longer than the loaded history are "
-                       "skipped. 1M is an annualized single-period read (noisy).")
+                               "Idiosyncratic %":[round(x,1) for x in idiov],
+                               "Factor share %":[round(x,1) for x in pf],
+                               "Idiosyncratic share %":[round(x,1) for x in pi]})
+            st.caption("Top bars = annualized total return split into **factor-driven** (β·X, blue) and "
+                       "**idiosyncratic** (α + residual, yellow); label is the total. Bottom bars = the same "
+                       "split as a **share of total (sums to 100%)**. When factor and idiosyncratic returns "
+                       "have opposite signs, a share can exceed 100% while the other goes negative (they still "
+                       "net to 100%). Horizons longer than the loaded history are skipped.")
             dl(atab, "Export attribution", "JAWS_regression_attribution.xlsx", "reg_attr_dl")
 
         # ── Rolling beta & p-value (own choice menu) ──
