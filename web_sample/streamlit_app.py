@@ -2755,12 +2755,13 @@ _g1=st.columns(2)
 with _g1[0]: _sec("CRV","Curves", panel_curves, "q3")
 with _g1[1]: _sec("FED","Fed Rate Expectations & Hike/Cut Odds", panel_fed, "secfed")
 _g2=st.columns(2)
-with _g2[0]: _sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
+with _g2[0]:
+    _sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
+    _sec("SKEW","Volatility Skew (protection vs upside)", panel_skew, "secskew")
 with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "secenrg")
 
 # ── Full-width sections (stacked) ──
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
-_sec("SKEW","Volatility Skew (protection vs upside)", panel_skew, "secskew")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
