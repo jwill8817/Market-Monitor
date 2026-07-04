@@ -503,6 +503,45 @@ def zq_strip_auto(): import futures_data as fx; return fx.fetch_zq_strip()
 def prediction_markets_data(sources, topics):
     import prediction_markets as pmkt
     return pmkt.fetch_prediction_markets(list(sources), list(topics))
+
+@st.cache_data(ttl=900, show_spinner=False)
+def option_skew(sym, dte_target):
+    """Implied-vol skew for an optionable ticker from the yfinance chain nearest dte_target.
+    Returns the OTM smile (moneyness → IV%) plus risk-reversal metrics, or None."""
+    import yfinance as yf, datetime as _dt
+    try:
+        tk=yf.Ticker(sym); exps=list(tk.options or [])
+        if not exps: return None
+        tgt=_dt.date.today()+_dt.timedelta(days=int(dte_target))
+        exp=min(exps, key=lambda e: abs((_dt.date.fromisoformat(e)-tgt).days))
+        oc=tk.option_chain(exp)
+        h=tk.history(period="1d")
+        if h.empty: return None
+        spot=float(h["Close"].iloc[-1])
+    except Exception:
+        return None
+    def clean(df):
+        df=df.dropna(subset=["impliedVolatility"]).copy()
+        df=df[(df["impliedVolatility"]>0.01)&(df["impliedVolatility"]<3.0)]
+        return df[(df["strike"]>spot*0.6)&(df["strike"]<spot*1.5)]
+    calls=clean(oc.calls); puts=clean(oc.puts)
+    if calls.empty or puts.empty: return None
+    def iv_at(df, mny):
+        if df.empty: return None
+        k=spot*mny; i=int((df["strike"]-k).abs().values.argmin())
+        return float(df["impliedVolatility"].iloc[i])*100
+    both=pd.concat([calls,puts])
+    atm=iv_at(both,1.0)
+    ivp90=iv_at(puts,0.90); ivc110=iv_at(calls,1.10)
+    ivp95=iv_at(puts,0.95); ivc105=iv_at(calls,1.05)
+    rr =(ivp90-ivc110) if (ivp90 is not None and ivc110 is not None) else None
+    rr5=(ivp95-ivc105) if (ivp95 is not None and ivc105 is not None) else None
+    otm_p=puts[puts["strike"]<=spot]; otm_c=calls[calls["strike"]>=spot]
+    curve=pd.concat([otm_p[["strike","impliedVolatility"]], otm_c[["strike","impliedVolatility"]]]).sort_values("strike")
+    return {"expiry":exp, "dte":(_dt.date.fromisoformat(exp)-_dt.date.today()).days, "spot":spot,
+            "atm":atm, "ivp90":ivp90,"ivc110":ivc110,"rr":rr,"ivp95":ivp95,"ivc105":ivc105,"rr5":rr5,
+            "m":[float(s)/spot*100 for s in curve["strike"]],
+            "iv":[float(v)*100 for v in curve["impliedVolatility"]]}
 @st.cache_data(ttl=3600, show_spinner=False)
 def factor_data(cs=None, ce=None):
     import factors_data as fd; return fd.fetch_factors(custom_start=cs, custom_end=ce)
@@ -1767,6 +1806,58 @@ def panel_prediction(k):
                "by source (Polymarket ≈ USD, Kalshi = contracts). Click a contract to open it. Public APIs.")
     dl(pd.DataFrame(rows),"Export","JAWS_prediction_markets.xlsx",k+"_dl")
 
+def panel_skew(k):
+    c1,c2=st.columns([1,1])
+    sym=c1.text_input("Underlying (optionable ticker)", "SPY", key=k+"_sym").strip().upper()
+    dte=c2.select_slider("Target days to expiry",[7,14,30,60,90,120,180],value=30,key=k+"_dte")
+    with st.spinner(f"Loading {sym} option chain…"):
+        d=option_skew(sym, dte) if sym else None
+    if not d:
+        st.warning(f"No usable option chain for **{sym}** (not optionable, or data unavailable right now).")
+    else:
+        fig=go.Figure()
+        mp=[(m,iv) for m,iv in zip(d["m"],d["iv"]) if m<=100]
+        mc=[(m,iv) for m,iv in zip(d["m"],d["iv"]) if m>=100]
+        if mp: fig.add_trace(go.Scatter(x=[m for m,_ in mp],y=[iv for _,iv in mp],mode="lines+markers",
+            name="OTM puts (downside protection)",line=dict(color=RED,width=2),marker=dict(size=5)))
+        if mc: fig.add_trace(go.Scatter(x=[m for m,_ in mc],y=[iv for _,iv in mc],mode="lines+markers",
+            name="OTM calls (upside participation)",line=dict(color=GREEN,width=2),marker=dict(size=5)))
+        fig.add_vline(x=100,line=dict(color=TEXT3,dash="dash"),annotation_text="ATM (spot)")
+        base_layout(fig,f"{sym} implied-vol skew · exp {d['expiry']} ({d['dte']}d)","%",h=330)
+        fig.update_xaxes(title="Strike as % of spot")
+        st.plotly_chart(fig, use_container_width=True, key=k+"_curve")
+        m=st.columns(4)
+        m[0].metric("ATM IV", f"{d['atm']:.1f}%" if d['atm'] is not None else "—")
+        m[1].metric("Risk reversal 90/110", f"{d['rr']:+.1f}" if d['rr'] is not None else "—",
+                    help="Put IV(90% strike) − Call IV(110%). Positive = downside protection pricier than upside.")
+        m[2].metric("Risk reversal 95/105", f"{d['rr5']:+.1f}" if d['rr5'] is not None else "—")
+        m[3].metric("Spot", f"{d['spot']:,.2f}")
+        if d['rr'] is not None:
+            tone=("downside protection is **richer** than upside — the market is paying up to hedge (fearful/skewed)"
+                  if d['rr']>0 else
+                  "**upside** is priced above downside — unusual, a melt-up/greed signal")
+            st.caption(f"Skew (90/110 risk reversal) = **{d['rr']:+.1f} vol pts** → {tone}. "
+                       "Moneyness-based (not true 25-delta); yfinance IVs are delayed and can be noisy at thin strikes.")
+    st.divider()
+    st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">CBOE SKEW index — '
+                'tail-risk pricing over time (100 = symmetric; higher = more crash-hedging demand)</span>',
+                unsafe_allow_html=True)
+    cc1,cc2,cc3=st.columns([1.6,1,1])
+    yrs=cc1.select_slider("Lookback (years)",[1,2,3,5,10],value=3,key=k+"_yr")
+    show_avg=cc2.checkbox("Avg", value=True, key=k+"_avg")
+    show_sd=cc3.checkbox("±2σ", value=True, key=k+"_sd")
+    s=md_history("^SKEW")
+    if s is None or s.empty:
+        st.caption("CBOE SKEW index unavailable right now.")
+    else:
+        s=s[s.index>=pd.Timestamp(datetime.today()-relativedelta(years=yrs))]
+        f2=go.Figure()
+        f2.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6),name="CBOE SKEW"))
+        add_stat_bands(f2, s.values, BLUE, "SKEW", show_avg, show_sd)
+        base_layout(f2,f"CBOE SKEW index · now {float(s.iloc[-1]):.0f}","",h=300)
+        st.plotly_chart(f2, use_container_width=True, key=k+"_skewidx")
+        dl(pd.DataFrame({"Date":s.index,"SKEW":s.values}),"Export","JAWS_skew_index.xlsx",k+"_dl")
+
 def panel_news(k):
     import time as _t
     with st.spinner("Fetching markets news…"):
@@ -2665,6 +2756,7 @@ with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "sec
 
 # ── Full-width sections (stacked) ──
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
+_sec("SKEW","Volatility Skew (protection vs upside)", panel_skew, "secskew")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
