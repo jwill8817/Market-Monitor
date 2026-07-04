@@ -2568,18 +2568,22 @@ def _sec(tag, title, fn, *a):
             st.error(f"⚠ {title}: {type(e).__name__}: {e}")
             with st.expander("details"): st.code(_tb.format_exc())
 
+# ── Half-width grid: curves & rate/vol snapshots right under the two tables ──
+_g1=st.columns(2)
+with _g1[0]: _sec("CRV","Curves", panel_curves, "q3")
+with _g1[1]: _sec("FED","Fed Rate Expectations & Hike/Cut Odds", panel_fed, "secfed")
+_g2=st.columns(2)
+with _g2[0]: _sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
+with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "secenrg")
+
 # ── Full-width sections (stacked) ──
-_sec("CRV","Curves", panel_curves, "q3")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
-_sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
-_sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "secenrg")
 _sec("SPRD","Commodity Spreads (crack · crush · ratios)", panel_commodity_spreads, "secsprd")
-_sec("FED","Fed Rate Expectations & Hike/Cut Odds", panel_fed, "secfed")
 _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
 # Self-headed analytical sections
