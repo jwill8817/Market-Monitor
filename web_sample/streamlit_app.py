@@ -19,7 +19,7 @@ for _k in ("FRED_API_KEY", "NEWS_API_KEY"):
 # Force-reload data modules so deployed code changes always take effect, even when
 # Streamlit reruns the script without restarting the process (avoids stale modules).
 import importlib
-for _m in ("market_data", "fi_spreads", "factors_data", "yield_curve", "futures_data"):
+for _m in ("market_data", "fi_spreads", "factors_data", "yield_curve", "futures_data", "prediction_markets"):
     try:
         importlib.reload(importlib.import_module(_m))
     except Exception:
@@ -499,6 +499,10 @@ def commodity_curves(products, n): import futures_data as fx; return fx.fetch_co
 def rate_path(): import futures_data as fx; return fx.fetch_rate_expectation_path()
 @st.cache_data(ttl=1800, show_spinner=False)
 def zq_strip_auto(): import futures_data as fx; return fx.fetch_zq_strip()
+@st.cache_data(ttl=900, show_spinner=False)
+def prediction_markets_data(sources, topics):
+    import prediction_markets as pmkt
+    return pmkt.fetch_prediction_markets(list(sources), list(topics))
 @st.cache_data(ttl=3600, show_spinner=False)
 def factor_data(cs=None, ce=None):
     import factors_data as fd; return fd.fetch_factors(custom_start=cs, custom_end=ce)
@@ -1729,6 +1733,36 @@ def panel_fed(k):
               **{f"P({kk}bp)":vv for kk,vv in r["outcomes"].items()}} for r in mp]
         dl(pd.DataFrame(exp),"Export","JAWS_fed_meeting_probs.xlsx",k+"_dl")
 
+def panel_prediction(k):
+    import prediction_markets as pmkt
+    c1,c2=st.columns(2)
+    srcs=c1.multiselect("Sources",["Polymarket","Kalshi"],default=["Polymarket","Kalshi"],key=k+"_src")
+    tops=c2.multiselect("Topics",list(pmkt.TOPICS.keys()),default=list(pmkt.TOPICS.keys()),key=k+"_top")
+    if not srcs or not tops:
+        st.info("Pick at least one source and topic."); return
+    with st.spinner("Fetching prediction markets…"):
+        rows=prediction_markets_data(tuple(srcs), tuple(tops))
+    if not rows:
+        st.info("No matching markets right now — try Refresh."); return
+    rows=rows[:40]
+    hdr=["Implied","Contract","Topic","Src","24h Vol","Closes"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    for r in rows:
+        p=r["prob"]; pc=GREEN if p>=50 else TEXT1
+        oc=f" · {r['outcome']}" if r["outcome"] not in ("Yes","top") else ""
+        h+=(f"<tr><td style='color:{pc};font-weight:700'>{p:.0f}%</td>"
+            f"<td><a href='{r['url']}' target='_blank' style='color:{TEXT1};text-decoration:none'>"
+            f"{r['question']}</a><span style='color:{TEXT3}'>{oc}</span></td>"
+            f"<td style='color:{TEXT3}'>{r['topic']}</td>"
+            f"<td style='color:{_src_color(r['source'])}'>{r['source']}</td>"
+            f"<td>{r['vol24']:,.0f}</td>"
+            f"<td style='color:{TEXT3}'>{r['end']}</td></tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("Market-implied probabilities (real-money crowd pricing), **not forecasts**. Polymarket = "
+               "'Yes'/top-outcome price; Kalshi = last/mid price. Sorted by 24h volume. 24h Vol units differ "
+               "by source (Polymarket ≈ USD, Kalshi = contracts). Click a contract to open it. Public APIs.")
+    dl(pd.DataFrame(rows),"Export","JAWS_prediction_markets.xlsx",k+"_dl")
+
 def panel_news(k):
     import time as _t
     with st.spinner("Fetching markets news…"):
@@ -2627,6 +2661,7 @@ with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "sec
 
 # ── Full-width sections (stacked) ──
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
+_sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
