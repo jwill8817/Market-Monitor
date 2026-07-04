@@ -1844,14 +1844,48 @@ def _holdings_table(sym, subtitle, n=10):
             f"<td>{w*100:.1f}%</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
 
-_EQFIN={"S&P 500 (ES)":("S&P 500 E-mini (ES)","^GSPC","SPY"),
-        "Nasdaq-100 (NQ)":("Nasdaq-100 E-mini (NQ)","^IXIC","QQQ"),
-        "Dow (YM)":("Dow E-mini (YM)","^DJI","DIA"),
-        "Russell 2000 (RTY)":("Russell 2000 E-mini (RTY)","^RUT","IWM")}
+_EQFIN={"S&P 500 (ES)":("S&P 500 E-mini (ES)","^GSPC","SPY","ES=F"),
+        "Nasdaq-100 (NQ)":("Nasdaq-100 E-mini (NQ)","^IXIC","QQQ","NQ=F"),
+        "Dow (YM)":("Dow E-mini (YM)","^DJI","DIA","YM=F"),
+        "Russell 2000 (RTY)":("Russell 2000 E-mini (RTY)","^RUT","IWM","RTY=F")}
+
+def _days_to_next_q(d):
+    """Calendar days from date d to the next quarterly (Mar/Jun/Sep/Dec) 3rd-Friday expiry."""
+    cands=[]
+    for y in (d.year, d.year+1):
+        for m in (3,6,9,12):
+            first=date(y,m,1); ff=1+((4-first.weekday())%7); cands.append(date(y,m,ff+14))
+    fut=[e for e in cands if e>=d]
+    return (min(fut)-d).days if fut else None
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def eq_financing_series(fut_sym, spot_sym, div_etf, yrs):
+    """Historical implied financing spread over SOFR (bps) from the continuous front
+    future vs cash index, using days to the next quarterly expiry for annualization."""
+    import fi_spreads as fs
+    fut=md_history(fut_sym); spot=md_history(spot_sym)
+    if fut is None or spot is None or fut.empty or spot.empty: return None
+    q=trailing_div_yield(div_etf) or 0.0
+    d,v=fs._fred_fetch_all("SOFR")
+    if not d: return None
+    sofr=pd.Series(v, index=pd.to_datetime(d))/100.0
+    df=pd.concat([fut.rename("F"),spot.rename("S")],axis=1,join="inner").dropna()
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); df=df[df.index>=cutoff]
+    if df.empty: return None
+    df["sofr"]=sofr.reindex(df.index, method="ffill")
+    out={}
+    for tm,r in df.iterrows():
+        dd=_days_to_next_q(tm.date())
+        if not dd or dd<10: continue                 # skip last ~10d before roll (annualization noise)
+        t=dd/365.0; net=(r["F"]/r["S"]-1.0)/t
+        out[tm]=(net+q-r["sofr"])*10000.0
+    s=pd.Series(out)
+    s=s[(s>-300)&(s<600)]                            # drop roll/timing outliers
+    return s if not s.empty else None
 
 def panel_eq_financing(k):
     idx=st.selectbox("Index", list(_EQFIN), key=k+"_idx")
-    prod,spot_sym,etf=_EQFIN[idx]
+    prod,spot_sym,etf,futc=_EQFIN[idx]
     curve=(commodity_curves((prod,),12) or {}).get(prod) or {}
     pts=curve.get("points") or []
     spot_s=md_history(spot_sym)
@@ -1887,10 +1921,33 @@ def panel_eq_financing(k):
                     help="Implied financing rate on the front contract minus SOFR.")
     st.caption("Implied financing = **(future ÷ spot − 1) annualized + dividend yield**; the spread is that "
                "minus SOFR — the market's synthetic cost to finance long index exposure. **Market-implied, "
-               "not a dealer TRS quote** (bank total-return-swap spreads are bilateral/private). Noisy near "
-               "roll & quarter-end and sensitive to spot/future timing; use the trend, not the last decimal.")
+               "not a dealer TRS quote** (bank total-return-swap spreads are bilateral/private).")
     dl(pd.DataFrame(rows,columns=["Contract","Future","Days","NetCarry%","DivYld%","ImpliedFin%","SpreadBps"]),
        "Export","JAWS_equity_financing.xlsx",k+"_dl")
+    # ── Financing spread over time (the quarter-end funding-pressure pattern) ──
+    st.divider()
+    t1,t2,t3=st.columns([1.6,1,1])
+    yrs=t1.select_slider("History (years)",[1,2,3,5],value=3,key=k+"_yr")
+    show_avg=t2.checkbox("Avg", value=True, key=k+"_avg")
+    show_sd=t3.checkbox("±2σ", value=True, key=k+"_sd")
+    with st.spinner("Building financing-spread history…"):
+        s=eq_financing_series(futc, spot_sym, etf, yrs)
+    if s is None or s.empty:
+        st.caption("Financing-spread history unavailable (SOFR history starts 2018).")
+    else:
+        f=go.Figure()
+        f.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.3),
+            name="Implied financing spread"))
+        f.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+        add_stat_bands(f, s.values, BLUE, "spread", show_avg, show_sd)
+        base_layout(f,f"{idx} implied financing spread vs SOFR · now {float(s.iloc[-1]):+.0f} bps","",h=320)
+        f.update_layout(margin=dict(l=60,r=16,t=64,b=70)); f.update_yaxes(title="Spread over SOFR (bps)")
+        st.plotly_chart(f, use_container_width=True, key=k+"_ts")
+        st.caption("From the **continuous front future** vs cash index (days to next quarterly expiry used for "
+                   "annualization; dividend yield held at the current trailing rate). Watch the **spikes into "
+                   "quarter-ends** — that's dealer balance-sheet/funding pressure, the signal this metric is best "
+                   "for. Absolute level is approximate (spot/future timing); the *pattern* is the value.")
+        dl(pd.DataFrame({"Date":s.index,"SpreadBps":s.values}),"Export history","JAWS_equity_financing_ts.xlsx",k+"_dl2")
 
 def panel_crowding(k):
     c1,c2=st.columns(2)
