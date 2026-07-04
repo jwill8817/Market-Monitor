@@ -1468,8 +1468,9 @@ def panel_vix_term(k):
     fig.update_xaxes(tickvals=[d for _,d,_ in pts], ticktext=[l.split()[0] for l,_,_ in pts])
     slope=pts[-1][2]-pts[0][2]
     shape="contango — calm now, more vol priced further out" if slope>0 else "backwardation — near-term stress"
-    st.plotly_chart(base_layout(fig,f"VIX term structure · as of {v['as_of']}  ({shape})","",h=310),
+    st.plotly_chart(base_layout(fig,f"VIX term structure · {v['as_of']}","",h=310),
         use_container_width=True, key=k+"_chart")
+    st.caption(f"Shape: **{shape}**.")
     c1,c2,c3=st.columns([1.4,1,1])
     yrs=c1.select_slider("Slope history (years)",[1,2,3,5,10],value=3,key=k+"_yr")
     show_avg=c2.checkbox("Avg",value=True,key=k+"_avg"); show_sd=c3.checkbox("±2σ",value=True,key=k+"_sd")
@@ -1496,10 +1497,10 @@ def panel_vix_term(k):
 def panel_energy_curve(k):
     import futures_data as fx
     opts=list(fx.CURVE_PRODUCTS.keys())
-    c1,c2,c3=st.columns([3,1,1])
-    sel=c1.multiselect("Futures", opts, default=["WTI Crude ($/bbl)"], key=k+"_sel")
+    sel=st.multiselect("Futures", opts, default=["WTI Crude ($/bbl)"], key=k+"_sel")
+    c2,c3=st.columns([2,1])
     n=int(c2.select_slider("Months out",[6,9,12,18,24],value=12,key=k+"_n"))
-    dual=c3.checkbox("2nd on right axis", value=False, key=k+"_dual",
+    dual=c3.checkbox("Right axis (2nd)", value=False, key=k+"_dual",
                      help="Plot the second selected contract on a separate right-hand axis "
                           "(useful when two markets have very different price scales).")
     if not sel:
@@ -1516,7 +1517,7 @@ def panel_energy_curve(k):
             marker=dict(size=6), yaxis="y2" if onR else "y"))
     if not valid:
         st.warning("No contract data returned right now — hit ↻ Refresh."); return
-    base_layout(fig,"Futures curves · dated NYMEX/COMEX/CBOT contracts","",h=340)
+    base_layout(fig,"Futures curves","",h=340)
     if dual and len(valid)>=2:
         fig.update_layout(yaxis2=dict(overlaying="y", side="right", gridcolor=BORDER,
                                       color=TEXT1, tickfont=dict(color=TEXT1)))
