@@ -504,6 +504,17 @@ def prediction_markets_data(sources, topics):
     import prediction_markets as pmkt
     return pmkt.fetch_prediction_markets(list(sources), list(topics))
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def etf_top_holdings(sym):
+    """Top holdings [(ticker,name,weight_frac)] for an ETF via issuer daily file, or None."""
+    import yfinance as yf
+    try:
+        th=yf.Ticker(sym).get_funds_data().top_holdings
+        if th is None or th.empty: return None
+        return [(str(i), str(r["Name"]), float(r["Holding Percent"])) for i,r in th.iterrows()]
+    except Exception:
+        return None
+
 @st.cache_data(ttl=900, show_spinner=False)
 def option_skew(sym, dte_target):
     """Implied-vol skew for an optionable ticker from the yfinance chain nearest dte_target.
@@ -1806,6 +1817,33 @@ def panel_prediction(k):
                "by source (Polymarket ≈ USD, Kalshi = contracts). Click a contract to open it. Public APIs.")
     dl(pd.DataFrame(rows),"Export","JAWS_prediction_markets.xlsx",k+"_dl")
 
+def _holdings_table(sym, subtitle, n=10):
+    import html as _html
+    rows=etf_top_holdings(sym)
+    if not rows:
+        st.caption(f"{sym} holdings unavailable right now."); return
+    st.markdown(f"**{subtitle}** · <span style='color:{TEXT3};font-size:12px'>{sym}</span>",
+                unsafe_allow_html=True)
+    hdr=["#","Ticker","Name","Wgt%"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    for i,(tk,nm,w) in enumerate(rows[:n],1):
+        h+=(f"<tr><td style='color:{TEXT3}'>{i}</td><td>{_html.escape(tk)}</td>"
+            f"<td style='text-align:left;white-space:normal;max-width:230px'>{_html.escape(nm)}</td>"
+            f"<td>{w*100:.1f}%</td></tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+
+def panel_crowding(k):
+    c1,c2=st.columns(2)
+    with c1:
+        _holdings_table("GVIP","Crowded LONGS — GS Hedge Fund VIP")
+    with c2:
+        _holdings_table("HDGE","Crowded SHORTS — Ranger Equity Bear book")
+    st.caption("**GVIP** = the stocks appearing most often among hedge funds' top-10 long positions "
+               "(Goldman 'Hedge Fund VIP' basket) — the free proxy for crowded longs. **HDGE** = an "
+               "actively-managed short fund; its book is a proxy for high-conviction shorts (no free ETF "
+               "cleanly replicates the GS 'most-shorted' basket). Holdings from issuer daily files (via "
+               "yfinance), updated daily — this is **not** GS/MS prime brokerage positioning, which is licensed.")
+
 def panel_skew(k):
     c1,c2=st.columns([1,1])
     sym=c1.text_input("Underlying (optionable ticker)", "SPY", key=k+"_sym").strip().upper()
@@ -2768,6 +2806,7 @@ with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "sec
 
 # ── Full-width sections (stacked) ──
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
+_sec("CROWD","Crowded Positioning (longs & shorts)", panel_crowding, "seccrowd")
 _sec("SKEWIX","CBOE SKEW Index (tail-risk over time)", panel_skew_index, "secskewix")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
