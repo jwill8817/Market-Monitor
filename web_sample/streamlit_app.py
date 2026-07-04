@@ -1840,27 +1840,33 @@ def panel_skew(k):
                   "**upside** is priced above downside — unusual, a melt-up/greed signal")
             st.caption(f"Skew (90/110 risk reversal) = **{d['rr']:+.1f} vol pts** → {tone}. "
                        "Moneyness-based (not true 25-delta); yfinance IVs are delayed and can be noisy at thin strikes.")
-    st.divider()
+    st.caption("Live option-implied skew from the yfinance chain. The **CBOE SKEW index history** "
+               "(tail-risk over time) is in its own full-width section below.")
+
+def panel_skew_index(k):
     st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">CBOE SKEW index — '
                 'tail-risk pricing over time (100 = symmetric; higher = more crash-hedging demand)</span>',
                 unsafe_allow_html=True)
     cc1,cc2,cc3=st.columns([1.6,1,1])
-    yrs=cc1.select_slider("Lookback (years)",[1,2,3,5,10],value=3,key=k+"_yr")
+    yrs=cc1.select_slider("Lookback (years)",[1,2,3,5,10,20],value=5,key=k+"_yr")
     show_avg=cc2.checkbox("Avg", value=True, key=k+"_avg")
     show_sd=cc3.checkbox("±2σ", value=True, key=k+"_sd")
     s=md_history("^SKEW")
     if s is None or s.empty:
-        st.caption("CBOE SKEW index unavailable right now.")
-    else:
-        s=s[s.index>=pd.Timestamp(datetime.today()-relativedelta(years=yrs))]
-        f2=go.Figure()
-        f2.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6),name="CBOE SKEW"))
-        add_stat_bands(f2, s.values, BLUE, "SKEW", show_avg, show_sd)
-        base_layout(f2,f"CBOE SKEW index · now {float(s.iloc[-1]):.0f}","",h=310)
-        f2.update_layout(margin=dict(l=64,r=16,t=64,b=70))
-        f2.update_yaxes(title="SKEW index level (100 = symmetric)")
-        st.plotly_chart(f2, use_container_width=True, key=k+"_skewidx")
-        dl(pd.DataFrame({"Date":s.index,"SKEW":s.values}),"Export","JAWS_skew_index.xlsx",k+"_dl")
+        st.caption("CBOE SKEW index unavailable right now."); return
+    s=s[s.index>=pd.Timestamp(datetime.today()-relativedelta(years=yrs))]
+    if s.empty:
+        st.caption("No SKEW data in that lookback."); return
+    f2=go.Figure()
+    f2.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6),name="CBOE SKEW"))
+    add_stat_bands(f2, s.values, BLUE, "SKEW", show_avg, show_sd)
+    base_layout(f2,f"CBOE SKEW index · now {float(s.iloc[-1]):.0f}","",h=320)
+    f2.update_layout(margin=dict(l=64,r=16,t=64,b=70))
+    f2.update_yaxes(title="SKEW index level (100 = symmetric)")
+    st.plotly_chart(f2, use_container_width=True, key=k+"_skewidx")
+    st.caption("CBOE SKEW distills S&P 500 option prices into a single tail-risk gauge — higher = the market "
+               "is paying more for crash protection. Above the average/+2σ band = tail hedging is rich.")
+    dl(pd.DataFrame({"Date":s.index,"SKEW":s.values}),"Export","JAWS_skew_index.xlsx",k+"_dl")
 
 def panel_news(k):
     import time as _t
@@ -2762,6 +2768,7 @@ with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "sec
 
 # ── Full-width sections (stacked) ──
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
+_sec("SKEWIX","CBOE SKEW Index (tail-risk over time)", panel_skew_index, "secskewix")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
