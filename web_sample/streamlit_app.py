@@ -2048,9 +2048,9 @@ def panel_regression():
             fig.update_xaxes(title=cols[0]); fig.update_yaxes(title=ylabel)
             st.plotly_chart(fig, use_container_width=True, key="reg_chart")
 
-        # ── Return attribution: factor (β·X) vs idiosyncratic, annualized bars by horizon ──
+        # ── Return attribution: Beta (β·X) vs idiosyncratic, by horizon ──
         st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
-                    'Return attribution — annualized return split into factor-driven (β·X) vs '
+                    'Return attribution — return split into Beta-driven (β·X) vs '
                     'idiosyncratic (α + residual) over each horizon</span>', unsafe_allow_html=True)
         ppy=12 if freq=="Monthly" else 252
         hz=[("1M",21),("1Y",252),("3Y",756),("5Y",1260),("10Y",2520),("Full",None)]
@@ -2060,13 +2060,15 @@ def panel_regression():
             sub=frame if N is None else (frame.iloc[-N:] if N<=len(frame) else None)
             if sub is None or len(sub)<1: continue
             ysub=sub["__Y__"].values; fac=float((sub[cols].values@beta[1:]).sum())
-            tot=float(ysub.sum()); idio=tot-fac; ann=ppy/len(sub)
+            tot=float(ysub.sum()); idio=tot-fac
+            # Annualize only horizons longer than 1 year; 1M/1Y shown as their raw period return.
+            ann=ppy/len(sub) if len(sub)>ppy else 1.0
             labels.append(lbl); facv.append(fac*ann*100); idiov.append(idio*ann*100); totv.append(tot*ann*100)
         if labels:
             bar=go.Figure()
-            bar.add_trace(go.Bar(x=labels,y=facv,name="From factors (β·X)",marker_color=BLUE))
+            bar.add_trace(go.Bar(x=labels,y=facv,name="From Beta(s) (β·X)",marker_color=BLUE))
             bar.add_trace(go.Bar(x=labels,y=idiov,name="Idiosyncratic (α+resid)",marker_color=YELLOW))
-            base_layout(bar,f"{ylabel} — annualized return attribution by horizon","%",h=330)
+            base_layout(bar,f"{ylabel} — return attribution by horizon (annualized for >1Y)","%",h=330)
             bar.update_layout(barmode="relative")
             bar.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
             for i,l in enumerate(labels):
@@ -2077,25 +2079,26 @@ def panel_regression():
             pf=[(facv[i]/totv[i]*100 if abs(totv[i])>1e-9 else 0.0) for i in range(len(labels))]
             pi=[(idiov[i]/totv[i]*100 if abs(totv[i])>1e-9 else 0.0) for i in range(len(labels))]
             pbar=go.Figure()
-            pbar.add_trace(go.Bar(x=labels,y=pf,name="From factors %",marker_color=BLUE,
+            pbar.add_trace(go.Bar(x=labels,y=pf,name="From Beta(s) %",marker_color=BLUE,
                 text=[f"{v:.0f}%" for v in pf],textposition="inside",insidetextanchor="middle"))
             pbar.add_trace(go.Bar(x=labels,y=pi,name="Idiosyncratic %",marker_color=YELLOW,
                 text=[f"{v:.0f}%" for v in pi],textposition="inside",insidetextanchor="middle"))
-            base_layout(pbar,f"{ylabel} — share of return (factors vs idiosyncratic = 100%)","%",h=300)
+            base_layout(pbar,f"{ylabel} — share of return (Beta(s) vs idiosyncratic = 100%)","%",h=300)
             pbar.update_layout(barmode="relative")
             pbar.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
             pbar.add_hline(y=100,line=dict(color=TEXT3,dash="dot"))
             st.plotly_chart(pbar, use_container_width=True, key="reg_attr_share")
-            atab=pd.DataFrame({"Horizon":labels,"Total ann %":[round(x,1) for x in totv],
-                               "From factors %":[round(x,1) for x in facv],
+            atab=pd.DataFrame({"Horizon":labels,"Total %":[round(x,1) for x in totv],
+                               "From Beta(s) %":[round(x,1) for x in facv],
                                "Idiosyncratic %":[round(x,1) for x in idiov],
-                               "Factor share %":[round(x,1) for x in pf],
+                               "Beta share %":[round(x,1) for x in pf],
                                "Idiosyncratic share %":[round(x,1) for x in pi]})
-            st.caption("Top bars = annualized total return split into **factor-driven** (β·X, blue) and "
-                       "**idiosyncratic** (α + residual, yellow); label is the total. Bottom bars = the same "
-                       "split as a **share of total (sums to 100%)**. When factor and idiosyncratic returns "
-                       "have opposite signs, a share can exceed 100% while the other goes negative (they still "
-                       "net to 100%). Horizons longer than the loaded history are skipped.")
+            st.caption("Top bars = total return split into **Beta-driven** (β·X, blue) and **idiosyncratic** "
+                       "(α + residual, yellow); label is the total. **1M and 1Y are the raw period return; "
+                       "3Y/5Y/10Y/Full are annualized.** Bottom bars = the same split as a **share of total "
+                       "(sums to 100%)**. When Beta and idiosyncratic returns have opposite signs, a share can "
+                       "exceed 100% while the other goes negative (they still net to 100%). Horizons longer "
+                       "than the loaded history are skipped.")
             dl(atab, "Export attribution", "JAWS_regression_attribution.xlsx", "reg_attr_dl")
 
         # ── Rolling beta & p-value (own choice menu) ──
