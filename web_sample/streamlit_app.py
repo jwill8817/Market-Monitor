@@ -89,6 +89,8 @@ st.markdown(f"""
   ::-webkit-scrollbar-thumb {{ background:#ffffff; border-radius:8px; border:3px solid {SIDEBAR}; }}
   ::-webkit-scrollbar-thumb:hover {{ background:{ACCENT}; }}
   ::-webkit-scrollbar-corner {{ background:{SIDEBAR}; }}
+  /* Hide the Plotly toolbar so it never overlaps chart titles (Export buttons handle downloads) */
+  .modebar, .js-plotly-plot .plotly .modebar {{ display:none !important; }}
   * {{ scrollbar-width:auto; scrollbar-color:#ffffff {SIDEBAR}; }}
   div[data-testid="stVerticalBlockBorderWrapper"] {{ background:{CARD};
        border:1px solid {BORDER} !important; border-radius:8px; }}
