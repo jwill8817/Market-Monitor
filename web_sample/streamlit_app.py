@@ -1745,14 +1745,18 @@ def panel_prediction(k):
     if not rows:
         st.info("No matching markets right now — try Refresh."); return
     rows=rows[:40]
+    import html as _html
     hdr=["Implied","Contract","Topic","Src","24h Vol","Closes"]
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
     for r in rows:
         p=r["prob"]; pc=GREEN if p>=50 else TEXT1
         oc=f" · {r['outcome']}" if r["outcome"] not in ("Yes","top") else ""
+        q=r["question"]; q=(q[:150].rstrip()+"…") if len(q)>150 else q
+        q=_html.escape(q)
         h+=(f"<tr><td style='color:{pc};font-weight:700'>{p:.0f}%</td>"
-            f"<td><a href='{r['url']}' target='_blank' style='color:{TEXT1};text-decoration:none'>"
-            f"{r['question']}</a><span style='color:{TEXT3}'>{oc}</span></td>"
+            f"<td style='text-align:left;white-space:normal;min-width:240px;max-width:540px'>"
+            f"<a href='{r['url']}' target='_blank' style='color:{TEXT1};text-decoration:none'>"
+            f"{q}</a><span style='color:{TEXT3}'>{_html.escape(oc)}</span></td>"
             f"<td style='color:{TEXT3}'>{r['topic']}</td>"
             f"<td style='color:{_src_color(r['source'])}'>{r['source']}</td>"
             f"<td>{r['vol24']:,.0f}</td>"
