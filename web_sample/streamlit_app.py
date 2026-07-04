@@ -1472,29 +1472,70 @@ def panel_vix_term(k):
     shape="contango — calm now, more vol priced further out" if slope>0 else "backwardation — near-term stress"
     st.plotly_chart(base_layout(fig,f"VIX term structure · {v['as_of']}","",h=310),
         use_container_width=True, key=k+"_chart")
-    st.caption(f"Shape: **{shape}**.")
-    c1,c2,c3=st.columns([1.4,1,1])
-    yrs=c1.select_slider("Slope history (years)",[1,2,3,5,10],value=3,key=k+"_yr")
-    show_avg=c2.checkbox("Avg",value=True,key=k+"_avg"); show_sd=c3.checkbox("±2σ",value=True,key=k+"_sd")
-    try:
-        a=pd.Series(dict(vix_hist("VIX"))); b=pd.Series(dict(vix_hist("VIX3M")))
-        a.index=pd.to_datetime(a.index); b.index=pd.to_datetime(b.index)
-        d=pd.concat([a.rename("s"),b.rename("l")],axis=1,join="inner").dropna()
-        spr=(d["s"]-d["l"]); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs))
-        spr=spr[spr.index>=cutoff]
-        f2=go.Figure()
-        f2.add_trace(go.Scatter(x=spr.index,y=spr.values,mode="lines",line=dict(color=BLUE,width=1.4),
-            name="VIX − VIX3M"))
-        f2.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-        add_stat_bands(f2, spr.values, ACCENT, "VIX−VIX3M", show_avg, show_sd)
-        st.plotly_chart(base_layout(f2,"Slope: VIX − VIX3M (below 0 = contango/calm; above = inverted/stress)","",h=270),
-            use_container_width=True, key=k+"_slope")
-    except Exception as e:
-        st.caption(f"Slope history unavailable: {e}")
-    st.caption("Constant-maturity CBOE vol indices (free, no futures license). Upward slope = contango "
-               "(a roll cost to hold long volatility); inverted = acute near-term stress.")
+    st.caption(f"Shape: **{shape}**. Constant-maturity CBOE vol indices (free, no futures license). "
+               "Upward = contango (roll cost for long vol); inverted = near-term stress. "
+               "Slope history is in the *Term-Structure Steepness* section below.")
     dl(pd.DataFrame([{"Label":l,"Maturity_days":d,"Vol":x} for l,d,x in pts]),
        "Export","JAWS_vix_term.xlsx",k+"_dl")
+
+# Term-structure steepness measures with clean free history (vol via CBOE, rates via FRED)
+_STEEP={
+    "VIX − VIX3M (30d vs 3m vol)":   ("vix","VIX","VIX3M","vol pts","below 0 = contango/calm · above = inverted/stress"),
+    "VIX3M − VIX6M (3m vs 6m vol)":  ("vix","VIX3M","VIX6M","vol pts","term-structure slope further out"),
+    "VIX9D − VIX (9d vs 30d vol)":   ("vix","VIX9D","VIX","vol pts","very front-end vol kink"),
+    "Treasury 10Y − 2Y (2s10s)":     ("fred","T10Y2Y","","%","below 0 = inverted curve (recession signal)"),
+    "Treasury 10Y − 3M":             ("fred","T10Y3M","","%","below 0 = inverted vs bills"),
+    "Treasury 30Y − 5Y":             ("fdiff","DGS30","DGS5","%","long-end steepness"),
+}
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fred_series(sid):
+    import fi_spreads as fs
+    d,v=fs._fred_fetch_all(sid)
+    return None if not d else pd.Series(v, index=pd.to_datetime(d)).sort_index()
+
+def panel_steepness(k):
+    name=st.selectbox("Measure", list(_STEEP), key=k+"_sel")
+    kind,a,b,unit,note=_STEEP[name]
+    c1,c2,c3=st.columns([1.6,1,1])
+    yrs=c1.select_slider("Lookback (years)",[1,2,3,5,10,20],value=5,key=k+"_yr")
+    show_avg=c2.checkbox("Avg", value=True, key=k+"_avg")
+    show_sd=c3.checkbox("±2σ", value=True, key=k+"_sd")
+    try:
+        if kind=="vix":
+            sa=pd.Series(dict(vix_hist(a))); sb=pd.Series(dict(vix_hist(b)))
+            sa.index=pd.to_datetime(sa.index); sb.index=pd.to_datetime(sb.index)
+            d=pd.concat([sa.rename("a"),sb.rename("b")],axis=1,join="inner").dropna()
+            spr=(d["a"]-d["b"])
+        elif kind=="fred":
+            spr=_fred_series(a)
+        else:  # fdiff
+            sa=_fred_series(a); sb=_fred_series(b)
+            d=pd.concat([sa.rename("a"),sb.rename("b")],axis=1,join="inner").dropna()
+            spr=(d["a"]-d["b"])
+    except Exception as e:
+        st.warning(f"Data unavailable: {e}"); return
+    if spr is None or spr.dropna().empty:
+        st.warning("No data for this measure right now."); return
+    spr=spr.dropna(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs))
+    spr=spr[spr.index>=cutoff]
+    if spr.empty: st.warning("No data in that lookback."); return
+    cur=float(spr.iloc[-1]); mu=float(spr.mean()); sd=float(spr.std())
+    z=(cur-mu)/sd if sd>1e-9 else None
+    fig=go.Figure()
+    fig.add_trace(go.Scatter(x=spr.index,y=spr.values,mode="lines",line=dict(color=ACCENT,width=1.7),name=name))
+    fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+    add_stat_bands(fig, spr.values, BLUE, name, show_avg, show_sd)
+    st.plotly_chart(base_layout(fig,f"{name} · now {cur:+.2f} {unit}","",h=340),
+        use_container_width=True, key=k+"_chart")
+    m=st.columns(4)
+    m[0].metric("Current", f"{cur:+.2f}")
+    m[1].metric("Average", f"{mu:+.2f}")
+    m[2].metric("Std dev", f"{sd:.2f}")
+    m[3].metric("Z-score", f"{z:+.2f}" if z is not None else "—",
+                help="Rich/cheap vs own history: >0 = steeper/wider than average.")
+    st.caption(f"{note}. Vol slopes use CBOE constant-maturity indices; rate slopes use FRED. "
+               "Positive z = curve steeper (or spread wider) than its own history.")
+    dl(pd.DataFrame({"Date":spr.index, name:spr.values}),"Export","JAWS_steepness.xlsx",k+"_dl")
 
 def panel_energy_curve(k):
     import futures_data as fx
@@ -2580,6 +2621,7 @@ with _g2[0]: _sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
 with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "secenrg")
 
 # ── Full-width sections (stacked) ──
+_sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
