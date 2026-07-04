@@ -89,8 +89,6 @@ st.markdown(f"""
   ::-webkit-scrollbar-thumb {{ background:#ffffff; border-radius:8px; border:3px solid {SIDEBAR}; }}
   ::-webkit-scrollbar-thumb:hover {{ background:{ACCENT}; }}
   ::-webkit-scrollbar-corner {{ background:{SIDEBAR}; }}
-  /* Hide the Plotly toolbar so it never overlaps chart titles (Export buttons handle downloads) */
-  .modebar, .js-plotly-plot .plotly .modebar {{ display:none !important; }}
   * {{ scrollbar-width:auto; scrollbar-color:#ffffff {SIDEBAR}; }}
   div[data-testid="stVerticalBlockBorderWrapper"] {{ background:{CARD};
        border:1px solid {BORDER} !important; border-radius:8px; }}
@@ -653,6 +651,10 @@ def base_layout(fig, title, ysuffix="", h=330):
         title=dict(text=title, x=0.0, xanchor="left", xref="paper",
                    y=0.97, yanchor="top", yref="container",
                    font=dict(size=15, color="#ffffff"), pad=dict(l=6,t=4)),
+        # Toolbar (zoom/reset/autoscale) stacked vertically at the far right on a solid
+        # backdrop, so it stays available without covering the left-aligned title.
+        modebar=dict(orientation="v", bgcolor="rgba(13,17,23,0.85)",
+                     color=TEXT2, activecolor=ACCENT),
         font=dict(family="Consolas",color=TEXT1,size=11), showlegend=True,
         legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.0, xanchor="left",
                     bgcolor="rgba(28,33,40,0.92)", bordercolor=ACCENT, borderwidth=1,
