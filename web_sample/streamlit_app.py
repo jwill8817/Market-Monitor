@@ -1823,8 +1823,10 @@ def panel_skew(k):
         if mc: fig.add_trace(go.Scatter(x=[m for m,_ in mc],y=[iv for _,iv in mc],mode="lines+markers",
             name="OTM calls (upside participation)",line=dict(color=GREEN,width=2),marker=dict(size=5)))
         fig.add_vline(x=100,line=dict(color=TEXT3,dash="dash"),annotation_text="ATM (spot)")
-        base_layout(fig,f"{sym} implied-vol skew · exp {d['expiry']} ({d['dte']}d)","%",h=330)
-        fig.update_xaxes(title="Strike as % of spot")
+        base_layout(fig,f"{sym} implied-vol skew · exp {d['expiry']} ({d['dte']}d)","%",h=340)
+        fig.update_layout(margin=dict(l=64,r=16,t=64,b=64))
+        fig.update_xaxes(title="Strike as % of spot  (100 = at-the-money)")
+        fig.update_yaxes(title="Implied volatility (annualized %)")
         st.plotly_chart(fig, use_container_width=True, key=k+"_curve")
         m=st.columns(4)
         m[0].metric("ATM IV", f"{d['atm']:.1f}%" if d['atm'] is not None else "—")
@@ -1854,7 +1856,9 @@ def panel_skew(k):
         f2=go.Figure()
         f2.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6),name="CBOE SKEW"))
         add_stat_bands(f2, s.values, BLUE, "SKEW", show_avg, show_sd)
-        base_layout(f2,f"CBOE SKEW index · now {float(s.iloc[-1]):.0f}","",h=300)
+        base_layout(f2,f"CBOE SKEW index · now {float(s.iloc[-1]):.0f}","",h=310)
+        f2.update_layout(margin=dict(l=64,r=16,t=64,b=70))
+        f2.update_yaxes(title="SKEW index level (100 = symmetric)")
         st.plotly_chart(f2, use_container_width=True, key=k+"_skewidx")
         dl(pd.DataFrame({"Date":s.index,"SKEW":s.values}),"Export","JAWS_skew_index.xlsx",k+"_dl")
 
