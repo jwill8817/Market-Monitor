@@ -505,6 +505,18 @@ def prediction_markets_data(sources, topics):
     return pmkt.fetch_prediction_markets(list(sources), list(topics))
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def trailing_div_yield(etf):
+    """Trailing-12m dividend yield (fraction) of an index ETF, or None."""
+    import yfinance as yf
+    try:
+        h=yf.Ticker(etf).history(period="1y", auto_adjust=False)
+        if h.empty or "Dividends" not in h.columns: return None
+        px=float(h["Close"].iloc[-1]); d12=float(h["Dividends"].sum())
+        return d12/px if px>0 else None
+    except Exception:
+        return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def etf_top_holdings(sym):
     """Top holdings [(ticker,name,weight_frac)] for an ETF via issuer daily file, or None."""
     import yfinance as yf
@@ -1832,6 +1844,54 @@ def _holdings_table(sym, subtitle, n=10):
             f"<td>{w*100:.1f}%</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
 
+_EQFIN={"S&P 500 (ES)":("S&P 500 E-mini (ES)","^GSPC","SPY"),
+        "Nasdaq-100 (NQ)":("Nasdaq-100 E-mini (NQ)","^IXIC","QQQ"),
+        "Dow (YM)":("Dow E-mini (YM)","^DJI","DIA"),
+        "Russell 2000 (RTY)":("Russell 2000 E-mini (RTY)","^RUT","IWM")}
+
+def panel_eq_financing(k):
+    idx=st.selectbox("Index", list(_EQFIN), key=k+"_idx")
+    prod,spot_sym,etf=_EQFIN[idx]
+    curve=(commodity_curves((prod,),12) or {}).get(prod) or {}
+    pts=curve.get("points") or []
+    spot_s=md_history(spot_sym)
+    if spot_s is None or spot_s.empty or len(pts)<1:
+        st.warning("Futures or spot data unavailable right now — hit ↻ Refresh."); return
+    spot=float(spot_s.iloc[-1])
+    q=trailing_div_yield(etf); qv=q if q is not None else 0.0
+    sofr_s=_fred_series("SOFR")
+    sofr=float(sofr_s.iloc[-1])/100 if (sofr_s is not None and not sofr_s.empty) else None
+    rows=[]
+    for lbl,F in pts[:4]:
+        days=_days_to_expiry(lbl); t=days/365.0
+        if t<=0: continue
+        net=(F/spot-1.0)/t                 # r − q  (net cost of carry)
+        rimp=net+qv                        # implied financing rate r
+        spread=(rimp-sofr) if sofr is not None else None
+        rows.append((lbl,F,days,net*100,qv*100,rimp*100,(spread*10000 if spread is not None else None)))
+    hdr=["Contract","Future","Days","Net carry %","+ Div yld %","= Implied fin %","− SOFR (bps)"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    for lbl,F,days,net,divp,rimp,sp in rows:
+        spc=RED if (sp is not None and sp>0) else GREEN
+        h+=(f"<tr><td>{lbl}</td><td>{F:,.0f}</td><td>{days}</td><td>{net:+.2f}%</td>"
+            f"<td>{divp:.2f}%</td><td>{rimp:+.2f}%</td>"
+            f"<td style='color:{spc}'>{(f'{sp:+.0f}' if sp is not None else '—')}</td></tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    front=rows[0] if rows else None
+    m=st.columns(4)
+    m[0].metric("Spot", f"{spot:,.0f}")
+    m[1].metric("Div yield (12m)", f"{qv*100:.2f}%")
+    m[2].metric("SOFR", f"{sofr*100:.2f}%" if sofr is not None else "—")
+    if front and front[6] is not None:
+        m[3].metric("Front financing spread", f"{front[6]:+.0f} bps",
+                    help="Implied financing rate on the front contract minus SOFR.")
+    st.caption("Implied financing = **(future ÷ spot − 1) annualized + dividend yield**; the spread is that "
+               "minus SOFR — the market's synthetic cost to finance long index exposure. **Market-implied, "
+               "not a dealer TRS quote** (bank total-return-swap spreads are bilateral/private). Noisy near "
+               "roll & quarter-end and sensitive to spot/future timing; use the trend, not the last decimal.")
+    dl(pd.DataFrame(rows,columns=["Contract","Future","Days","NetCarry%","DivYld%","ImpliedFin%","SpreadBps"]),
+       "Export","JAWS_equity_financing.xlsx",k+"_dl")
+
 def panel_crowding(k):
     c1,c2=st.columns(2)
     with c1:
@@ -2807,6 +2867,7 @@ with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "sec
 # ── Full-width sections (stacked) ──
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
 _sec("CROWD","Crowded Positioning (longs & shorts)", panel_crowding, "seccrowd")
+_sec("EQFIN","Implied Equity Financing (futures vs SOFR)", panel_eq_financing, "seceqfin")
 _sec("SKEWIX","CBOE SKEW Index (tail-risk over time)", panel_skew_index, "secskewix")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
