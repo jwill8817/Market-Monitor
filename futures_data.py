@@ -351,8 +351,11 @@ def fedwatch_meeting_probs(strip, step=0.25, start_rate=None):
     if start_rate is None:
         _, effr = _fred_latest("DFF")
         start_rate = effr if effr is not None else strip[0][1]
+    today = datetime.date.today()
     r_prev = float(start_rate); out = []
     for (yy, mm, dd) in FOMC_DATES:
+        if datetime.date(yy, mm, dd) < today:      # never show past meetings
+            continue
         ym = f"{yy:04d}-{mm:02d}"
         if ym < first_month:
             continue
@@ -421,7 +424,9 @@ def fetch_zq_strip(n=16):
                 strip.append((_zq_month_from_symbol(sym), 100.0 - px))
         except Exception:
             continue
-    strip = [s for s in strip if s[0]]
+    # keep only current & future months (guard against any stale/past-dated contract)
+    _cur = f"{datetime.date.today().year:04d}-{datetime.date.today().month:02d}"
+    strip = [s for s in strip if s[0] and s[0] >= _cur]
     strip.sort()
     if strip:
         return strip
