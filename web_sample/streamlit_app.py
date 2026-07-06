@@ -766,6 +766,21 @@ def apply_yrange(fig, rng):
     if rng:
         fig.update_yaxes(range=[rng[0], rng[1]], autorange=False)
 
+def date_window(k, cutoff, years_default=5, host=None):
+    """Explicit start/stop for a time-series chart. A 'Custom date range' checkbox reveals
+    From/To pickers that OVERRIDE the panel's preset lookback (`cutoff`). Returns (lo, hi)
+    timestamps to filter on. Additive — leaves existing preset controls untouched."""
+    host = host if host is not None else st
+    hi = pd.Timestamp(date.today())
+    if host.checkbox("Custom date range", value=False, key=k+"_dro"):
+        c1,c2 = host.columns(2)
+        lo = c1.date_input("From", value=(cutoff.date() if cutoff is not None
+                           else date.today()-relativedelta(years=years_default)),
+                           min_value=date(1900,1,1), key=k+"_from")
+        hi_d = c2.date_input("To", value=date.today(), key=k+"_to")
+        return pd.Timestamp(lo), pd.Timestamp(hi_d)
+    return (cutoff if cutoff is not None else pd.Timestamp(date.today()-relativedelta(years=years_default))), hi
+
 # ── Valuation data ──────────────────────────────────────────────
 VAL_INDEX_ETFS={"S&P 500 (SPY)":"SPY","Nasdaq 100 (QQQ)":"QQQ","Russell 2000 (IWM)":"IWM",
     "Dow (DIA)":"DIA","S&P MidCap (MDY)":"MDY","EAFE (EFA)":"EFA","EM (EEM)":"EEM",
@@ -1205,12 +1220,12 @@ def panel_muni_ratio(k):
     b1,b2=st.columns(2)
     avg_for=b1.multiselect("Show average for", tenors, default=tenors, key=k+"_avg")
     sd_for=b2.multiselect("Show ±2σ bands for", tenors, default=tenors, key=k+"_sd")
-    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); lo,hi=date_window(k,cutoff); fig=go.Figure(); exp={}
     for i,t in enumerate(tenors):
         etf,fred=_MUNI_RATIO[t]
         r=muni_ust_ratio_series(etf,fred)
         if r is None or r.empty: continue
-        r=r[r.index>=cutoff]
+        r=r[(r.index>=lo)&(r.index<=hi)]
         if r.empty: continue
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=r.index,y=r.values,mode="lines",name=t,
@@ -1266,11 +1281,11 @@ def panel_rvol(k):
     b1,b2=st.columns(2)
     avg_for=b1.multiselect("Show average for", labels, default=labels, key=k+"_avg")
     sd_for=b2.multiselect("Show ±2σ bands for", labels, default=labels, key=k+"_sd")
-    fig=go.Figure(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); exp={}
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); lo,hi=date_window(k,cutoff); fig=go.Figure(); exp={}
     for i,(label,c) in enumerate(series.items()):
         if use_monthly: c=c.resample("ME").last().dropna()
         rv=(c.pct_change().dropna().rolling(win).std()*ann*100).dropna()
-        rv=rv[rv.index>=cutoff]
+        rv=rv[(rv.index>=lo)&(rv.index<=hi)]
         if rv.empty: continue
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=rv.index,y=rv.values,mode="lines",name=label,
@@ -1453,10 +1468,10 @@ def panel_rolling_returns(k):
     b1,b2=st.columns(2)
     avg_for=b1.multiselect("Show average for", labels, default=labels, key=k+"_avg")
     sd_for=b2.multiselect("Show ±2σ bands for", labels, default=labels, key=k+"_sd")
-    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); fig=go.Figure(); exp={}
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); lo,hi=date_window(k,cutoff); fig=go.Figure(); exp={}
     for i,(label,c) in enumerate(series.items()):
         if use_monthly: c=c.resample("ME").last().dropna()
-        rr=(c.pct_change(win).dropna())*100; rr=rr[rr.index>=cutoff]
+        rr=(c.pct_change(win).dropna())*100; rr=rr[(rr.index>=lo)&(rr.index<=hi)]
         if rr.empty: continue
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=rr.index,y=rr.values,mode="lines",name=label,
@@ -1606,7 +1621,7 @@ def panel_steepness(k):
     if spr is None or spr.dropna().empty:
         st.warning("No data for this measure right now."); return
     spr=spr.dropna(); cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs))
-    spr=spr[spr.index>=cutoff]
+    lo,hi=date_window(k,cutoff); spr=spr[(spr.index>=lo)&(spr.index<=hi)]
     if spr.empty: st.warning("No data in that lookback."); return
     cur=float(spr.iloc[-1]); mu=float(spr.mean()); sd=float(spr.std())
     z=(cur-mu)/sd if sd>1e-9 else None
@@ -1727,7 +1742,8 @@ def panel_commodity_spreads(k):
         ser[s]=h
     df=pd.concat([ser[s].rename(s) for s in legs],axis=1,join="inner").sort_index().dropna()
     spr=fn(df).dropna()
-    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); spr=spr[spr.index>=cutoff]
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); lo,hi=date_window(k,cutoff)
+    spr=spr[(spr.index>=lo)&(spr.index<=hi)]
     if spr.empty:
         st.warning("No overlapping history for that lookback."); return
     cur=float(spr.iloc[-1]); mu=float(spr.mean()); sd=float(spr.std())
@@ -1951,10 +1967,13 @@ def panel_eq_financing(k):
     yrs=t1.select_slider("History (years)",[1,2,3,5],value=3,key=k+"_yr")
     show_avg=t2.checkbox("Avg", value=True, key=k+"_avg")
     show_sd=t3.checkbox("±2σ", value=True, key=k+"_sd")
+    lo,hi=date_window(k, pd.Timestamp(datetime.today()-relativedelta(years=yrs)))
     with st.spinner("Building financing-spread history…"):
-        s=eq_financing_series(futc, spot_sym, etf, yrs)
+        s=eq_financing_series(futc, spot_sym, etf, max(yrs, (date.today()-lo.date()).days//365+1))
+    if s is not None and not s.empty:
+        s=s[(s.index>=lo)&(s.index<=hi)]
     if s is None or s.empty:
-        st.caption("Financing-spread history unavailable (SOFR history starts 2018).")
+        st.caption("Financing-spread history unavailable for that range (SOFR history starts 2018).")
     else:
         f=go.Figure()
         f.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.3),
@@ -2028,12 +2047,13 @@ def panel_skew_index(k):
     yrs=cc1.select_slider("Lookback (years)",[1,2,3,5,10,20],value=5,key=k+"_yr")
     show_avg=cc2.checkbox("Avg", value=True, key=k+"_avg")
     show_sd=cc3.checkbox("±2σ", value=True, key=k+"_sd")
+    lo,hi=date_window(k, pd.Timestamp(datetime.today()-relativedelta(years=yrs)))
     s=md_history("^SKEW")
     if s is None or s.empty:
         st.caption("CBOE SKEW index unavailable right now."); return
-    s=s[s.index>=pd.Timestamp(datetime.today()-relativedelta(years=yrs))]
+    s=s[(s.index>=lo)&(s.index<=hi)]
     if s.empty:
-        st.caption("No SKEW data in that lookback."); return
+        st.caption("No SKEW data in that range."); return
     f2=go.Figure()
     f2.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6),name="CBOE SKEW"))
     add_stat_bands(f2, s.values, BLUE, "SKEW", show_avg, show_sd)
