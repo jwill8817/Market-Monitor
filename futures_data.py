@@ -17,8 +17,10 @@ import io
 import csv
 import json
 import datetime
+import time
 import urllib.request
 import urllib.parse
+import urllib.error
 
 _UA = {"User-Agent": "Mozilla/5.0 (JAWS Market Monitor)"}
 _TIMEOUT = 12
@@ -387,7 +389,10 @@ def fedwatch_meeting_probs(strip, step=0.25, start_rate=None):
 
 def _yahoo_last(sym):
     """Latest price for a Yahoo symbol via the public chart endpoint, or None.
-    Retries on the alternate host so transient rate-limits/timeouts don't blank a curve."""
+    Gently spaces calls and — importantly — does NOT double-hit on a rate-limit/block
+    (a 429/401/403 on one host means the shared IP is throttled; hammering the other
+    host just deepens the penalty and blanks whole curves)."""
+    time.sleep(0.08)                       # smooth bursts on shared cloud IPs
     for host in ("query1", "query2"):
         url = f"https://{host}.finance.yahoo.com/v8/finance/chart/{sym}?range=5d&interval=1d"
         try:
@@ -405,8 +410,12 @@ def _yahoo_last(sym):
             for c in reversed(closes):
                 if c is not None:
                     return float(c)
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403, 429):  # throttled/blocked → other host won't help
+                return None
+            continue                       # 404 etc. → try alternate host
         except Exception:
-            continue          # try the other host, else fall through to None
+            continue
     return None
 
 def fetch_zq_strip(n=16):
