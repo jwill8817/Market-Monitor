@@ -132,7 +132,6 @@ CURVE_PRODUCTS = {
     "Nat Gas ($/MMBtu)":       ("NG", "NYM"),
     "RBOB Gasoline ($/gal)":   ("RB", "NYM"),
     "Heating Oil ($/gal)":     ("HO", "NYM"),
-    "Ethanol ($/gal)":         ("EH", "CBT"),
     # Metals
     "Gold ($/oz)":             ("GC", "CMX"),
     "Silver ($/oz)":           ("SI", "CMX"),
@@ -178,14 +177,20 @@ CURVE_PRODUCTS = {
     "Ether (ETH)":             ("ETH", "CME"),
 }
 _MONTHS_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+# These roots list ONLY quarterly (Mar/Jun/Sep/Dec) contracts — requesting the 8 missing
+# monthly symbols just wastes Yahoo calls (and invites rate-limit blanks).
+_QUARTERLY_ROOTS = {"ES","NQ","YM","RTY","ZT","ZF","ZN","TN","ZB","UB"}
 
 def _curve_symbols(root, suffix, n):
-    """Yield (symbol, 'Mon YY') for the next n monthly contracts."""
+    """Yield (symbol, 'Mon YY') for the next n months of contracts.
+    Quarterly-only roots emit just the Mar/Jun/Sep/Dec listings."""
     today = datetime.date.today()
     y, m = today.year, today.month
+    quarterly = root in _QUARTERLY_ROOTS
     out = []
     for _ in range(n):
-        out.append((f"{root}{_MCODE[m]}{str(y)[-2:]}.{suffix}", f"{_MONTHS_ABBR[m-1]} {str(y)[-2:]}"))
+        if (not quarterly) or (m in (3,6,9,12)):
+            out.append((f"{root}{_MCODE[m]}{str(y)[-2:]}.{suffix}", f"{_MONTHS_ABBR[m-1]} {str(y)[-2:]}"))
         m += 1
         if m > 12: m = 1; y += 1
     return out
@@ -378,27 +383,27 @@ def fedwatch_meeting_probs(strip, step=0.25, start_rate=None):
     return out
 
 def _yahoo_last(sym):
-    """Latest price for a Yahoo symbol via the public chart endpoint, or None."""
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
-           f"?range=5d&interval=1d")
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
-        j = json.loads(r.read())
-    res = (j.get("chart") or {}).get("result")
-    if not res:
-        return None
-    meta = res[0].get("meta") or {}
-    px = meta.get("regularMarketPrice")
-    if px is not None:
-        return float(px)
-    # fallback: last non-null close
-    try:
-        closes = res[0]["indicators"]["quote"][0]["close"]
-        for c in reversed(closes):
-            if c is not None:
-                return float(c)
-    except Exception:
-        pass
+    """Latest price for a Yahoo symbol via the public chart endpoint, or None.
+    Retries on the alternate host so transient rate-limits/timeouts don't blank a curve."""
+    for host in ("query1", "query2"):
+        url = f"https://{host}.finance.yahoo.com/v8/finance/chart/{sym}?range=5d&interval=1d"
+        try:
+            req = urllib.request.Request(url, headers=_UA)
+            with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
+                j = json.loads(r.read())
+            res = (j.get("chart") or {}).get("result")
+            if not res:
+                continue
+            meta = res[0].get("meta") or {}
+            px = meta.get("regularMarketPrice")
+            if px is not None:
+                return float(px)
+            closes = res[0]["indicators"]["quote"][0]["close"]
+            for c in reversed(closes):
+                if c is not None:
+                    return float(c)
+        except Exception:
+            continue          # try the other host, else fall through to None
     return None
 
 def fetch_zq_strip(n=16):
