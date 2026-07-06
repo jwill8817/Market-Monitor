@@ -493,11 +493,11 @@ def inflation_analytics(): import fi_spreads; return fi_spreads.fetch_inflation_
 def vix_term(): import futures_data as fx; return fx.fetch_vix_term_structure()
 @st.cache_data(ttl=1800, show_spinner=False)
 def vix_hist(sym): import futures_data as fx; return fx.fetch_vix_history(sym)
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def commodity_curves(products, n): import futures_data as fx; return fx.fetch_commodity_curves(products, n)
 @st.cache_data(ttl=1800, show_spinner=False)
 def rate_path(): import futures_data as fx; return fx.fetch_rate_expectation_path()
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def zq_strip_auto(): import futures_data as fx; return fx.fetch_zq_strip()
 @st.cache_data(ttl=900, show_spinner=False)
 def prediction_markets_data(sources, topics):
@@ -527,7 +527,7 @@ def etf_top_holdings(sym):
     except Exception:
         return None
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def option_skew(sym, dte_target):
     """Implied-vol skew for an optionable ticker from the yfinance chain nearest dte_target.
     Returns the OTM smile (moneyness → IV%) plus risk-reversal metrics, or None."""
