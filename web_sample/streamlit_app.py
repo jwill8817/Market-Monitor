@@ -1485,6 +1485,57 @@ def panel_rolling_returns(k):
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_rolling_returns.xlsx",k+"_dl")
 
+def panel_rolling_sharpe(k):
+    import numpy as np
+    chosen=ticker_picker(k, ["S&P 500"])
+    series={lbl:md_history(sym) for lbl,sym in chosen.items()}
+    series={lbl:s for lbl,s in series.items() if s is not None and not s.empty}
+    rf=md_history("BIL")     # SPDR 1-3 month T-bill ETF (total return) = risk-free
+    c1,c2,c3=st.columns([1.2,1,1])
+    fmode=c1.radio("Frequency",["Auto","Daily","Monthly"],horizontal=True,key=k+"_fm",
+                   help="Monthly resamples every series to month-end so daily and "
+                        "monthly-only series (e.g. factors) line up apples-to-apples.")
+    use_monthly,note=_resolve_freq(fmode, list(series.values()))
+    if use_monthly:
+        win=int(c2.number_input("Window (months)", min_value=3, max_value=60, value=12, step=1, key=k+"_wm")); unit="month"; ppy=12
+    else:
+        win=int(c2.number_input("Window (days)", min_value=20, max_value=756, value=126, step=1, key=k+"_wd")); unit="day"; ppy=252
+    yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
+    labels=list(series.keys())
+    b1,b2=st.columns(2)
+    avg_for=b1.multiselect("Show average for", labels, default=labels, key=k+"_avg")
+    sd_for=b2.multiselect("Show ±2σ bands for", labels, default=labels, key=k+"_sd")
+    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); lo,hi=date_window(k,cutoff); fig=go.Figure(); exp={}
+    rf_ret=None
+    if rf is not None and not rf.empty:
+        rf2=rf.resample("ME").last() if use_monthly else rf
+        rf_ret=rf2.pct_change()
+    for i,(label,c) in enumerate(series.items()):
+        if use_monthly: c=c.resample("ME").last().dropna()
+        ra=c.pct_change()
+        if rf_ret is not None:
+            d=pd.concat([ra.rename("a"),rf_ret.rename("rf")],axis=1,join="inner").dropna()
+            excess=d["a"]-d["rf"]
+        else:
+            excess=ra.dropna()
+        sh=(excess.rolling(win).mean()/excess.rolling(win).std())*np.sqrt(ppy)
+        sh=sh.dropna(); sh=sh[(sh.index>=lo)&(sh.index<=hi)]
+        if sh.empty: continue
+        col=PALETTE[i%len(PALETTE)]
+        fig.add_trace(go.Scatter(x=sh.index,y=sh.values,mode="lines",name=label,
+            line=dict(color=col,width=1.6))); exp[label]=sh
+        add_stat_bands(fig, sh.values, col, label, label in avg_for, label in sd_for)
+    fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+    yr=yaxis_range_controls(k); fig=base_layout(fig,f"Rolling {win}-{unit} Sharpe ratio (annualized)","",h=320); apply_yrange(fig,yr)
+    st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
+    rfnote=("Risk-free = **BIL** (1–3m T-bill) return." if rf_ret is not None
+            else "⚠ T-bill (BIL) unavailable — risk-free treated as 0.")
+    st.caption(f"Sharpe = mean(excess) ÷ std(excess) × √{ppy}, over a rolling {win}-{unit} window "
+               f"(excess = asset return − T-bill return). {rfnote} " + (note or ""))
+    if exp:
+        df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
+        dl(df,"Export","JAWS_rolling_sharpe.xlsx",k+"_dl")
+
 _PER_START={"MTD":lambda:date.today().replace(day=1),
             "3M":lambda:date.today()-relativedelta(months=3),
             "6M":lambda:date.today()-relativedelta(months=6),
@@ -2973,6 +3024,7 @@ _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
+_sec("RSHP","Rolling Sharpe Ratio (ex-T-bill)", panel_rolling_sharpe, "secrshp")
 _sec("CHRT","Chart", panel_chart, "secchart")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
