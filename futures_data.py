@@ -366,13 +366,19 @@ def fedwatch_meeting_probs(strip, step=0.25, start_rate=None):
         N = calendar.monthrange(yy, mm)[1]
         w_after = (N - dd) / N
         avg_M = imp[ym]; nxt = _next_month(ym)
-        if w_after < 0.25 and nxt in imp:       # meeting late in month → use next month
-            r_end = imp[nxt]
-        elif w_after <= 0:
-            r_end = imp.get(nxt, avg_M)
-        else:
+        # Solve for the post-meeting rate only when the after-meeting window is large
+        # enough to be stable; for late-month meetings use the next month's implied avg;
+        # if that contract is missing (partial/throttled strip) SKIP rather than divide
+        # by a tiny denominator (which produced spurious 100bp+ "moves").
+        if w_after >= 0.25:
             r_end = (avg_M - (dd / N) * r_prev) / w_after
+        elif nxt in imp:
+            r_end = imp[nxt]
+        else:
+            continue
         change = r_end - r_prev
+        if abs(change) > 1.0:                    # >100bp in one meeting = data artifact → skip
+            continue
         probs = _distribute(change, step)
         best = max(probs, key=probs.get)
         out.append({
