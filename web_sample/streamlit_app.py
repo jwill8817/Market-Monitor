@@ -748,34 +748,38 @@ def add_stat_bands(fig, y, color, label, show_avg, show_sd,
             fig.add_hline(y=yv, line=dict(color=color,dash="dash",width=1),
                           annotation_text=f"{label} {tag}", annotation_font_size=9)
 
+_XTICK={"Auto":None,"Monthly":"M1","Quarterly":"M3","Semi-annual":"M6","Yearly":"M12"}
 def yaxis_range_controls(k, host=None):
-    """Optional custom Y-axis min/max plus tick increment. A checkbox reveals three
-    inputs; returns (ymin, ymax, step) or None. Range needs both min & max; step
-    (tick spacing) works on its own or with a range."""
+    """Optional custom axes: Y min/max, Y tick step, and X (date) tick interval.
+    A checkbox reveals the inputs; returns (ymin, ymax, ystep, xdtick) or None."""
     host = host if host is not None else st
-    if not host.checkbox("Custom Y-axis", value=False, key=k+"_yon",
-                          help="Override the auto axis so the trend fills the panel, and/or "
-                               "set the tick increment. Leave blank for auto."):
+    if not host.checkbox("Custom axes", value=False, key=k+"_yon",
+                          help="Override the auto Y-axis (min/max + tick step) and/or set the "
+                               "x-axis date-tick interval. Leave blank for auto."):
         return None
     cc = host.columns(3)
     ymin = cc[0].number_input("Y min", value=None, step=1.0, key=k+"_ymn", placeholder="auto")
     ymax = cc[1].number_input("Y max", value=None, step=1.0, key=k+"_ymx", placeholder="auto")
-    step = cc[2].number_input("Tick step", value=None, step=1.0, key=k+"_ystp", placeholder="auto")
+    step = cc[2].number_input("Y tick step", value=None, step=1.0, key=k+"_ystp", placeholder="auto")
+    xopt = host.selectbox("X-axis date ticks", list(_XTICK), key=k+"_xtick")
     step = step if (step is not None and step > 0) else None
+    xdt = _XTICK[xopt]
     has_range = ymin is not None and ymax is not None and ymax > ymin
-    if not has_range and step is None:
+    if not has_range and step is None and xdt is None:
         return None
-    return (ymin if has_range else None, ymax if has_range else None, step)
+    return (ymin if has_range else None, ymax if has_range else None, step, xdt)
 
-def apply_yrange(fig, rng):
-    """Apply a (ymin,ymax,step) spec to a figure's Y-axis, or leave auto if rng is None."""
-    if not rng:
+def apply_yrange(fig, spec):
+    """Apply a (ymin,ymax,ystep,xdtick) axis spec to a figure, or leave auto if None."""
+    if not spec:
         return
-    ymin, ymax, step = rng
+    ymin, ymax, step, xdt = spec
     if ymin is not None and ymax is not None:
         fig.update_yaxes(range=[ymin, ymax], autorange=False)
     if step:
         fig.update_yaxes(dtick=step)
+    if xdt:
+        fig.update_xaxes(dtick=xdt)
 
 def date_window(k, cutoff, years_default=5, host=None):
     """Explicit start/stop for a time-series chart. A 'Custom date range' checkbox reveals
