@@ -2504,6 +2504,48 @@ def panel_regression():
                        "than the loaded history are skipped.")
             dl(atab, "Export attribution", "JAWS_regression_attribution.xlsx", "reg_attr_dl")
 
+            # ── Per-factor breakout: return contribution & risk (variance) contribution ──
+            import numpy as np
+            hz_lbls=[]; ret_by={c:[] for c in cols}; ret_idio=[]
+            rsk_by={c:[] for c in cols}; rsk_idio=[]
+            for hlbl,N in hz:
+                sub=frame if N is None else (frame.iloc[-N:] if (N is not None and N<=len(frame)) else None)
+                if sub is None or len(sub)<3: continue
+                hz_lbls.append(hlbl)
+                ysub=sub["__Y__"].values; Xsub=sub[cols].values
+                ann=ppy/len(sub) if len(sub)>ppy else 1.0
+                fac_tot=0.0
+                for j,c in enumerate(cols):
+                    contrib=float((Xsub[:,j]*beta[j+1]).sum())
+                    ret_by[c].append(contrib*ann*100); fac_tot+=contrib
+                ret_idio.append((float(ysub.sum())-fac_tot)*ann*100)
+                resid=ysub-(beta[0]+Xsub@beta[1:])
+                parts={c:float(beta[j+1]*np.cov(ysub,Xsub[:,j],ddof=1)[0,1]) for j,c in enumerate(cols)}
+                iv=float(np.var(resid,ddof=1)); tot=sum(parts.values())+iv
+                if abs(tot)<1e-12: tot=1.0
+                for c in cols: rsk_by[c].append(parts[c]/tot*100)
+                rsk_idio.append(iv/tot*100)
+            if hz_lbls:
+                rf=go.Figure()
+                for j,c in enumerate(cols):
+                    rf.add_trace(go.Bar(x=hz_lbls,y=ret_by[c],name=c,marker_color=PALETTE[j%len(PALETTE)]))
+                rf.add_trace(go.Bar(x=hz_lbls,y=ret_idio,name="Idiosyncratic",marker_color=TEXT3))
+                base_layout(rf,f"{ylabel} — return contribution by factor (annualized >1Y)","%",h=340)
+                rf.update_layout(barmode="relative"); rf.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+                st.plotly_chart(rf, use_container_width=True, key="reg_attr_byfac")
+                kf=go.Figure()
+                for j,c in enumerate(cols):
+                    kf.add_trace(go.Bar(x=hz_lbls,y=rsk_by[c],name=c,marker_color=PALETTE[j%len(PALETTE)]))
+                kf.add_trace(go.Bar(x=hz_lbls,y=rsk_idio,name="Idiosyncratic",marker_color=TEXT3))
+                base_layout(kf,f"{ylabel} — contribution to risk (variance %)","%",h=340)
+                kf.update_layout(barmode="relative"); kf.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+                kf.add_hline(y=100,line=dict(color=TEXT3,dash="dot"))
+                st.plotly_chart(kf, use_container_width=True, key="reg_attr_risk")
+                st.caption("Top: each **factor's** return contribution (βᵢ·Xᵢ) per horizon plus idiosyncratic — "
+                           "they sum to the total return. Bottom: **risk decomposition** — each factor's share of "
+                           "total variance (βᵢ·Cov(Y,Xᵢ)) plus idiosyncratic variance, normalized to 100%. "
+                           "**Tip:** turn on **Stepwise** above to prune factors for a readable breakout.")
+
         # ── Rolling beta & p-value (own choice menu) ──
         st.divider()
         st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
