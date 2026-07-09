@@ -2391,8 +2391,9 @@ def panel_regression():
         from scipy import stats
         cf1,cf2,cf3=st.columns([1,1,1])
         freq=cf1.radio("Frequency",["Monthly","Daily"],horizontal=True,key="reg_freq")
-        use_step=cf2.checkbox("Stepwise elimination", value=False, key="reg_step",
-                              help="Backward-eliminate factors whose p-value exceeds the cutoff.")
+        use_step=cf2.checkbox("Stepwise elimination", value=True, key="reg_step",
+                              help="Backward-eliminate factors whose p-value exceeds the cutoff. "
+                                   "On by default to keep the factor breakout readable.")
         cutoff=cf3.number_input("p-value cutoff", min_value=0.01, max_value=0.5, value=0.05,
                                 step=0.01, key="reg_cut", disabled=not use_step)
         ydict=ticker_picker("reg_y", ["S&P 500"])
@@ -2508,6 +2509,7 @@ def panel_regression():
             import numpy as np
             hz_lbls=[]; ret_by={c:[] for c in cols}; ret_idio=[]
             rsk_by={c:[] for c in cols}; rsk_idio=[]
+            vol_by={c:[] for c in cols}; vol_idio=[]; vol_tot=[]
             for hlbl,N in hz:
                 sub=frame if N is None else (frame.iloc[-N:] if (N is not None and N<=len(frame)) else None)
                 if sub is None or len(sub)<3: continue
@@ -2523,28 +2525,34 @@ def panel_regression():
                 parts={c:float(beta[j+1]*np.cov(ysub,Xsub[:,j],ddof=1)[0,1]) for j,c in enumerate(cols)}
                 iv=float(np.var(resid,ddof=1)); tot=sum(parts.values())+iv
                 if abs(tot)<1e-12: tot=1.0
-                for c in cols: rsk_by[c].append(parts[c]/tot*100)
-                rsk_idio.append(iv/tot*100)
+                vol_ann=float(np.std(ysub,ddof=1))*np.sqrt(ppy)*100     # annualized vol of Y (%)
+                vol_tot.append(vol_ann)
+                for c in cols:
+                    share=parts[c]/tot                                  # share of variance
+                    rsk_by[c].append(share*100); vol_by[c].append(share*vol_ann)
+                rsk_idio.append(iv/tot*100); vol_idio.append((iv/tot)*vol_ann)
             if hz_lbls:
-                rf=go.Figure()
-                for j,c in enumerate(cols):
-                    rf.add_trace(go.Bar(x=hz_lbls,y=ret_by[c],name=c,marker_color=PALETTE[j%len(PALETTE)]))
-                rf.add_trace(go.Bar(x=hz_lbls,y=ret_idio,name="Idiosyncratic",marker_color=TEXT3))
-                base_layout(rf,f"{ylabel} — return contribution by factor (annualized >1Y)","%",h=340)
-                rf.update_layout(barmode="relative"); rf.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-                st.plotly_chart(rf, use_container_width=True, key="reg_attr_byfac")
-                kf=go.Figure()
-                for j,c in enumerate(cols):
-                    kf.add_trace(go.Bar(x=hz_lbls,y=rsk_by[c],name=c,marker_color=PALETTE[j%len(PALETTE)]))
-                kf.add_trace(go.Bar(x=hz_lbls,y=rsk_idio,name="Idiosyncratic",marker_color=TEXT3))
-                base_layout(kf,f"{ylabel} — contribution to risk (variance %)","%",h=340)
-                kf.update_layout(barmode="relative"); kf.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-                kf.add_hline(y=100,line=dict(color=TEXT3,dash="dot"))
-                st.plotly_chart(kf, use_container_width=True, key="reg_attr_risk")
-                st.caption("Top: each **factor's** return contribution (βᵢ·Xᵢ) per horizon plus idiosyncratic — "
-                           "they sum to the total return. Bottom: **risk decomposition** — each factor's share of "
-                           "total variance (βᵢ·Cov(Y,Xᵢ)) plus idiosyncratic variance, normalized to 100%. "
-                           "**Tip:** turn on **Stepwise** above to prune factors for a readable breakout.")
+                def _stacked(series_map, idio_vals, title, ysuf, key, tots=None, hundred=False):
+                    fg=go.Figure()
+                    for j,c in enumerate(cols):
+                        fg.add_trace(go.Bar(x=hz_lbls,y=series_map[c],name=c,marker_color=PALETTE[j%len(PALETTE)]))
+                    fg.add_trace(go.Bar(x=hz_lbls,y=idio_vals,name="Idiosyncratic",marker_color=TEXT3))
+                    base_layout(fg,title,ysuf,h=340); fg.update_layout(barmode="relative")
+                    fg.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+                    if hundred: fg.add_hline(y=100,line=dict(color=TEXT3,dash="dot"))
+                    if tots:
+                        for i,l in enumerate(hz_lbls):
+                            fg.add_annotation(x=l,y=tots[i],text=f"{tots[i]:.1f}%",showarrow=False,
+                                              yshift=10,font=dict(size=10,color=TEXT1))
+                    st.plotly_chart(fg, use_container_width=True, key=key)
+                _stacked(ret_by, ret_idio, f"{ylabel} — return contribution by factor (annualized >1Y)","%","reg_attr_byfac")
+                _stacked(rsk_by, rsk_idio, f"{ylabel} — contribution to risk (variance %)","%","reg_attr_risk", hundred=True)
+                _stacked(vol_by, vol_idio, f"{ylabel} — contribution to volatility (annualized %)","%","reg_attr_vol", tots=vol_tot)
+                st.caption("**Return contribution** (top): each factor's βᵢ·Xᵢ per horizon + idiosyncratic → sums to "
+                           "total return. **Risk (variance %)** (middle): each factor's share of total variance "
+                           "(βᵢ·Cov(Y,Xᵢ)), normalized to 100%. **Volatility (bottom):** the same risk shares scaled by "
+                           "the annualized vol so the bars sum to Y's annualized vol (e.g. a factor that is 50% of risk "
+                           "on 15% vol = 7.5%). Stepwise is on by default to keep the breakout readable.")
 
         # ── Rolling beta & p-value (own choice menu) ──
         st.divider()
