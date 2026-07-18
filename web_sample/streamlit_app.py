@@ -379,18 +379,6 @@ def parse_uploaded_series(file, kind):
     raw=pd.read_excel(file) if name.endswith((".xlsx",".xls")) else pd.read_csv(file)
     return _series_from_wide(raw, kind)
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def hfr_from_url(url, kind):
-    """Fetch an HFR export from a private URL (Dropbox/Gist/Drive/S3) and parse it —
-    lets the app auto-load your licensed data every session without a manual upload."""
-    import urllib.request, io as _io
-    req=urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0 (JAWS)"})
-    with urllib.request.urlopen(req, timeout=25) as r:
-        data=r.read()
-    base=url.lower().split("?")[0]
-    raw=pd.read_excel(_io.BytesIO(data)) if base.endswith((".xlsx",".xls")) else pd.read_csv(_io.BytesIO(data))
-    return _series_from_wide(raw, kind)
-
 def build_upload_template():
     """Return (bytes) an .xlsx template showing the expected upload layout:
     column 1 = dates, each subsequent column = one identifier."""
@@ -1464,84 +1452,6 @@ def panel_watchlist(k):
     st.caption("Total-return basis (dividends/coupons included). Your watchlist is saved and persists "
                "across sessions until you remove an item.")
     if rows: dl(pd.DataFrame(rows),"Export","JAWS_watchlist.xlsx",k+"_dl2")
-
-def panel_hfr(k):
-    """HFR hedge-fund benchmarks from the user's own licensed HFR Excel/CSV export.
-    Data lives only in the session (never committed to the public repo)."""
-    ss=st.session_state.setdefault("hfr_syms", [])
-    # Auto-load from a private source in Streamlit secrets → no per-session upload.
-    _url=None; _vk="Returns %"
-    try:
-        _url=st.secrets.get("HFR_DATA_URL")
-        _vk={"returns_pct":"Returns %","returns_decimal":"Returns (decimal)","levels":"Prices"}.get(
-             str(st.secrets.get("HFR_VALUES","returns_pct")).lower(), "Returns %")
-    except Exception:
-        _url=None
-    if _url:
-        try:
-            parsed=hfr_from_url(_url, _vk)
-            for sym,(nm,px) in parsed.items():
-                s=f"HFR:{sym}"; custom_store()[s]={"name":f"HFR {nm}","prices":px}
-                if s not in ss: ss.append(s)
-            st.caption("✓ **Auto-loaded from your private HFR source** (Streamlit secrets `HFR_DATA_URL`). "
-                       "Refresh that file monthly and the app picks it up — no manual upload. You can still "
-                       "override with a one-off upload below.")
-        except Exception as e:
-            st.warning(f"HFR auto-source is configured but couldn't load ({type(e).__name__}: {e}). "
-                       "Check `HFR_DATA_URL` / `HFR_VALUES` in secrets, or upload manually below.")
-    else:
-        st.caption("Upload your **HFR index export** (licensed via your HFR login), or set up **auto-loading** so "
-                   "you never upload again: host the file at a private URL (Dropbox/Gist/Drive/S3) and add "
-                   "`HFR_DATA_URL` (+ optional `HFR_VALUES` = returns_pct / returns_decimal / levels) to your "
-                   "Streamlit **secrets**. Column 1 = month/date, other columns = each index. Session-only; never "
-                   "written to the public repo. Indices also become searchable in every chart, tagged *HFR …*.")
-    c1,c2=st.columns([2,1])
-    up=c1.file_uploader("HFR CSV/Excel", type=["csv","xlsx","xls"], key=k+"_up")
-    kind=c2.radio("Values are", ["Returns %","Returns (decimal)","Index levels"], key=k+"_kind")
-    if up is not None and c1.button("Load HFR benchmarks", key=k+"_load", use_container_width=True):
-        try:
-            pk={"Returns %":"Returns %","Returns (decimal)":"Returns (decimal)","Index levels":"Prices"}[kind]
-            parsed=parse_uploaded_series(up, pk)
-            for sym,(nm,px) in parsed.items():
-                s=f"HFR:{sym}"
-                custom_store()[s]={"name":f"HFR {nm}","prices":px}
-                if s not in ss: ss.append(s)
-            st.cache_data.clear(); st.success(f"Loaded {len(parsed)} HFR series."); st.rerun()
-        except Exception as e:
-            st.error(f"Couldn't parse: {type(e).__name__}: {e}")
-    live=[s for s in ss if s in custom_store()]
-    if not live:
-        st.info("No HFR data loaded yet. Download your index performance from HFR (Excel/CSV) and upload above."); return
-    cc1,cc2=st.columns([3,1])
-    rm=cc1.multiselect("Remove", live, format_func=lambda s: custom_store()[s]["name"], key=k+"_rm")
-    if cc2.button("Remove selected", key=k+"_rmbtn") and rm:
-        for s in rm:
-            custom_store().pop(s,None)
-            if s in ss: ss.remove(s)
-        st.rerun()
-    today=date.today()
-    def _cagr(px, years):
-        if px is None or len(px)<2: return None
-        base=px[px.index<=pd.Timestamp(today-relativedelta(years=years))]
-        if base.empty: return None
-        ya=(px.index[-1]-base.index[-1]).days/365.25
-        return (((px.iloc[-1]/base.iloc[-1])**(1/ya))-1)*100 if (ya>0 and base.iloc[-1]>0) else None
-    hdr=["Benchmark","Level","MTD","YTD","1Y","3Y a.","5Y a.","ITD"]
-    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
-    rows=[]
-    for s in live:
-        px=custom_store()[s]["prices"]; nm=custom_store()[s]["name"]
-        mtd=_wl_ret(px, today.replace(day=1)-relativedelta(days=1)); ytd=_wl_ret(px, date(today.year-1,12,31))
-        y1=_wl_ret(px, today-relativedelta(years=1)); y3=_cagr(px,3); y5=_cagr(px,5)
-        itd=(float(px.iloc[-1])/float(px.iloc[0])-1)*100 if len(px)>1 else None
-        def cell(v): return f"<td style='color:{TEXT3}'>—</td>" if v is None else f"<td style='color:{GREEN if v>=0 else RED}'>{v:+.2f}%</td>"
-        h+=(f"<tr><td style='text-align:left'>{nm}</td><td>{float(px.iloc[-1]):,.2f}</td>"
-            +"".join(cell(v) for v in [mtd,ytd,y1,y3,y5,itd])+"</tr>")
-        rows.append({"Benchmark":nm,"Level":float(px.iloc[-1]),"MTD":mtd,"YTD":ytd,"1Y":y1,"3Y_ann":y3,"5Y_ann":y5,"ITD":itd})
-    st.markdown(h+"</table></div>", unsafe_allow_html=True)
-    st.caption("Total-return basis. 3Y/5Y annualized (CAGR); ITD = since the first date in your upload. "
-               "Session-only — re-upload after a full page refresh (or add to Streamlit secrets for persistence).")
-    dl(pd.DataFrame(rows),"Export","JAWS_hfr_benchmarks.xlsx",k+"_dl")
 
 def panel_custom(k):
     """Custom tab — manage and preview user-uploaded time series."""
@@ -3066,7 +2976,7 @@ RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility",
              "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds",
              "Risk Premia":"risk_premia","AQR Strategies":"aqr","Crypto":"crypto"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
-TABLE_TABS=["Watchlist","Custom Data","HF Benchmarks"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","Inflation","L/S Factors","Valuation"]
+TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","Inflation","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]
 
 def _dispatch(sel, k):
@@ -3084,7 +2994,6 @@ def _dispatch(sel, k):
     elif sel=="News":         panel_news(k)
     elif sel=="Watchlist":    panel_watchlist(k)
     elif sel=="Custom Data":  panel_custom(k)
-    elif sel=="HF Benchmarks": panel_hfr(k)
 
 def render_slot(k, tabs, default):
     # Horizontal radio acts as a tab strip but only renders the selected panel

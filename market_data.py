@@ -224,8 +224,8 @@ SECTORS = {
 # (HFRI / Pivotal Path proprietary indices are subscription-only, not free; these
 #  tradeable vehicles are the closest freely-available read on HF strategy returns.)
 HEDGE_FUNDS = {
-    "HF Multi-Strat (QAI)":      "QAI",
-    "HF Replication (HDG)":      "HDG",
+    "HFRI-style Composite (HDG)": "HDG",   # tracks a model designed to mirror HFRI Fund Wtd Composite
+    "HF Multi-Strategy Bmk (QAI)":"QAI",   # IQ Hedge Multi-Strategy replication
     "Merger Arb (MNA)":          "MNA",
     "Merger Arb (MERFX)":        "MERFX",
     "Mkt-Neutral Anti-Beta (BTAL)":"BTAL",
