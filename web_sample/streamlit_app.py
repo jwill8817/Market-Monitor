@@ -759,22 +759,26 @@ def add_today_marker(fig, series, color=None):
     except Exception:
         pass
 
-_XTICK={"Auto":None,"Monthly":"M1","Quarterly":"M3","Semi-annual":"M6","Yearly":"M12"}
 def yaxis_range_controls(k, host=None):
-    """Optional custom axes: Y min/max, Y tick step, and X (date) tick interval.
-    A checkbox reveals the inputs; returns (ymin, ymax, ystep, xdtick) or None."""
+    """Optional custom axes: Y min/max, Y tick step, and an X-axis tick increment
+    (any number + Days/Months/Years). Returns (ymin, ymax, ystep, xdtick) or None."""
     host = host if host is not None else st
     if not host.checkbox("Custom axes", value=False, key=k+"_yon",
                           help="Override the auto Y-axis (min/max + tick step) and/or set the "
-                               "x-axis date-tick interval. Leave blank for auto."):
+                               "x-axis tick increment. Leave blank for auto."):
         return None
     cc = host.columns(3)
     ymin = cc[0].number_input("Y min", value=None, step=1.0, key=k+"_ymn", placeholder="auto")
     ymax = cc[1].number_input("Y max", value=None, step=1.0, key=k+"_ymx", placeholder="auto")
     step = cc[2].number_input("Y tick step", value=None, step=1.0, key=k+"_ystp", placeholder="auto")
-    xopt = host.selectbox("X-axis date ticks", list(_XTICK), key=k+"_xtick")
+    xc = host.columns([1,1])
+    xn = xc[0].number_input("X tick every", value=None, min_value=1, step=1, key=k+"_xn", placeholder="auto")
+    xu = xc[1].selectbox("unit", ["Months","Years","Days"], key=k+"_xu")
     step = step if (step is not None and step > 0) else None
-    xdt = _XTICK[xopt]
+    xdt = None
+    if xn is not None and xn > 0:
+        xn = int(xn)
+        xdt = f"M{xn}" if xu=="Months" else (f"M{xn*12}" if xu=="Years" else xn*86400000)
     has_range = ymin is not None and ymax is not None and ymax > ymin
     if not has_range and step is None and xdt is None:
         return None
