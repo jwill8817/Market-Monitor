@@ -350,15 +350,8 @@ def md_history(sym, start=None, adjusted=True):
             return s.copy()
     return _md_history_remote(sym, start=start, adjusted=adjusted)
 
-def parse_uploaded_series(file, kind):
-    """Parse an uploaded CSV/XLSX of time series into {SYMBOL:(name, price Series)}.
-    Wide format: first column = dates, each remaining column = one identifier.
-    kind: 'Prices' (use as-is) or 'Returns %' / 'Returns (decimal)' (compound to a price index=100)."""
-    name=file.name.lower()
-    if name.endswith((".xlsx",".xls")):
-        raw=pd.read_excel(file)
-    else:
-        raw=pd.read_csv(file)
+def _series_from_wide(raw, kind):
+    """Wide DataFrame (col1=dates, rest=series) → {SYMBOL:(name, price Series)}."""
     if raw.shape[1]<2:
         raise ValueError("Need a date column plus at least one data column.")
     raw=raw.rename(columns={raw.columns[0]:"Date"})
@@ -378,6 +371,25 @@ def parse_uploaded_series(file, kind):
     if not out:
         raise ValueError("No numeric data columns found.")
     return out
+
+def parse_uploaded_series(file, kind):
+    """Parse an uploaded CSV/XLSX of time series into {SYMBOL:(name, price Series)}.
+    Wide format: first column = dates, each remaining column = one identifier."""
+    name=file.name.lower()
+    raw=pd.read_excel(file) if name.endswith((".xlsx",".xls")) else pd.read_csv(file)
+    return _series_from_wide(raw, kind)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def hfr_from_url(url, kind):
+    """Fetch an HFR export from a private URL (Dropbox/Gist/Drive/S3) and parse it —
+    lets the app auto-load your licensed data every session without a manual upload."""
+    import urllib.request, io as _io
+    req=urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0 (JAWS)"})
+    with urllib.request.urlopen(req, timeout=25) as r:
+        data=r.read()
+    base=url.lower().split("?")[0]
+    raw=pd.read_excel(_io.BytesIO(data)) if base.endswith((".xlsx",".xls")) else pd.read_csv(_io.BytesIO(data))
+    return _series_from_wide(raw, kind)
 
 def build_upload_template():
     """Return (bytes) an .xlsx template showing the expected upload layout:
@@ -1457,10 +1469,32 @@ def panel_hfr(k):
     """HFR hedge-fund benchmarks from the user's own licensed HFR Excel/CSV export.
     Data lives only in the session (never committed to the public repo)."""
     ss=st.session_state.setdefault("hfr_syms", [])
-    st.caption("Upload your **HFR index export** (you're licensed via your HFR login). Column 1 = month/date, "
-               "each other column = an index (returns or levels). The data stays in your **browser session only** "
-               "— it is never written to the public repo, so nothing licensed is redistributed. Uploaded indices "
-               "also become searchable in every chart, tagged *HFR …*.")
+    # Auto-load from a private source in Streamlit secrets → no per-session upload.
+    _url=None; _vk="Returns %"
+    try:
+        _url=st.secrets.get("HFR_DATA_URL")
+        _vk={"returns_pct":"Returns %","returns_decimal":"Returns (decimal)","levels":"Prices"}.get(
+             str(st.secrets.get("HFR_VALUES","returns_pct")).lower(), "Returns %")
+    except Exception:
+        _url=None
+    if _url:
+        try:
+            parsed=hfr_from_url(_url, _vk)
+            for sym,(nm,px) in parsed.items():
+                s=f"HFR:{sym}"; custom_store()[s]={"name":f"HFR {nm}","prices":px}
+                if s not in ss: ss.append(s)
+            st.caption("✓ **Auto-loaded from your private HFR source** (Streamlit secrets `HFR_DATA_URL`). "
+                       "Refresh that file monthly and the app picks it up — no manual upload. You can still "
+                       "override with a one-off upload below.")
+        except Exception as e:
+            st.warning(f"HFR auto-source is configured but couldn't load ({type(e).__name__}: {e}). "
+                       "Check `HFR_DATA_URL` / `HFR_VALUES` in secrets, or upload manually below.")
+    else:
+        st.caption("Upload your **HFR index export** (licensed via your HFR login), or set up **auto-loading** so "
+                   "you never upload again: host the file at a private URL (Dropbox/Gist/Drive/S3) and add "
+                   "`HFR_DATA_URL` (+ optional `HFR_VALUES` = returns_pct / returns_decimal / levels) to your "
+                   "Streamlit **secrets**. Column 1 = month/date, other columns = each index. Session-only; never "
+                   "written to the public repo. Indices also become searchable in every chart, tagged *HFR …*.")
     c1,c2=st.columns([2,1])
     up=c1.file_uploader("HFR CSV/Excel", type=["csv","xlsx","xls"], key=k+"_up")
     kind=c2.radio("Values are", ["Returns %","Returns (decimal)","Index levels"], key=k+"_kind")
