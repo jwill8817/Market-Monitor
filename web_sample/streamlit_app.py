@@ -887,7 +887,7 @@ def panel_returns(catkey, label, k):
         for n,i in data.items()])
     with c3: dl(df, "Export", f"JAWS_{catkey}.xlsx", k+"_dl")
 
-ANA_HDR=["Name","Unit","Cur","Δ1M","Δ3M","Δ1Y","Δ3Y","Δ5Y","Δ10Y","Min","Max","Z","Since"]
+ANA_HDR=["Name","Unit","Cur","Δ1M","Δ3M","Δ1Y","Δ3Y","Δ5Y","Δ10Y","Min","Max","Avg","Δ Avg","Z","Since"]
 def panel_analytics(loader, label, fname, k):
     with st.spinner("Loading from FRED…"):
         rows=loader()
@@ -904,26 +904,34 @@ def panel_analytics(loader, label, fname, k):
                 if v is None or cur is None: return f'<span style="color:{TEXT3}">—</span>'
                 d=cur-v; cc=RED if d>0 else (GREEN if d<0 else TEXT2)
                 return f'<span style="color:{cc}">{d:+.{dec}f}</span>'
-            z=r.get("z_score"); hh=r.get("hist",{}); zc=z_color(z)
+            z=r.get("z_score"); hh=r.get("hist",{}); zc=z_color(z); avg=r.get("avg")
             zt=f'{z:+.2f}σ' if z is not None else "—"
+            def davg():                        # current − long-run average
+                if avg is None or cur is None: return f'<span style="color:{TEXT3}">—</span>'
+                d=cur-avg; cc=RED if d>0 else (GREEN if d<0 else TEXT2)
+                return f'<span style="color:{cc}">{d:+.{dec}f}</span>'
             rd=r.get("raw_dates") or []; since=(str(rd[0])[:4] if rd else "—")
             h+=("<tr>"f"<td>{r['name']}</td><td style='color:{TEXT3}'>{r.get('unit','')}</td>"
                 f"<td style='color:{zc}'>{fn(cur)}</td><td>{chg(hh.get('1M'))}</td>"
                 f"<td>{chg(hh.get('3M'))}</td><td>{chg(hh.get('1Y'))}</td><td>{chg(hh.get('3Y'))}</td>"
                 f"<td>{chg(hh.get('5Y'))}</td><td>{chg(hh.get('10Y'))}</td>"
                 f"<td style='color:{GREEN}'>{fn(r.get('all_min'))}</td>"
-                f"<td style='color:{RED}'>{fn(r.get('all_max'))}</td><td style='color:{zc}'>{zt}</td>"
+                f"<td style='color:{RED}'>{fn(r.get('all_max'))}</td>"
+                f"<td>{fn(avg)}</td><td>{davg()}</td><td style='color:{zc}'>{zt}</td>"
                 f"<td style='color:{TEXT3}'>{since}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
     st.caption("**Cur** = latest level. **Δ** columns = change from that period ago to now "
-               "(current − level then; red = higher now, green = lower). **Min / Max / Z-score** span each "
-               "series' full available history — back to its **Since** year (shown in the last column).")
+               "(current − level then; red = higher now, green = lower). **Avg** = long-run average and "
+               "**Δ Avg** = current − long-run average (red = above average, green = below). **Min / Max / "
+               "Avg / Z-score** span each series' full history — back to its **Since** year.")
     valid=[r for r in rows if not r.get("error") and r.get("raw_dates")]
     c1,c2=st.columns([2,1])
     pick=c1.selectbox("History", [r["name"] for r in valid], key=k+"_pick", label_visibility="collapsed")
     df=pd.DataFrame([{"Name":r["name"],"Category":r.get("category"),"Current":r.get("current"),
         **{p:r.get("hist",{}).get(p) for p in ["1M","3M","1Y","3Y","5Y","10Y"]},
-        "Min":r.get("all_min"),"Max":r.get("all_max"),"Z":r.get("z_score")} for r in valid])
+        "Min":r.get("all_min"),"Max":r.get("all_max"),"Avg":r.get("avg"),
+        "Delta_vs_Avg":(None if (r.get("avg") is None or r.get("current") is None) else round(r["current"]-r["avg"],4)),
+        "Z":r.get("z_score")} for r in valid])
     with c2: dl(df, "Export", fname, k+"_dl")
     if pick:
         r=next(x for x in valid if x["name"]==pick)

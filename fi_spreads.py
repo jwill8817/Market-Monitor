@@ -204,6 +204,7 @@ def _build_analytics(name, sid, cat, desc, dates, values, to_bps=True):
         "current":     round(current, 2),
         "as_of":       str(dates[-1]),
         "hist":        hist,
+        "avg":         round(avg, 2),
         "all_min":     mn,
         "all_max":     mx,
         "z_score":     z,
