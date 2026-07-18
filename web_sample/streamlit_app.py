@@ -748,6 +748,17 @@ def add_stat_bands(fig, y, color, label, show_avg, show_sd,
             fig.add_hline(y=yv, line=dict(color=color,dash="dash",width=1),
                           annotation_text=f"{label} {tag}", annotation_font_size=9)
 
+def add_today_marker(fig, series, color=None):
+    """Highlight the latest point with a large white dot (colored ring) so 'today' pops."""
+    try:
+        s=pd.Series(series).dropna()
+        if s.empty: return
+        fig.add_trace(go.Scatter(x=[s.index[-1]], y=[float(s.iloc[-1])], mode="markers",
+            marker=dict(size=11, color="#ffffff", line=dict(color=color or ACCENT, width=2)),
+            showlegend=False, hoverinfo="skip"))
+    except Exception:
+        pass
+
 _XTICK={"Auto":None,"Monthly":"M1","Quarterly":"M3","Semi-annual":"M6","Yearly":"M12"}
 def yaxis_range_controls(k, host=None):
     """Optional custom axes: Y min/max, Y tick step, and X (date) tick interval.
@@ -1036,16 +1047,16 @@ def panel_chart(k):
         elif single and dt=="Price":
             fig.add_trace(go.Scatter(x=c.index,y=c.values,mode="lines",
                 line=dict(color=ACCENT,width=2))); exp[nm]=c
-            add_stat_bands(fig, c.values, ACCENT, nm, nm in avg_for, nm in sd_for)
+            add_stat_bands(fig, c.values, ACCENT, nm, nm in avg_for, nm in sd_for); add_today_marker(fig, c, ACCENT)
         else:
             base=float(c.iloc[0]); r=(c-base)/base*100
             fig.add_trace(go.Scatter(x=c.index,y=r.values,mode="lines",name=f"{nm} ({r.iloc[-1]:+.1f}%)",
                 line=dict(color=col,width=1.8))); exp[nm+" %"]=r
-            add_stat_bands(fig, r.values, col, nm, nm in avg_for, nm in sd_for)
+            add_stat_bands(fig, r.values, col, nm, nm in avg_for, nm in sd_for); add_today_marker(fig, r, col)
     suffix="%" if not (single and dt=="Price") else ""
     ttl="Comparison · normalized %" if len(picks)>1 else (picks[0] if picks else "Chart")
     yr=yaxis_range_controls(k)
-    fig=base_layout(fig,f"{ttl} · {per}",suffix,h=320); apply_yrange(fig,yr)
+    fig=base_layout(fig,f"{ttl} · {per}",suffix,h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig,use_container_width=True,key=k+"_chart")
     # Flag series whose data ends materially earlier than the most-recent one
     # (e.g. Ken French daily factors publish on a ~monthly lag).
@@ -1246,8 +1257,8 @@ def panel_muni_ratio(k):
         fig.add_trace(go.Scatter(x=r.index,y=r.values,mode="lines",name=t,
             line=dict(color=col,width=1.6))); exp[t]=r
         add_stat_bands(fig, r.values, col, t, t in avg_for, t in sd_for,
-                       up_tag="+2σ (cheap)", dn_tag="-2σ (rich)")
-    yr=yaxis_range_controls(k); fig=base_layout(fig,"Muni / Treasury yield ratio (%) — ETF proxy","%",h=340); apply_yrange(fig,yr)
+                       up_tag="+2σ (cheap)", dn_tag="-2σ (rich)"); add_today_marker(fig, r, col)
+    yr=yaxis_range_controls(k); fig=base_layout(fig,"Muni / Treasury yield ratio (%) — ETF proxy","%",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     st.caption("Muni yield = ETF trailing-12m distribution ÷ price; ratio = muni ÷ Treasury yield. "
                "LOW ratio = munis rich/expensive; HIGH (→100%+) = munis cheap vs Treasuries.")
@@ -1305,8 +1316,8 @@ def panel_rvol(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=rv.index,y=rv.values,mode="lines",name=label,
             line=dict(color=col,width=1.6))); exp[label]=rv
-        add_stat_bands(fig, rv.values, col, label, label in avg_for, label in sd_for)
-    yr=yaxis_range_controls(k); fig=base_layout(fig,f"Realized Volatility (annualized) · {win}-{unit} rolling","%",h=320); apply_yrange(fig,yr)
+        add_stat_bands(fig, rv.values, col, label, label in avg_for, label in sd_for); add_today_marker(fig, rv, col)
+    yr=yaxis_range_controls(k); fig=base_layout(fig,f"Realized Volatility (annualized) · {win}-{unit} rolling","%",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     if note: st.caption(note)
     if exp:
@@ -1491,9 +1502,9 @@ def panel_rolling_returns(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=rr.index,y=rr.values,mode="lines",name=label,
             line=dict(color=col,width=1.6))); exp[label]=rr
-        add_stat_bands(fig, rr.values, col, label, label in avg_for, label in sd_for)
+        add_stat_bands(fig, rr.values, col, label, label in avg_for, label in sd_for); add_today_marker(fig, rr, col)
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-    yr=yaxis_range_controls(k); fig=base_layout(fig,f"Rolling {win}-{unit} total return (%)","%",h=320); apply_yrange(fig,yr)
+    yr=yaxis_range_controls(k); fig=base_layout(fig,f"Rolling {win}-{unit} total return (%)","%",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     if note: st.caption(note)
     if exp:
@@ -1539,9 +1550,9 @@ def panel_rolling_sharpe(k):
         col=PALETTE[i%len(PALETTE)]
         fig.add_trace(go.Scatter(x=sh.index,y=sh.values,mode="lines",name=label,
             line=dict(color=col,width=1.6))); exp[label]=sh
-        add_stat_bands(fig, sh.values, col, label, label in avg_for, label in sd_for)
+        add_stat_bands(fig, sh.values, col, label, label in avg_for, label in sd_for); add_today_marker(fig, sh, col)
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-    yr=yaxis_range_controls(k); fig=base_layout(fig,f"Rolling {win}-{unit} Sharpe ratio (annualized)","",h=320); apply_yrange(fig,yr)
+    yr=yaxis_range_controls(k); fig=base_layout(fig,f"Rolling {win}-{unit} Sharpe ratio (annualized)","",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     rfnote=("Risk-free = **BIL** (1–3m T-bill) return." if rf_ret is not None
             else "⚠ T-bill (BIL) unavailable — risk-free treated as 0.")
@@ -1620,7 +1631,8 @@ def panel_outperf(k):
         fillcolor="rgba(63,185,80,0.10)" if out.iloc[-1]>=0 else "rgba(248,81,73,0.10)"))
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
     add_stat_bands(fig, out.values, ACCENT, f"{A}−{B}", show_avg, show_sd)
-    yr=yaxis_range_controls(k); fig=base_layout(fig,ttl,"%",h=340); apply_yrange(fig,yr)
+    add_today_marker(fig, out)
+    yr=yaxis_range_controls(k); fig=base_layout(fig,ttl,"%",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig,use_container_width=True,key=k+"_chart")
     st.caption(("Positive = A outperforming B. " )+(note or
                "Rolling = difference in trailing-window returns; Cumulative = relative growth since period start."))
@@ -1695,7 +1707,8 @@ def panel_steepness(k):
     fig.add_trace(go.Scatter(x=spr.index,y=spr.values,mode="lines",line=dict(color=ACCENT,width=1.7),name=name))
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
     add_stat_bands(fig, spr.values, BLUE, name, show_avg, show_sd)
-    yr=yaxis_range_controls(k); fig=base_layout(fig,f"{name} · now {cur:+.2f} {unit}","",h=340); apply_yrange(fig,yr)
+    add_today_marker(fig, spr)
+    yr=yaxis_range_controls(k); fig=base_layout(fig,f"{name} · now {cur:+.2f} {unit}","",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     m=st.columns(4)
     m[0].metric("Current", f"{cur:+.2f}")
@@ -1817,7 +1830,8 @@ def panel_commodity_spreads(k):
     fig=go.Figure()
     fig.add_trace(go.Scatter(x=spr.index,y=spr.values,mode="lines",line=dict(color=ACCENT,width=1.7),name=name))
     add_stat_bands(fig, spr.values, BLUE, name, show_avg, show_sd)
-    yr=yaxis_range_controls(k); fig=base_layout(fig,f"{name} · now {cur:,.2f} {unit}","",h=320); apply_yrange(fig,yr)
+    add_today_marker(fig, spr)
+    yr=yaxis_range_controls(k); fig=base_layout(fig,f"{name} · now {cur:,.2f} {unit}","",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     m=st.columns(4)
     m[0].metric("Current", f"{cur:,.2f}")
@@ -2046,7 +2060,8 @@ def panel_eq_financing(k):
             name="Implied financing spread"))
         f.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
         add_stat_bands(f, s.values, BLUE, "spread", show_avg, show_sd)
-        base_layout(f,f"{idx} implied financing spread vs SOFR · now {float(s.iloc[-1]):+.0f} bps","",h=320)
+        add_today_marker(f, s)
+        base_layout(f,f"{idx} implied financing spread vs SOFR · now {float(s.iloc[-1]):+.0f} bps","",h=440)
         f.update_layout(margin=dict(l=60,r=16,t=64,b=70)); f.update_yaxes(title="Spread over SOFR (bps)")
         apply_yrange(f, yaxis_range_controls(k))
         st.plotly_chart(f, use_container_width=True, key=k+"_ts")
@@ -2123,8 +2138,9 @@ def panel_skew_index(k):
     f2=go.Figure()
     f2.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6),name="CBOE SKEW"))
     add_stat_bands(f2, s.values, BLUE, "SKEW", show_avg, show_sd)
-    base_layout(f2,f"CBOE SKEW index · now {float(s.iloc[-1]):.0f}","",h=320)
+    base_layout(f2,f"CBOE SKEW index · now {float(s.iloc[-1]):.0f}","",h=440)
     f2.update_layout(margin=dict(l=64,r=16,t=64,b=70))
+    add_today_marker(f2, s)
     f2.update_yaxes(title="SKEW index level (100 = symmetric)")
     apply_yrange(f2, yaxis_range_controls(k))
     st.plotly_chart(f2, use_container_width=True, key=k+"_skewidx")
