@@ -887,7 +887,7 @@ def panel_returns(catkey, label, k):
         for n,i in data.items()])
     with c3: dl(df, "Export", f"JAWS_{catkey}.xlsx", k+"_dl")
 
-ANA_HDR=["Name","Unit","Cur","1M","3M","1Y","3Y","5Y","10Y","Min","Max","Z"]
+ANA_HDR=["Name","Unit","Cur","Δ1M","Δ3M","Δ1Y","Δ3Y","Δ5Y","Δ10Y","Min","Max","Z","Since"]
 def panel_analytics(loader, label, fname, k):
     with st.spinner("Loading from FRED…"):
         rows=loader()
@@ -898,17 +898,26 @@ def panel_analytics(loader, label, fname, k):
         h+=f'<tr><td class="jaws-cat" colspan="{len(ANA_HDR)}">{cat}</td></tr>'
         for r in crows:
             if r.get("error"): continue
-            dec=r.get("decimals",0)
+            dec=r.get("decimals",0); cur=r.get("current")
             def fn(v): return f'<span style="color:{TEXT3}">—</span>' if v is None else f"{v:.{dec}f}"
+            def chg(v):                        # change from that period to now (current − then)
+                if v is None or cur is None: return f'<span style="color:{TEXT3}">—</span>'
+                d=cur-v; cc=RED if d>0 else (GREEN if d<0 else TEXT2)
+                return f'<span style="color:{cc}">{d:+.{dec}f}</span>'
             z=r.get("z_score"); hh=r.get("hist",{}); zc=z_color(z)
             zt=f'{z:+.2f}σ' if z is not None else "—"
+            rd=r.get("raw_dates") or []; since=(str(rd[0])[:4] if rd else "—")
             h+=("<tr>"f"<td>{r['name']}</td><td style='color:{TEXT3}'>{r.get('unit','')}</td>"
-                f"<td style='color:{zc}'>{fn(r.get('current'))}</td><td>{fn(hh.get('1M'))}</td>"
-                f"<td>{fn(hh.get('3M'))}</td><td>{fn(hh.get('1Y'))}</td><td>{fn(hh.get('3Y'))}</td>"
-                f"<td>{fn(hh.get('5Y'))}</td><td>{fn(hh.get('10Y'))}</td>"
+                f"<td style='color:{zc}'>{fn(cur)}</td><td>{chg(hh.get('1M'))}</td>"
+                f"<td>{chg(hh.get('3M'))}</td><td>{chg(hh.get('1Y'))}</td><td>{chg(hh.get('3Y'))}</td>"
+                f"<td>{chg(hh.get('5Y'))}</td><td>{chg(hh.get('10Y'))}</td>"
                 f"<td style='color:{GREEN}'>{fn(r.get('all_min'))}</td>"
-                f"<td style='color:{RED}'>{fn(r.get('all_max'))}</td><td style='color:{zc}'>{zt}</td></tr>")
+                f"<td style='color:{RED}'>{fn(r.get('all_max'))}</td><td style='color:{zc}'>{zt}</td>"
+                f"<td style='color:{TEXT3}'>{since}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("**Cur** = latest level. **Δ** columns = change from that period ago to now "
+               "(current − level then; red = higher now, green = lower). **Min / Max / Z-score** span each "
+               "series' full available history — back to its **Since** year (shown in the last column).")
     valid=[r for r in rows if not r.get("error") and r.get("raw_dates")]
     c1,c2=st.columns([2,1])
     pick=c1.selectbox("History", [r["name"] for r in valid], key=k+"_pick", label_visibility="collapsed")
