@@ -2143,7 +2143,8 @@ def panel_crowding(k):
         if not si or not si["rows"]:
             st.caption("FINRA short-interest feed unavailable right now — hit ↻ Refresh.")
         else:
-            hdr=["#","Ticker","DTC","Short (M)","Δ%","Exch"]
+            import html as _html
+            hdr=["#","Ticker","Name","DTC","Short (M)","Δ%","Exch"]
             h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
             for i,x in enumerate(si["rows"],1):
                 try: dtc=float(x.get("daysToCoverQuantity") or 0)
@@ -2153,7 +2154,9 @@ def panel_crowding(k):
                 try: chg=float(x.get("changePercent") or 0)
                 except Exception: chg=0
                 chc=RED if chg>0 else (GREEN if chg<0 else TEXT2)
+                nm=(x.get("issueName") or "").strip(); nm=(nm[:26].rstrip()+"…") if len(nm)>26 else nm
                 h+=(f"<tr><td style='color:{TEXT3}'>{i}</td><td>{x.get('symbolCode','')}</td>"
+                    f"<td style='text-align:left;white-space:normal;max-width:200px'>{_html.escape(nm)}</td>"
                     f"<td>{dtc:.1f}</td><td>{shm:,.1f}</td>"
                     f"<td style='color:{chc}'>{chg:+.0f}%</td>"
                     f"<td style='color:{TEXT3}'>{x.get('marketClassCode','')}</td></tr>")
