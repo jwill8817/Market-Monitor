@@ -1156,7 +1156,7 @@ def panel_yield(k):
                     mu.append(mv); tr.append(tv)
             if labels:
                 cols=[GREEN if r<85 else (RED if r>100 else YELLOW) for r in ratios]
-                fig.add_trace(go.Bar(x=labels,y=ratios,marker_color=cols,
+                fig.add_trace(go.Bar(x=labels,y=ratios,marker_color=cols,cliponaxis=False,
                     text=[f"{r:.0f}%" for r in ratios],textposition="outside"))
                 fig.add_hline(y=100,line=dict(color=TEXT3,dash="dash"),annotation_text="100% (parity)")
                 st.plotly_chart(base_layout(fig,"Muni / Treasury Yield Ratio  (low = munis rich/expensive)","%",h=320),
@@ -1666,15 +1666,18 @@ def panel_vix_term(k):
         st.warning(f"VIX term structure unavailable: {v.get('error')}"); return
     pts=v["points"]
     fig=go.Figure()
-    fig.add_trace(go.Scatter(x=[d for _,d,_ in pts], y=[x for *_,x in pts],
+    _vy=[x for *_,x in pts]
+    fig.add_trace(go.Scatter(x=[d for _,d,_ in pts], y=_vy,
         mode="lines+markers+text", text=[f"{x:.1f}" for *_,x in pts], textposition="top center",
-        textfont=dict(size=10,color=TEXT1), line=dict(color=ACCENT,width=2.4), marker=dict(size=8),
-        name="Vol (annualized %)"))
+        textfont=dict(size=10,color=TEXT1), cliponaxis=False, line=dict(color=ACCENT,width=2.4),
+        marker=dict(size=8), name="Vol (annualized %)"))
     fig.update_xaxes(tickvals=[d for _,d,_ in pts], ticktext=[l.split()[0] for l,_,_ in pts])
     slope=pts[-1][2]-pts[0][2]
     shape="contango — calm now, more vol priced further out" if slope>0 else "backwardation — near-term stress"
-    st.plotly_chart(base_layout(fig,f"VIX term structure · {v['as_of']}","",h=310),
-        use_container_width=True, key=k+"_chart")
+    _sp=(max(_vy)-min(_vy)) or 1.0
+    fig=base_layout(fig,f"VIX term structure · {v['as_of']}","",h=310)
+    fig.update_yaxes(range=[min(_vy)-0.10*_sp, max(_vy)+0.22*_sp])
+    st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     st.caption(f"Shape: **{shape}**. Constant-maturity CBOE vol indices (free, no futures license). "
                "Upward = contango (roll cost for long vol); inverted = near-term stress. "
                "Slope history is in the *Term-Structure Steepness* section below.")
@@ -1871,16 +1874,19 @@ def panel_fed(k):
     rp=rate_path()
     if not rp.get("error") and rp["points"]:
         fig=go.Figure()
+        _yv=[val for *_,val in rp["points"]]+([rp["effr"]] if rp["effr"] is not None else [])
         fig.add_trace(go.Scatter(x=[y for _,y,_ in rp["points"]], y=[val for *_,val in rp["points"]],
             mode="lines+markers+text", text=[f"{val:.2f}" for *_,val in rp["points"]],
-            textposition="top center", textfont=dict(size=10,color=TEXT1),
+            textposition="top center", textfont=dict(size=10,color=TEXT1), cliponaxis=False,
             line=dict(color=ACCENT,width=2.2), marker=dict(size=8), name="Implied avg rate"))
         if rp["effr"] is not None:
             fig.add_hline(y=rp["effr"], line=dict(color=TEXT3,dash="dash"),
                           annotation_text=f"current EFFR {rp['effr']:.2f}%")
         fig.update_xaxes(tickvals=[y for _,y,_ in rp["points"]], ticktext=[l for l,_,_ in rp["points"]])
-        st.plotly_chart(base_layout(fig,f"Market-implied expected rate path · as of {rp['as_of']}","%",h=290),
-            use_container_width=True, key=k+"_path")
+        _sp=(max(_yv)-min(_yv)) or 0.5
+        fig=base_layout(fig,f"Market-implied expected rate path · as of {rp['as_of']}","%",h=290)
+        fig.update_yaxes(range=[min(_yv)-0.10*_sp, max(_yv)+0.22*_sp])   # headroom for top labels
+        st.plotly_chart(fig, use_container_width=True, key=k+"_path")
         st.caption("Approximation from the front Treasury curve + EFFR (embeds term/liquidity premium). "
                    "Shows expected direction — NOT true meeting-by-meeting probabilities.")
     st.divider()
