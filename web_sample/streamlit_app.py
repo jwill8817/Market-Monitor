@@ -2098,17 +2098,71 @@ def panel_eq_financing(k):
                    "for. Absolute level is approximate (spot/future timing); the *pattern* is the value.")
         dl(pd.DataFrame({"Date":s.index,"SpreadBps":s.values}),"Export history","JAWS_equity_financing_ts.xlsx",k+"_dl2")
 
+@st.cache_data(ttl=21600, show_spinner=False)   # 6h; FINRA short interest is bi-monthly
+def finra_most_shorted(min_adv, top_n, rank):
+    """Highest short-interest US-listed names from FINRA's Consolidated Short Interest file
+    (authoritative, one request). rank = 'daysToCoverQuantity' or 'currentShortPositionQuantity'."""
+    import urllib.request, json
+    H={"User-Agent":"Mozilla/5.0","Accept":"application/json","Content-Type":"application/json"}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(
+            "https://api.finra.org/partitions/group/otcMarket/name/consolidatedShortInterest",
+            headers=H), timeout=20) as r:
+            parts=json.loads(r.read())
+        dates=sorted({p["partitions"][0] for p in parts.get("availablePartitions",[])}, reverse=True)
+        if not dates: return None
+        latest=dates[0]
+        body={"limit":max(top_n*5,100),
+              "compareFilters":[{"fieldName":"settlementDate","compareType":"EQUAL","fieldValue":latest},
+                                {"fieldName":"averageDailyVolumeQuantity","compareType":"GTE","fieldValue":int(min_adv)}],
+              "sortFields":["-"+rank]}
+        req=urllib.request.Request("https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest",
+                                   data=json.dumps(body).encode(), headers=H, method="POST")
+        with urllib.request.urlopen(req, timeout=25) as r:
+            data=json.loads(r.read())
+        data=data if isinstance(data,list) else data.get("data",[])
+        rows=[x for x in data if x.get("marketClassCode") in ("NYSE","NNM","NMS","NGS","NCM","AMEX")][:top_n]
+        return {"date":latest, "rows":rows}
+    except Exception:
+        return None
+
 def panel_crowding(k):
     c1,c2=st.columns(2)
     with c1:
         _holdings_table("GVIP","Crowded LONGS — GS Hedge Fund VIP")
     with c2:
-        _holdings_table("HDGE","Crowded SHORTS — Ranger Equity Bear book")
-    st.caption("**GVIP** = the stocks appearing most often among hedge funds' top-10 long positions "
-               "(Goldman 'Hedge Fund VIP' basket) — the free proxy for crowded longs. **HDGE** = an "
-               "actively-managed short fund; its book is a proxy for high-conviction shorts (no free ETF "
-               "cleanly replicates the GS 'most-shorted' basket). Holdings from issuer daily files (via "
-               "yfinance), updated daily — this is **not** GS/MS prime brokerage positioning, which is licensed.")
+        rk={"Days to cover":"daysToCoverQuantity","Short shares":"currentShortPositionQuantity"}
+        cc1,cc2=st.columns(2)
+        rank=cc1.selectbox("Rank shorts by", list(rk), key=k+"_rank")
+        adv=cc2.select_slider("Min avg vol", [1e5,5e5,1e6,5e6], value=1e6,
+                              format_func=lambda v:f"{v/1e6:g}M", key=k+"_adv")
+        si=finra_most_shorted(adv, 15, rk[rank])
+        st.markdown(f"**Crowded SHORTS — highest short interest** "
+                    f"<span style='color:{TEXT3};font-size:12px'>FINRA · {si['date'] if si else 'n/a'}</span>",
+                    unsafe_allow_html=True)
+        if not si or not si["rows"]:
+            st.caption("FINRA short-interest feed unavailable right now — hit ↻ Refresh.")
+        else:
+            hdr=["#","Ticker","DTC","Short (M)","Δ%","Exch"]
+            h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+            for i,x in enumerate(si["rows"],1):
+                try: dtc=float(x.get("daysToCoverQuantity") or 0)
+                except Exception: dtc=0
+                try: shm=int(x.get("currentShortPositionQuantity") or 0)/1e6
+                except Exception: shm=0
+                try: chg=float(x.get("changePercent") or 0)
+                except Exception: chg=0
+                chc=RED if chg>0 else (GREEN if chg<0 else TEXT2)
+                h+=(f"<tr><td style='color:{TEXT3}'>{i}</td><td>{x.get('symbolCode','')}</td>"
+                    f"<td>{dtc:.1f}</td><td>{shm:,.1f}</td>"
+                    f"<td style='color:{chc}'>{chg:+.0f}%</td>"
+                    f"<td style='color:{TEXT3}'>{x.get('marketClassCode','')}</td></tr>")
+            st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("**GVIP** = stocks most-held among hedge funds' top-10 longs (Goldman 'Hedge Fund VIP' basket) — "
+               "the free crowded-longs proxy. **Crowded shorts** = highest short interest from **FINRA's "
+               "Consolidated Short Interest** file (the authoritative bi-monthly exchange data, ~2-week lag): "
+               "**DTC** = days-to-cover (short ÷ avg daily volume), **Short (M)** = shares short in millions, "
+               "**Δ%** = change vs prior report (red = shorts building). Filtered to liquid US-listed names.")
 
 def panel_skew(k):
     c1,c2=st.columns([1,1])
