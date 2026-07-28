@@ -2653,6 +2653,28 @@ def panel_regression():
                            "(βᵢ·Cov(Y,Xᵢ)), normalized to 100%. **Volatility (bottom):** the same risk shares scaled by "
                            "the annualized vol so the bars sum to Y's annualized vol (e.g. a factor that is 50% of risk "
                            "on 15% vol = 7.5%). Stepwise is on by default to keep the breakout readable.")
+                # ── One-click Excel export of the whole factor decomposition (all tables/chart data) ──
+                import io as _io
+                _terms=["Alpha (intercept)"]+cols
+                _xbuf=_io.BytesIO()
+                with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _xw:
+                    pd.DataFrame({"Term":_terms,"Beta":[round(float(b),6) for b in beta],
+                                  "t_stat":[round(float(t),4) for t in tvals],
+                                  "p_value":[round(float(p),6) for p in pvals]}).to_excel(_xw,sheet_name="Coefficients",index=False)
+                    pd.DataFrame([{"Y":ylabel,"Frequency":freq,"R2":round(fit["r2"],4),
+                                   "Adj_R2":round(fit["adj_r2"],4),"N_obs":fit["n"],"Factors":len(cols),
+                                   "Stepwise":use_step}]).to_excel(_xw,sheet_name="Fit stats",index=False)
+                    atab.to_excel(_xw,sheet_name="Attribution",index=False)
+                    pd.DataFrame({"Horizon":hz_lbls, **{c:ret_by[c] for c in cols},
+                                  "Idiosyncratic":ret_idio}).to_excel(_xw,sheet_name="Return contribution",index=False)
+                    pd.DataFrame({"Horizon":hz_lbls, **{c:rsk_by[c] for c in cols},
+                                  "Idiosyncratic":rsk_idio}).to_excel(_xw,sheet_name="Risk variance pct",index=False)
+                    pd.DataFrame({"Horizon":hz_lbls, **{c:vol_by[c] for c in cols},
+                                  "Idiosyncratic":vol_idio,"Total ann vol":vol_tot}).to_excel(_xw,sheet_name="Volatility pct",index=False)
+                st.download_button("⬇ Export full factor decomposition (Excel — all tables & chart data)",
+                    data=_xbuf.getvalue(), file_name="JAWS_factor_decomposition.xlsx", key="reg_full_dl",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True)
 
         # ── Rolling beta & p-value (own choice menu) ──
         st.divider()
