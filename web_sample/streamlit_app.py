@@ -2505,10 +2505,6 @@ def panel_regression():
                    "simple regression, or **several** to run multi-factor. Default X = the monthly L/S factors.")
         _fac_default=[l for l in factor_labels() if "(M)" in l]
         xdict=ticker_picker("reg_x", _fac_default or ["US 10Y"])
-        d1,d2=st.columns(2)
-        start=d1.date_input("Start", value=date.today()-relativedelta(years=10),
-                            min_value=date(1950,1,1), key="reg_start")
-        end=d2.date_input("End", value=date.today(), key="reg_end")
         if not ylabel or not xdict:
             st.caption("Select a Y series and at least one X."); return
         ys=_corr_change_series("auto", ydict[ylabel], freq)
@@ -2524,7 +2520,16 @@ def panel_regression():
             st.warning("Couldn't resolve the Y series or any X for that setup."); return
         frame=pd.concat([ys.rename("__Y__")]+[s.rename(l) for l,s in xser.items()],
                         axis=1, join="inner").dropna()
-        frame=frame[(frame.index>=pd.Timestamp(start))&(frame.index<=pd.Timestamp(end))]
+        if frame.empty:
+            st.warning("No overlapping dates between Y and the selected factors."); return
+        # Default window = the full common overlap of Y and all factors; narrow it optionally.
+        _lo, _hi = frame.index.min().date(), frame.index.max().date()
+        if st.checkbox(f"Custom date range (default = full overlap {_lo} → {_hi})",
+                       value=False, key="reg_daterange"):
+            d1,d2=st.columns(2)
+            start=d1.date_input("Start", value=_lo, min_value=_lo, max_value=_hi, key="reg_start")
+            end=d2.date_input("End", value=_hi, min_value=_lo, max_value=_hi, key="reg_end")
+            frame=frame[(frame.index>=pd.Timestamp(start))&(frame.index<=pd.Timestamp(end))]
         Xall=frame.drop(columns="__Y__"); yv=frame["__Y__"]
         if len(frame)<len(Xall.columns)+3:
             st.warning(f"Only {len(frame)} overlapping points — widen the range or reduce factors."); return
