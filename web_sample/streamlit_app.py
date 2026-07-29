@@ -2498,6 +2498,9 @@ def panel_regression():
                                 step=0.01, key="reg_cut", disabled=not use_step)
         ydict=ticker_picker("reg_y", ["S&P 500"])
         ylabel=list(ydict.keys())[0] if ydict else None
+        ybasis=st.radio("Y returns basis", ["Raw","Excess (net T-bill)"], horizontal=True, key="reg_ybasis",
+                        help="Excess subtracts the 1–3m T-bill (BIL) return from Y so the intercept is a clean "
+                             "Jensen's alpha vs the already-excess factors. Factors/X are left unchanged.")
         st.caption("Dependent variable **Y** above; explanatory variable(s) **X** below. Pick **one X** for a "
                    "simple regression, or **several** to run multi-factor. Default X = the monthly L/S factors.")
         _fac_default=[l for l in factor_labels() if "(M)" in l]
@@ -2509,6 +2512,12 @@ def panel_regression():
         if not ylabel or not xdict:
             st.caption("Select a Y series and at least one X."); return
         ys=_corr_change_series("auto", ydict[ylabel], freq)
+        if ybasis.startswith("Excess") and ys is not None and not ys.empty:
+            rf=md_history("BIL")                      # 1–3m T-bill total return = risk-free
+            if rf is not None and not rf.empty:
+                if freq=="Monthly": rf=rf.resample("ME").last()
+                _jr=pd.concat([ys.rename("y"),rf.pct_change().rename("rf")],axis=1,join="inner").dropna()
+                if not _jr.empty: ys=_jr["y"]-_jr["rf"]; ylabel=ylabel+" (excess)"
         xser={lbl:_corr_change_series("auto", sym, freq) for lbl,sym in xdict.items()}
         xser={l:s for l,s in xser.items() if s is not None and not s.empty}
         if ys is None or ys.empty or not xser:
