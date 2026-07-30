@@ -2532,6 +2532,32 @@ def _ridge_fit(y, X, alpha):
     return {"beta":beta,"se":se,"t":t,"p":p,"resid":resid,"fitted":fitted,
             "r2":r2,"adj_r2":adj,"n":n,"dof":dof,"edf":edf,"ridge":True,"alpha":alpha}
 
+def _ridge_gcv(y, X):
+    """Data-driven ridge penalty via Generalized Cross-Validation. Sweeps a log grid of λ
+    on the standardized design and returns the λ minimizing GCV(λ)=n·RSS/(n−edf−1)² — the
+    standard 'let the data pick the penalty' default. Returns (lam, edf, gcv)."""
+    import numpy as np
+    y=np.asarray(y,float); X=np.atleast_2d(np.asarray(X,float))
+    if X.shape[0]!=len(y): X=X.T
+    n,k=X.shape
+    if n<=k+1: return 1.0, float(k), None
+    mu=X.mean(0); sd=X.std(0,ddof=1); sd[sd==0]=1.0
+    Xs=(X-mu)/sd; yc=y-y.mean()
+    try: _,s,_=np.linalg.svd(Xs, full_matrices=False)
+    except np.linalg.LinAlgError: return 1.0, float(k), None
+    U,s,_=np.linalg.svd(Xs, full_matrices=False)
+    d=s**2; z=U.T@yc; ycc=float(yc@yc); zz=float(z@z)
+    best=None
+    for lam in np.logspace(-3,4,80):
+        filt=d/(d+lam)                    # hat-matrix eigenvalues
+        edf=float(filt.sum())
+        rss=float((((1-filt)*z)**2).sum())+(ycc-zz)   # in-space + null-space residual
+        denom=n-edf-1.0
+        if denom<=0: continue
+        gcv=n*rss/denom**2
+        if best is None or gcv<best[2]: best=(lam,edf,gcv)
+    return best if best else (1.0, float(k), None)
+
 def panel_regression():
     st.markdown(f'<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
     with st.container(border=True):
@@ -2548,15 +2574,19 @@ def panel_regression():
                                    "On by default to keep the factor breakout readable.")
         cutoff=cf3.number_input("p-value cutoff", min_value=0.01, max_value=0.5, value=0.05,
                                 step=0.01, key="reg_cut", disabled=not use_step)
-        mf1,mf2=st.columns([1.4,1])
+        mf1,mf2,mf3=st.columns([1.5,1,1])
         method=mf1.radio("Estimator",["OLS","Ridge (L2 — tames collinearity)"],horizontal=True,key="reg_method",
                          help="OLS is unbiased but its betas get unstable/inflated when X factors are "
                               "correlated. Ridge adds an L2 penalty that shrinks correlated coefficients "
                               "toward each other — lower variance, more stable betas, at the cost of a small "
                               "bias. t-stats/R² for ridge use an effective-df approximation.")
         use_ridge=method.startswith("Ridge")
-        lam=mf2.number_input("Ridge λ (penalty)", min_value=0.0, max_value=1000.0, value=1.0, step=0.5,
-                             key="reg_lambda", disabled=not use_ridge,
+        lam_mode=mf2.radio("Ridge λ", ["Auto (GCV)","Manual"], key="reg_lammode", disabled=not use_ridge,
+                           help="Auto picks the penalty that minimizes Generalized Cross-Validation error — "
+                                "the standard data-driven default, so you don't have to guess. Manual lets you "
+                                "set λ yourself.")
+        lam_manual=mf3.number_input("Manual λ", min_value=0.0, max_value=1000.0, value=1.0, step=0.5,
+                             key="reg_lambda", disabled=(not use_ridge or lam_mode!="Manual"),
                              help="Penalty strength on standardized factors. 0 ≈ OLS; larger λ shrinks "
                                   "harder. Typical range 0.1–10 for monthly factor returns.")
         ydict=ticker_picker("reg_y", ["S&P 500"])
@@ -2611,26 +2641,32 @@ def panel_regression():
             if hi and not use_ridge:
                 st.caption(f"High collinearity in {', '.join(hi)} — consider the **Ridge** estimator "
                            "above to stabilize these betas, or drop one of the correlated factors.")
+        lam=lam_manual; lam_auto=False
+        if use_ridge and lam_mode.startswith("Auto"):
+            lam,_gedf,_=_ridge_gcv(yv.values, Xall[cols].values); lam_auto=True
         fit=_ridge_fit(yv.values, Xall[cols].values, lam) if use_ridge else _ols_fit(yv.values, Xall[cols].values)
         if fit is None:
             st.warning("Regression could not be estimated (singular design or too few points)."); return
         beta=fit["beta"]; tvals=fit["t"]; pvals=fit["p"]
         # ── Factor descriptions for the FULL starting list (not just survivors) ──
+        import factors_data as _fd, html as _html
+        _drows=[]
+        for c in list(Xall.columns):
+            d=_fd.factor_definition(c)
+            if d:
+                _drows.append({"Factor":c,"Region":d["region"],"Source / provider":d["source"],
+                               "Data pulled from":d["pull_source"],"Definition":d["definition"],
+                               "Long leg":d["long"],"Short leg":d["short"],
+                               "Construction":d["construction"],"Source URL":d["pull_url"]})
+            else:
+                _drows.append({"Factor":c,"Region":"","Source / provider":"Market data",
+                               "Data pulled from":"yfinance (ticker) / FRED (series id)",
+                               "Definition":"User-selected instrument — periodic return of the price/level series.",
+                               "Long leg":"","Short leg":"","Construction":"","Source URL":""})
+        # Standalone, always-visible export of just the factor/description table.
+        dl(pd.DataFrame(_drows), "Export factor descriptions (this table only)",
+           "JAWS_factor_definitions.xlsx", "reg_defs_dl")
         with st.expander("ℹ️ Factor descriptions & sources (full starting list)"):
-            import factors_data as _fd, html as _html
-            _drows=[]
-            for c in list(Xall.columns):
-                d=_fd.factor_definition(c)
-                if d:
-                    _drows.append({"Factor":c,"Region":d["region"],"Source / provider":d["source"],
-                                   "Data pulled from":d["pull_source"],"Definition":d["definition"],
-                                   "Long leg":d["long"],"Short leg":d["short"],
-                                   "Construction":d["construction"],"Source URL":d["pull_url"]})
-                else:
-                    _drows.append({"Factor":c,"Region":"","Source / provider":"Market data",
-                                   "Data pulled from":"yfinance (ticker) / FRED (series id)",
-                                   "Definition":"User-selected instrument — periodic return of the price/level series.",
-                                   "Long leg":"","Short leg":"","Construction":"","Source URL":""})
             _dh=["Factor","Data pulled from","Definition","Long leg","Short leg"]
             _dtbl='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in _dh)+"</tr>"
             for r in _drows:
@@ -2642,9 +2678,7 @@ def panel_regression():
             st.markdown(_dtbl+"</table></div>", unsafe_allow_html=True)
             st.caption("**Data pulled from** = the exact file/API we download each series from "
                        "(Ken French Data Library zip, AQR data-set xlsx, or yfinance/FRED). "
-                       "Construction + full source URL are in the export below.")
-            dl(pd.DataFrame(_drows), "Export factor definitions",
-               "JAWS_factor_definitions.xlsx", "reg_defs_dl")
+                       "The export button above includes Construction + full source URL.")
         hdr=["Term","Beta","t-stat","p-value"]
         h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
         for i,term in enumerate(["Alpha (intercept)"]+cols):
@@ -2658,9 +2692,11 @@ def panel_regression():
         m[2].metric("N obs", f"{fit['n']}")
         m[3].metric("Factors", f"{len(cols)}"+(" (stepwise)" if use_step else ""))
         if use_ridge:
-            st.caption(f"**Ridge (λ={lam:g})** — coefficients shrunk toward zero to reduce collinearity variance; "
-                       f"effective df ≈ {fit.get('edf',len(cols)):.1f} vs {len(cols)} factors. t-stats/p-values are "
-                       "an effective-df approximation (ridge inference is not exact OLS). Set λ=0 to recover OLS.")
+            _lsrc="GCV-selected" if lam_auto else "manual"
+            st.caption(f"**Ridge (λ={lam:.3g}, {_lsrc})** — coefficients shrunk toward zero to reduce collinearity "
+                       f"variance; effective df ≈ {fit.get('edf',len(cols)):.1f} vs {len(cols)} factors. t-stats/"
+                       "p-values are an effective-df approximation (ridge inference is not exact OLS). "
+                       "'Auto (GCV)' minimizes generalized cross-validation error; switch to Manual to set λ (0 = OLS).")
         if use_step and len(cols)<len(Xall.columns):
             st.caption(f"Stepwise dropped (p > {cutoff}): {', '.join(c for c in Xall.columns if c not in cols)}")
         # Scatter + fit line — only meaningful for a single X
