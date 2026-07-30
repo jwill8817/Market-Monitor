@@ -177,6 +177,9 @@ def factor_definition(name):
     Includes the exact file we pull the series from. Returns None if the name
     isn't a recognized academic factor."""
     base = name.strip(); freq = "M"
+    for tag in (" [factor]", " [macro]"):        # picker labels carry a source tag
+        if base.endswith(tag):
+            base = base[:-len(tag)].strip()
     for suf, fq in ((" (M)", "M"), (" (D)", "D")):
         if base.endswith(suf):
             base = base[:-len(suf)].strip(); freq = fq
