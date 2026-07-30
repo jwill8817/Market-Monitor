@@ -2618,22 +2618,29 @@ def panel_regression():
         # ── Factor descriptions for the FULL starting list (not just survivors) ──
         with st.expander("ℹ️ Factor descriptions & sources (full starting list)"):
             import factors_data as _fd, html as _html
-            _dh=["Factor","Source","Definition","Long leg","Short leg"]
-            _dtbl='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in _dh)+"</tr>"
+            _drows=[]
             for c in list(Xall.columns):
                 d=_fd.factor_definition(c)
                 if d:
-                    _dtbl+=(f"<tr><td>{_html.escape(c)}</td><td>{_html.escape(d['source'])}</td>"
-                            f"<td style='text-align:left'>{_html.escape(d['definition'])}</td>"
-                            f"<td style='text-align:left'>{_html.escape(d['long'])}</td>"
-                            f"<td style='text-align:left'>{_html.escape(d['short'])}</td></tr>")
+                    _drows.append({"Factor":c,"Region":d["region"],"Source / provider":d["source"],
+                                   "Definition":d["definition"],"Long leg":d["long"],"Short leg":d["short"],
+                                   "Construction":d["construction"],"Provider link":d["url"]})
                 else:
-                    _dtbl+=(f"<tr><td>{_html.escape(c)}</td><td>Market data (yfinance / FRED)</td>"
-                            f"<td style='text-align:left' colspan='3'>User-selected instrument — "
-                            "periodic return of the price/level series.</td></tr>")
+                    _drows.append({"Factor":c,"Region":"","Source / provider":"Market data (yfinance / FRED)",
+                                   "Definition":"User-selected instrument — periodic return of the price/level series.",
+                                   "Long leg":"","Short leg":"","Construction":"","Provider link":""})
+            _dh=["Factor","Source","Definition","Long leg","Short leg"]
+            _dtbl='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in _dh)+"</tr>"
+            for r in _drows:
+                _dtbl+=(f"<tr><td>{_html.escape(r['Factor'])}</td><td>{_html.escape(r['Source / provider'])}</td>"
+                        f"<td style='text-align:left'>{_html.escape(r['Definition'])}</td>"
+                        f"<td style='text-align:left'>{_html.escape(r['Long leg'])}</td>"
+                        f"<td style='text-align:left'>{_html.escape(r['Short leg'])}</td></tr>")
             st.markdown(_dtbl+"</table></div>", unsafe_allow_html=True)
             st.caption("Academic factors: Fama-French (Ken French Data Library) & AQR. "
-                       "Full construction methodology is in the Excel export's *Factor definitions* tab.")
+                       "'Construction' + provider links are included in the export below.")
+            dl(pd.DataFrame(_drows), "Export factor definitions",
+               "JAWS_factor_definitions.xlsx", "reg_defs_dl")
         hdr=["Term","Beta","t-stat","p-value"]
         h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
         for i,term in enumerate(["Alpha (intercept)"]+cols):

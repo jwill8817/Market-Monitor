@@ -74,59 +74,74 @@ FACTOR_DEFS = {
     "Market (Mkt-RF)": {
         "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
         "long": "Value-weighted US equity market", "short": "1-month US Treasury bill",
-        "definition": "Equity market risk premium — the value-weighted return on all CRSP US "
-                      "common stocks in excess of the risk-free rate.",
-        "construction": "Return of the value-weighted US market portfolio minus the 1-month T-bill."},
+        "definition": "The value-weighted return of the entire US stock market in excess of the "
+                      "risk-free rate — i.e. the broad equity risk premium (not a long/short pairing).",
+        "construction": "Return of the CRSP value-weighted portfolio of all US common stocks minus the "
+                        "1-month Treasury-bill rate."},
     "Size (SMB)": {
         "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
         "long": "Small-cap stocks", "short": "Large-cap stocks",
-        "definition": "Size premium — small companies minus large companies.",
-        "construction": "Small Minus Big: average return on small-cap portfolios minus average "
-                        "return on large-cap portfolios, from 2×3 sorts on size and book-to-market."},
+        "definition": "Small Minus Big: a size-tilted pairing that goes long small-cap stocks and short "
+                      "large-cap stocks, holding value exposure neutral.",
+        "construction": "Average return of the three small-cap portfolios minus the three large-cap "
+                        "portfolios, from independent 2×3 sorts on size and book-to-market."},
     "Value (HML)": {
         "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
-        "long": "High book-to-market (value) stocks", "short": "Low book-to-market (growth) stocks",
-        "definition": "Value premium — cheap (high book/market) minus expensive (low book/market) stocks.",
-        "construction": "High Minus Low: average return on two value portfolios minus two growth "
-                        "portfolios, from 2×3 sorts on size and book-to-market."},
+        "long": "Cheap 'value' stocks (high book-to-market)", "short": "Expensive 'growth' stocks (low book-to-market)",
+        "definition": "High Minus Low: a size-neutral pairing that goes long cheap (high book-to-market) "
+                      "stocks and short expensive (low book-to-market) stocks.",
+        "construction": "Average return of the two high book-to-market portfolios minus the two low "
+                        "book-to-market portfolios, from 2×3 sorts on size and book-to-market."},
     "Profitability (RMW)": {
         "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
-        "long": "Robust (high) operating-profitability firms", "short": "Weak (low) profitability firms",
-        "definition": "Profitability premium — highly profitable firms minus weakly profitable firms.",
-        "construction": "Robust Minus Weak: 2×3 sorts on size and operating profitability."},
+        "long": "Robust (high) operating-profitability firms", "short": "Weak (low) operating-profitability firms",
+        "definition": "Robust Minus Weak: a size-neutral pairing that goes long firms with robust operating "
+                      "profitability and short firms with weak profitability.",
+        "construction": "Average return of the two robust-profitability portfolios minus the two weak-"
+                        "profitability portfolios, from 2×3 sorts on size and operating profitability."},
     "Investment (CMA)": {
         "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
-        "long": "Conservative (low-investment) firms", "short": "Aggressive (high-investment) firms",
-        "definition": "Investment premium — firms that grow assets slowly minus those that grow aggressively.",
-        "construction": "Conservative Minus Aggressive: 2×3 sorts on size and asset growth."},
+        "long": "Conservative firms (low asset growth)", "short": "Aggressive firms (high asset growth)",
+        "definition": "Conservative Minus Aggressive: a size-neutral pairing that goes long firms that "
+                      "invest conservatively (grow assets slowly) and short firms that invest aggressively.",
+        "construction": "Average return of the two low-investment portfolios minus the two high-investment "
+                        "portfolios, from 2×3 sorts on size and prior-year asset growth."},
     "Momentum (Mom)": {
         "source": "Fama-French / Carhart (Ken French Data Library)", "url": _KF_URL,
         "long": "Recent winners (high prior 2–12m return)", "short": "Recent losers (low prior 2–12m return)",
-        "definition": "Momentum premium — stocks that rose over the past year keep outperforming.",
-        "construction": "Prior (2–12 month) return, skipping the most recent month; high minus low, "
-                        "averaged across size."},
+        "definition": "A size-neutral pairing that goes long recent winners and short recent losers, "
+                      "ranked on the prior 2–12 month return (skipping the most recent month).",
+        "construction": "Average return of the two high-prior-return portfolios minus the two low-prior-"
+                        "return portfolios, from 2×3 sorts on size and prior (2–12 month) return."},
     "Short-Term Rev": {
         "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
-        "long": "Prior-month losers", "short": "Prior-month winners",
-        "definition": "Short-term reversal — last month's losers tend to bounce back.",
-        "construction": "Sort on prior 1-month return; long losers, short winners."},
+        "long": "Last month's losers", "short": "Last month's winners",
+        "definition": "A size-neutral pairing that goes long last month's losers and short last month's "
+                      "winners — the one-month reversal effect.",
+        "construction": "Average return of the two low-prior-month portfolios minus the two high-prior-"
+                        "month portfolios, from 2×3 sorts on size and prior 1-month return."},
     "Long-Term Rev": {
         "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
-        "long": "Prior 13–60m losers", "short": "Prior 13–60m winners",
-        "definition": "Long-term reversal — multi-year losers tend to recover.",
-        "construction": "Sort on return over months 13–60; long losers, short winners."},
+        "long": "3–5 year losers (months 13–60)", "short": "3–5 year winners (months 13–60)",
+        "definition": "A size-neutral pairing that goes long multi-year losers and short multi-year "
+                      "winners, ranked on the return over months 13–60 — the long-horizon reversal effect.",
+        "construction": "Average return of the two low-prior portfolios minus the two high-prior "
+                        "portfolios, from 2×3 sorts on size and return over months 13–60."},
     "Quality H-L (QMJ)": {
         "source": "AQR Capital Management", "url": _AQR_URL,
-        "long": "High-quality firms (profitable, growing, safe, high payout)", "short": "Junk firms",
-        "definition": "Quality premium — high-quality companies minus low-quality (junk) companies.",
-        "construction": "Quality Minus Junk: composite quality score (profitability, growth, safety, "
-                        "payout); long high-quality, short junk, size-neutral. US series."},
+        "long": "High-quality firms (profitable, growing, safe, high payout)", "short": "Low-quality 'junk' firms",
+        "definition": "Quality Minus Junk: a market-neutral pairing that goes long high-quality firms "
+                      "(profitable, growing, safe, high-payout) and short low-quality 'junk' firms.",
+        "construction": "Within size groups, rank on a composite quality z-score (profitability, growth, "
+                        "safety, payout); long the top, short the bottom, dollar- and beta-neutral. US series."},
     "Betting-Against-Beta": {
         "source": "AQR Capital Management", "url": _AQR_URL,
-        "long": "Low-beta assets (levered to β=1)", "short": "High-beta assets (de-levered to β=1)",
-        "definition": "Low-risk anomaly — low-beta assets deliver higher risk-adjusted returns than high-beta.",
-        "construction": "Betting-Against-Beta: rank by market beta; long leveraged low-beta, short "
-                        "de-leveraged high-beta so the portfolio is market-neutral. US series."},
+        "long": "Low-beta stocks (leveraged up to β=1)", "short": "High-beta stocks (de-leveraged to β=1)",
+        "definition": "Betting Against Beta: a market-neutral pairing that goes long a basket of low-beta "
+                      "stocks (leveraged up) and short a basket of high-beta stocks (de-leveraged), so the "
+                      "combined portfolio has ~zero market beta.",
+        "construction": "Rank by estimated market beta; long low-beta levered to β=1, short high-beta "
+                        "de-levered to β=1, so the pair is beta-neutral by construction. US series."},
 }
 # regional variants share the base definition, tagged by region
 _REGION_TAG = {"Dev ": "Developed ex-US universe", "EM ": "Emerging-markets universe"}
