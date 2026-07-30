@@ -2480,6 +2480,55 @@ def _stepwise_backward(y, Xdf, cutoff):
         else: break
     return cols
 
+def _vif(Xdf):
+    """Variance Inflation Factor per column: VIF_i = 1/(1-R²_i), R²_i from regressing
+    factor i on all the others. >5 = notable collinearity, >10 = severe."""
+    import numpy as np
+    cols=list(Xdf.columns); Xv=Xdf.values.astype(float); out={}
+    for j,c in enumerate(cols):
+        others=[k for k in range(len(cols)) if k!=j]
+        if not others: out[c]=1.0; continue
+        f=_ols_fit(Xv[:,j], Xv[:,others])
+        r2=f["r2"] if f else 0.0
+        out[c]=float("inf") if r2>=0.9999 else 1.0/max(1.0-r2,1e-9)
+    return out
+
+def _ridge_fit(y, X, alpha):
+    """Ridge (L2-penalized) regression — shrinks correlated coefficients toward each other
+    to tame multicollinearity. X standardized so the penalty is scale-free, then betas mapped
+    back to raw units. t/p and R² use an effective-df approximation (ridge inference is
+    approximate, not exact OLS). Same dict shape as _ols_fit so the rest of the panel is
+    unchanged."""
+    import numpy as np
+    from scipy import stats
+    y=np.asarray(y,float); X=np.atleast_2d(np.asarray(X,float))
+    if X.shape[0]!=len(y): X=X.T
+    n,k=X.shape
+    if n<=k+1: return None
+    mu=X.mean(0); sd=X.std(0,ddof=1); sd[sd==0]=1.0
+    Xs=(X-mu)/sd; ybar=float(y.mean()); yc=y-ybar
+    A=Xs.T@Xs+alpha*np.eye(k)
+    try: Ainv=np.linalg.inv(A)
+    except np.linalg.LinAlgError: return None
+    bs=Ainv@Xs.T@yc                        # standardized slopes
+    b=bs/sd                                # raw-unit slopes
+    intercept=ybar-float(mu@b)
+    beta=np.concatenate([[intercept],b])
+    fitted=intercept+X@b; resid=y-fitted
+    sse=float(resid@resid); sst=float(((y-ybar)**2).sum())
+    r2=1-sse/sst if sst>0 else 0.0
+    H=Xs@Ainv@Xs.T; edf=float(np.trace(H))     # effective degrees of freedom used by fit
+    dof=max(n-edf-1.0,1.0)
+    adj=1-(1-r2)*(n-1)/dof if dof>0 else r2
+    sigma2=sse/dof
+    Covs=sigma2*(Ainv@(Xs.T@Xs)@Ainv)          # approx cov of standardized slopes
+    se_b=np.sqrt(np.maximum(np.diag(Covs),0))/sd
+    se_int=np.sqrt(max(sigma2/n+float(mu@np.diag(1.0/sd)@Covs@np.diag(1.0/sd)@mu),0.0))
+    se=np.concatenate([[se_int],se_b]); se[se==0]=1e-12
+    t=beta/se; p=2*(1-stats.t.cdf(np.abs(t),dof))
+    return {"beta":beta,"se":se,"t":t,"p":p,"resid":resid,"fitted":fitted,
+            "r2":r2,"adj_r2":adj,"n":n,"dof":dof,"edf":edf,"ridge":True,"alpha":alpha}
+
 def panel_regression():
     st.markdown(f'<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
     with st.container(border=True):
@@ -2496,6 +2545,17 @@ def panel_regression():
                                    "On by default to keep the factor breakout readable.")
         cutoff=cf3.number_input("p-value cutoff", min_value=0.01, max_value=0.5, value=0.05,
                                 step=0.01, key="reg_cut", disabled=not use_step)
+        mf1,mf2=st.columns([1.4,1])
+        method=mf1.radio("Estimator",["OLS","Ridge (L2 — tames collinearity)"],horizontal=True,key="reg_method",
+                         help="OLS is unbiased but its betas get unstable/inflated when X factors are "
+                              "correlated. Ridge adds an L2 penalty that shrinks correlated coefficients "
+                              "toward each other — lower variance, more stable betas, at the cost of a small "
+                              "bias. t-stats/R² for ridge use an effective-df approximation.")
+        use_ridge=method.startswith("Ridge")
+        lam=mf2.number_input("Ridge λ (penalty)", min_value=0.0, max_value=1000.0, value=1.0, step=0.5,
+                             key="reg_lambda", disabled=not use_ridge,
+                             help="Penalty strength on standardized factors. 0 ≈ OLS; larger λ shrinks "
+                                  "harder. Typical range 0.1–10 for monthly factor returns.")
         ydict=ticker_picker("reg_y", ["S&P 500"])
         ylabel=list(ydict.keys())[0] if ydict else None
         ybasis=st.radio("Y returns basis", ["Raw","Excess (net T-bill)"], horizontal=True, key="reg_ybasis",
@@ -2535,7 +2595,20 @@ def panel_regression():
             st.warning(f"Only {len(frame)} overlapping points — widen the range or reduce factors."); return
         cols=list(Xall.columns)
         if use_step: cols=_stepwise_backward(yv.values, Xall, cutoff)
-        fit=_ols_fit(yv.values, Xall[cols].values)
+        # Collinearity diagnostic (VIF) on the factors actually being fit.
+        if len(cols)>1:
+            vif=_vif(Xall[cols])
+            hi=[c for c in cols if vif[c]>=5]
+            vtxt=" · ".join(f"{c}: {('∞' if vif[c]==float('inf') else f'{vif[c]:.1f}')}"
+                            f"{'⚠' if vif[c]>=5 else ''}" for c in cols)
+            _vc=YELLOW if hi else TEXT2
+            st.markdown(f'<span style="color:{_vc};font-family:Consolas;font-size:11px;">VIF '
+                        f'(collinearity, &gt;5 = high, &gt;10 = severe): {vtxt}</span>',
+                        unsafe_allow_html=True)
+            if hi and not use_ridge:
+                st.caption(f"High collinearity in {', '.join(hi)} — consider the **Ridge** estimator "
+                           "above to stabilize these betas, or drop one of the correlated factors.")
+        fit=_ridge_fit(yv.values, Xall[cols].values, lam) if use_ridge else _ols_fit(yv.values, Xall[cols].values)
         if fit is None:
             st.warning("Regression could not be estimated (singular design or too few points)."); return
         beta=fit["beta"]; tvals=fit["t"]; pvals=fit["p"]
@@ -2551,6 +2624,10 @@ def panel_regression():
         m[1].metric("Adj R²", f"{fit['adj_r2']:.3f}")
         m[2].metric("N obs", f"{fit['n']}")
         m[3].metric("Factors", f"{len(cols)}"+(" (stepwise)" if use_step else ""))
+        if use_ridge:
+            st.caption(f"**Ridge (λ={lam:g})** — coefficients shrunk toward zero to reduce collinearity variance; "
+                       f"effective df ≈ {fit.get('edf',len(cols)):.1f} vs {len(cols)} factors. t-stats/p-values are "
+                       "an effective-df approximation (ridge inference is not exact OLS). Set λ=0 to recover OLS.")
         if use_step and len(cols)<len(Xall.columns):
             st.caption(f"Stepwise dropped (p > {cutoff}): {', '.join(c for c in Xall.columns if c not in cols)}")
         # Scatter + fit line — only meaningful for a single X
@@ -2675,7 +2752,8 @@ def panel_regression():
                     pd.DataFrame({"Term":_terms,"Beta":[round(float(b),6) for b in beta],
                                   "t_stat":[round(float(t),4) for t in tvals],
                                   "p_value":[round(float(p),6) for p in pvals]}).to_excel(_xw,sheet_name="Coefficients",index=False)
-                    pd.DataFrame([{"Y":ylabel,"Frequency":freq,"R2":round(fit["r2"],4),
+                    pd.DataFrame([{"Y":ylabel,"Frequency":freq,"Estimator":("Ridge" if use_ridge else "OLS"),
+                                   "Ridge_lambda":(lam if use_ridge else ""),"R2":round(fit["r2"],4),
                                    "Adj_R2":round(fit["adj_r2"],4),"N_obs":fit["n"],"Factors":len(cols),
                                    "Stepwise":use_step}]).to_excel(_xw,sheet_name="Fit stats",index=False)
                     atab.to_excel(_xw,sheet_name="Attribution",index=False)
