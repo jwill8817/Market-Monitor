@@ -66,6 +66,92 @@ AQR_MONTHLY = [
 ]
 _AQR_CACHE = {}   # (url, column) -> [(date, decimal)]
 
+# ── Canonical factor definitions (for exports / documentation) ──────────────
+_KF_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html"
+_AQR_URL = "https://www.aqr.com/Insights/Datasets"
+# name -> {source, provider_url, long_leg, short_leg, definition, construction}
+FACTOR_DEFS = {
+    "Market (Mkt-RF)": {
+        "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
+        "long": "Value-weighted US equity market", "short": "1-month US Treasury bill",
+        "definition": "Equity market risk premium — the value-weighted return on all CRSP US "
+                      "common stocks in excess of the risk-free rate.",
+        "construction": "Return of the value-weighted US market portfolio minus the 1-month T-bill."},
+    "Size (SMB)": {
+        "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
+        "long": "Small-cap stocks", "short": "Large-cap stocks",
+        "definition": "Size premium — small companies minus large companies.",
+        "construction": "Small Minus Big: average return on small-cap portfolios minus average "
+                        "return on large-cap portfolios, from 2×3 sorts on size and book-to-market."},
+    "Value (HML)": {
+        "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
+        "long": "High book-to-market (value) stocks", "short": "Low book-to-market (growth) stocks",
+        "definition": "Value premium — cheap (high book/market) minus expensive (low book/market) stocks.",
+        "construction": "High Minus Low: average return on two value portfolios minus two growth "
+                        "portfolios, from 2×3 sorts on size and book-to-market."},
+    "Profitability (RMW)": {
+        "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
+        "long": "Robust (high) operating-profitability firms", "short": "Weak (low) profitability firms",
+        "definition": "Profitability premium — highly profitable firms minus weakly profitable firms.",
+        "construction": "Robust Minus Weak: 2×3 sorts on size and operating profitability."},
+    "Investment (CMA)": {
+        "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
+        "long": "Conservative (low-investment) firms", "short": "Aggressive (high-investment) firms",
+        "definition": "Investment premium — firms that grow assets slowly minus those that grow aggressively.",
+        "construction": "Conservative Minus Aggressive: 2×3 sorts on size and asset growth."},
+    "Momentum (Mom)": {
+        "source": "Fama-French / Carhart (Ken French Data Library)", "url": _KF_URL,
+        "long": "Recent winners (high prior 2–12m return)", "short": "Recent losers (low prior 2–12m return)",
+        "definition": "Momentum premium — stocks that rose over the past year keep outperforming.",
+        "construction": "Prior (2–12 month) return, skipping the most recent month; high minus low, "
+                        "averaged across size."},
+    "Short-Term Rev": {
+        "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
+        "long": "Prior-month losers", "short": "Prior-month winners",
+        "definition": "Short-term reversal — last month's losers tend to bounce back.",
+        "construction": "Sort on prior 1-month return; long losers, short winners."},
+    "Long-Term Rev": {
+        "source": "Fama-French (Ken French Data Library)", "url": _KF_URL,
+        "long": "Prior 13–60m losers", "short": "Prior 13–60m winners",
+        "definition": "Long-term reversal — multi-year losers tend to recover.",
+        "construction": "Sort on return over months 13–60; long losers, short winners."},
+    "Quality H-L (QMJ)": {
+        "source": "AQR Capital Management", "url": _AQR_URL,
+        "long": "High-quality firms (profitable, growing, safe, high payout)", "short": "Junk firms",
+        "definition": "Quality premium — high-quality companies minus low-quality (junk) companies.",
+        "construction": "Quality Minus Junk: composite quality score (profitability, growth, safety, "
+                        "payout); long high-quality, short junk, size-neutral. US series."},
+    "Betting-Against-Beta": {
+        "source": "AQR Capital Management", "url": _AQR_URL,
+        "long": "Low-beta assets (levered to β=1)", "short": "High-beta assets (de-levered to β=1)",
+        "definition": "Low-risk anomaly — low-beta assets deliver higher risk-adjusted returns than high-beta.",
+        "construction": "Betting-Against-Beta: rank by market beta; long leveraged low-beta, short "
+                        "de-leveraged high-beta so the portfolio is market-neutral. US series."},
+}
+# regional variants share the base definition, tagged by region
+_REGION_TAG = {"Dev ": "Developed ex-US universe", "EM ": "Emerging-markets universe"}
+_REGION_BASE = {"Dev Market": "Market (Mkt-RF)", "Dev Value (HML)": "Value (HML)",
+                "Dev Momentum": "Momentum (Mom)", "EM Market": "Market (Mkt-RF)",
+                "EM Value (HML)": "Value (HML)"}
+
+
+def factor_definition(name):
+    """Return the definition dict for a factor display name (with or without a
+    ' (M)'/' (D)' frequency suffix, and handling Dev/EM regional variants).
+    Returns None if the name isn't a recognized academic factor."""
+    base = name.strip()
+    for suf in (" (M)", " (D)"):
+        if base.endswith(suf):
+            base = base[:-len(suf)].strip()
+    if base in FACTOR_DEFS:
+        return {**FACTOR_DEFS[base], "factor": base, "region": "US"}
+    if base in _REGION_BASE:
+        d = dict(FACTOR_DEFS[_REGION_BASE[base]])
+        region = next((v for k, v in _REGION_TAG.items() if base.startswith(k)), "US")
+        d["definition"] = f"{d['definition']} ({region}.)"
+        return {**d, "factor": base, "region": region}
+    return None
+
 
 def _fetch_aqr_series(url, column, sign=1):
     """Download an AQR monthly factor Excel and return [(date, decimal_return)]."""

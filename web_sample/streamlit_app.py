@@ -2763,6 +2763,22 @@ def panel_regression():
                                   "Idiosyncratic":rsk_idio}).to_excel(_xw,sheet_name="Risk variance pct",index=False)
                     pd.DataFrame({"Horizon":hz_lbls, **{c:vol_by[c] for c in cols},
                                   "Idiosyncratic":vol_idio,"Total ann vol":vol_tot}).to_excel(_xw,sheet_name="Volatility pct",index=False)
+                    # Definitions & sources for every factor actually in the model.
+                    import factors_data as _fd
+                    _defrows=[]
+                    for c in cols:
+                        d=_fd.factor_definition(c)
+                        if d:
+                            _defrows.append({"Factor (in model)":c,"Name":d["factor"],"Region":d["region"],
+                                             "Source / provider":d["source"],"Definition":d["definition"],
+                                             "Long leg":d["long"],"Short leg":d["short"],
+                                             "Construction":d["construction"],"Provider link":d["url"]})
+                        else:
+                            _defrows.append({"Factor (in model)":c,"Name":c,"Region":"","Source / provider":
+                                             "Market data (yfinance ticker or FRED series)","Definition":
+                                             "User-selected instrument — periodic return of the price/level series.",
+                                             "Long leg":"","Short leg":"","Construction":"","Provider link":""})
+                    pd.DataFrame(_defrows).to_excel(_xw,sheet_name="Factor definitions",index=False)
                 st.download_button("⬇ Export full factor decomposition (Excel — all tables & chart data)",
                     data=_xbuf.getvalue(), file_name="JAWS_factor_decomposition.xlsx", key="reg_full_dl",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
