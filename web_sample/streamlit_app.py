@@ -2127,16 +2127,19 @@ def finra_most_shorted(min_adv, top_n, rank):
         return None
 
 def panel_crowding(k):
+    # Shared controls row above BOTH tables so the two columns start at the same height
+    # and show the same number of rows (perfect left/right symmetry).
+    rk={"Days to cover":"daysToCoverQuantity","Short shares":"currentShortPositionQuantity"}
+    ct1,ct2,ct3=st.columns(3)
+    rank=ct1.selectbox("Rank shorts by", list(rk), key=k+"_rank")
+    adv=ct2.select_slider("Min avg vol (shorts)", [1e5,5e5,1e6,5e6], value=1e6,
+                          format_func=lambda v:f"{v/1e6:g}M", key=k+"_adv")
+    nrows=ct3.select_slider("Rows per table", [10,15,20,25], value=15, key=k+"_nrows")
     c1,c2=st.columns(2)
     with c1:
-        _holdings_table("GVIP","Crowded LONGS — GS Hedge Fund VIP")
+        _holdings_table("GVIP","Crowded LONGS — GS Hedge Fund VIP", n=nrows)
     with c2:
-        rk={"Days to cover":"daysToCoverQuantity","Short shares":"currentShortPositionQuantity"}
-        cc1,cc2=st.columns(2)
-        rank=cc1.selectbox("Rank shorts by", list(rk), key=k+"_rank")
-        adv=cc2.select_slider("Min avg vol", [1e5,5e5,1e6,5e6], value=1e6,
-                              format_func=lambda v:f"{v/1e6:g}M", key=k+"_adv")
-        si=finra_most_shorted(adv, 15, rk[rank])
+        si=finra_most_shorted(adv, nrows, rk[rank])
         st.markdown(f"**Crowded SHORTS — highest short interest** "
                     f"<span style='color:{TEXT3};font-size:12px'>FINRA · {si['date'] if si else 'n/a'}</span>",
                     unsafe_allow_html=True)
@@ -2612,6 +2615,25 @@ def panel_regression():
         if fit is None:
             st.warning("Regression could not be estimated (singular design or too few points)."); return
         beta=fit["beta"]; tvals=fit["t"]; pvals=fit["p"]
+        # ── Factor descriptions for the FULL starting list (not just survivors) ──
+        with st.expander("ℹ️ Factor descriptions & sources (full starting list)"):
+            import factors_data as _fd, html as _html
+            _dh=["Factor","Source","Definition","Long leg","Short leg"]
+            _dtbl='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in _dh)+"</tr>"
+            for c in list(Xall.columns):
+                d=_fd.factor_definition(c)
+                if d:
+                    _dtbl+=(f"<tr><td>{_html.escape(c)}</td><td>{_html.escape(d['source'])}</td>"
+                            f"<td style='text-align:left'>{_html.escape(d['definition'])}</td>"
+                            f"<td style='text-align:left'>{_html.escape(d['long'])}</td>"
+                            f"<td style='text-align:left'>{_html.escape(d['short'])}</td></tr>")
+                else:
+                    _dtbl+=(f"<tr><td>{_html.escape(c)}</td><td>Market data (yfinance / FRED)</td>"
+                            f"<td style='text-align:left' colspan='3'>User-selected instrument — "
+                            "periodic return of the price/level series.</td></tr>")
+            st.markdown(_dtbl+"</table></div>", unsafe_allow_html=True)
+            st.caption("Academic factors: Fama-French (Ken French Data Library) & AQR. "
+                       "Full construction methodology is in the Excel export's *Factor definitions* tab.")
         hdr=["Term","Beta","t-stat","p-value"]
         h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
         for i,term in enumerate(["Alpha (intercept)"]+cols):
