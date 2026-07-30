@@ -2623,22 +2623,26 @@ def panel_regression():
                 d=_fd.factor_definition(c)
                 if d:
                     _drows.append({"Factor":c,"Region":d["region"],"Source / provider":d["source"],
-                                   "Definition":d["definition"],"Long leg":d["long"],"Short leg":d["short"],
-                                   "Construction":d["construction"],"Provider link":d["url"]})
+                                   "Data pulled from":d["pull_source"],"Definition":d["definition"],
+                                   "Long leg":d["long"],"Short leg":d["short"],
+                                   "Construction":d["construction"],"Source URL":d["pull_url"]})
                 else:
-                    _drows.append({"Factor":c,"Region":"","Source / provider":"Market data (yfinance / FRED)",
+                    _drows.append({"Factor":c,"Region":"","Source / provider":"Market data",
+                                   "Data pulled from":"yfinance (ticker) / FRED (series id)",
                                    "Definition":"User-selected instrument — periodic return of the price/level series.",
-                                   "Long leg":"","Short leg":"","Construction":"","Provider link":""})
-            _dh=["Factor","Source","Definition","Long leg","Short leg"]
+                                   "Long leg":"","Short leg":"","Construction":"","Source URL":""})
+            _dh=["Factor","Data pulled from","Definition","Long leg","Short leg"]
             _dtbl='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in _dh)+"</tr>"
             for r in _drows:
-                _dtbl+=(f"<tr><td>{_html.escape(r['Factor'])}</td><td>{_html.escape(r['Source / provider'])}</td>"
+                _dtbl+=(f"<tr><td>{_html.escape(r['Factor'])}</td>"
+                        f"<td style='text-align:left'>{_html.escape(r['Data pulled from'])}</td>"
                         f"<td style='text-align:left'>{_html.escape(r['Definition'])}</td>"
                         f"<td style='text-align:left'>{_html.escape(r['Long leg'])}</td>"
                         f"<td style='text-align:left'>{_html.escape(r['Short leg'])}</td></tr>")
             st.markdown(_dtbl+"</table></div>", unsafe_allow_html=True)
-            st.caption("Academic factors: Fama-French (Ken French Data Library) & AQR. "
-                       "'Construction' + provider links are included in the export below.")
+            st.caption("**Data pulled from** = the exact file/API we download each series from "
+                       "(Ken French Data Library zip, AQR data-set xlsx, or yfinance/FRED). "
+                       "Construction + full source URL are in the export below.")
             dl(pd.DataFrame(_drows), "Export factor definitions",
                "JAWS_factor_definitions.xlsx", "reg_defs_dl")
         hdr=["Term","Beta","t-stat","p-value"]
@@ -2799,14 +2803,14 @@ def panel_regression():
                         d=_fd.factor_definition(c)
                         if d:
                             _defrows.append({"Factor (in model)":c,"Name":d["factor"],"Region":d["region"],
-                                             "Source / provider":d["source"],"Definition":d["definition"],
-                                             "Long leg":d["long"],"Short leg":d["short"],
-                                             "Construction":d["construction"],"Provider link":d["url"]})
+                                             "Source / provider":d["source"],"Data pulled from":d["pull_source"],
+                                             "Definition":d["definition"],"Long leg":d["long"],"Short leg":d["short"],
+                                             "Construction":d["construction"],"Source URL":d["pull_url"]})
                         else:
                             _defrows.append({"Factor (in model)":c,"Name":c,"Region":"","Source / provider":
-                                             "Market data (yfinance ticker or FRED series)","Definition":
-                                             "User-selected instrument — periodic return of the price/level series.",
-                                             "Long leg":"","Short leg":"","Construction":"","Provider link":""})
+                                             "Market data","Data pulled from":"yfinance (ticker) / FRED (series id)",
+                                             "Definition":"User-selected instrument — periodic return of the price/level series.",
+                                             "Long leg":"","Short leg":"","Construction":"","Source URL":""})
                     pd.DataFrame(_defrows).to_excel(_xw,sheet_name="Factor definitions",index=False)
                 st.download_button("⬇ Export full factor decomposition (Excel — all tables & chart data)",
                     data=_xbuf.getvalue(), file_name="JAWS_factor_decomposition.xlsx", key="reg_full_dl",

@@ -150,21 +150,46 @@ _REGION_BASE = {"Dev Market": "Market (Mkt-RF)", "Dev Value (HML)": "Value (HML)
                 "EM Value (HML)": "Value (HML)"}
 
 
+# Actual download source we pull each series from (built from the KF/AQR tables above).
+_KF_FILE = {}   # base name -> {"M": zipfile, "D": zipfile}
+for _nm, _f, _c in KF_MONTHLY:
+    _KF_FILE.setdefault(_nm, {})["M"] = _f
+for _nm, _f, _c in KF_DAILY:
+    _KF_FILE.setdefault(_nm, {})["D"] = _f
+_AQR_FILE = {r[0]: r[1] for r in AQR_MONTHLY}   # base name -> full xlsx url
+
+
+def _pull_source(base, freq):
+    """(human-readable source, exact file URL) we actually download `base` from."""
+    if base in _AQR_FILE:
+        url = _AQR_FILE[base]
+        return f"AQR Data Library — {url.rsplit('/', 1)[-1]}", url
+    if base in _KF_FILE:
+        files = _KF_FILE[base]
+        f = files.get(freq) or files.get("M") or next(iter(files.values()))
+        return f"Ken French Data Library — {f}", _KF_BASE + f
+    return "", ""
+
+
 def factor_definition(name):
     """Return the definition dict for a factor display name (with or without a
     ' (M)'/' (D)' frequency suffix, and handling Dev/EM regional variants).
-    Returns None if the name isn't a recognized academic factor."""
-    base = name.strip()
-    for suf in (" (M)", " (D)"):
+    Includes the exact file we pull the series from. Returns None if the name
+    isn't a recognized academic factor."""
+    base = name.strip(); freq = "M"
+    for suf, fq in ((" (M)", "M"), (" (D)", "D")):
         if base.endswith(suf):
-            base = base[:-len(suf)].strip()
+            base = base[:-len(suf)].strip(); freq = fq
     if base in FACTOR_DEFS:
-        return {**FACTOR_DEFS[base], "factor": base, "region": "US"}
+        src, url = _pull_source(base, freq)
+        return {**FACTOR_DEFS[base], "factor": base, "region": "US",
+                "pull_source": src, "pull_url": url}
     if base in _REGION_BASE:
         d = dict(FACTOR_DEFS[_REGION_BASE[base]])
         region = next((v for k, v in _REGION_TAG.items() if base.startswith(k)), "US")
         d["definition"] = f"{d['definition']} ({region}.)"
-        return {**d, "factor": base, "region": region}
+        src, url = _pull_source(base, freq)   # regional zips are keyed by the regional name
+        return {**d, "factor": base, "region": region, "pull_source": src, "pull_url": url}
     return None
 
 
