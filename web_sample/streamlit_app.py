@@ -1199,6 +1199,9 @@ def panel_curves(k):
         default=["Treasury (nominal)"], key=k+"_sel")
     hist=st.multiselect("Treasury history overlays", ["-1M","-3M","-6M","-1Y","-2Y","-3Y"],
                         default=["-1M","-3M","-6M","-1Y"], key=k+"_hist")
+    ytick=st.select_slider("Y-axis grid (%)",[0.10,0.25,0.50],value=0.25,key=k+"_ytick",
+                           format_func=lambda v:f"{v:.2f}%",
+                           help="Spacing between horizontal gridlines/ticks on the yield axis.")
     fig=go.Figure(); exp={}
     if "Treasury (nominal)" in opts:
         row=_ust_curve(0)
@@ -1233,8 +1236,9 @@ def panel_curves(k):
             fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Municipal",
                 line=dict(color=PURPLE,width=2))); exp["Muni"]=dict(zip(bks,ys))
     fig.update_xaxes(title="Maturity (yrs)")
-    st.plotly_chart(base_layout(fig,"Yield Curves (nominal · real · muni)","%",h=380),
-                    use_container_width=True, key=k+"_curve")
+    base_layout(fig,"Yield Curves (nominal · real · muni)","%",h=380)
+    fig.update_yaxes(tickmode="linear", tick0=0, dtick=ytick)
+    st.plotly_chart(fig, use_container_width=True, key=k+"_curve")
     if "Credit by rating" in opts:
         cc=credit_curve()
         if cc:
