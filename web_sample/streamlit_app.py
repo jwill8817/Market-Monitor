@@ -1106,7 +1106,12 @@ def _muni_curve():
 
 def panel_yield(k):
     import yield_curve as yc
-    mode=st.radio("Curve",["Treasury","Municipal","Muni/UST Ratio"],horizontal=True,key=k+"_mode")
+    mc1,mc2=st.columns([2,1])
+    mode=mc1.radio("Curve",["Treasury","Municipal","Muni/UST Ratio"],horizontal=True,key=k+"_mode")
+    ytick=mc2.select_slider("Y-axis grid (%)",[0.10,0.25,0.50],value=0.25,key=k+"_ytick",
+                            format_func=lambda v:f"{v:.2f}%",
+                            help="Spacing between horizontal gridlines/ticks on the yield axis "
+                                 "(applies to the Treasury & Municipal yield charts).")
     fig=go.Figure()
     if mode=="Treasury":
         opts={"Today":0,"-1M":30,"-3M":91,"-6M":182,"-1Y":365,"-2Y":730,"-3Y":1095}
@@ -1131,7 +1136,8 @@ def panel_yield(k):
                     fig.add_trace(go.Scatter(x=xs,y=[t["yields"][m] for m in xs],
                         mode="lines+markers",name="TIPS",line=dict(color=GREEN,dash="dash")))
             except Exception: pass
-        st.plotly_chart(base_layout(fig,"US Treasury Yield Curve","%",h=320),use_container_width=True,key=k+"_chart")
+        base_layout(fig,"US Treasury Yield Curve","%",h=320); fig.update_yaxes(dtick=ytick)
+        st.plotly_chart(fig,use_container_width=True,key=k+"_chart")
         if rowsout: dl(pd.DataFrame(rowsout),"Export","JAWS_yieldcurve.xlsx",k+"_dl")
     elif mode=="Municipal":
         m=_muni_curve()
@@ -1140,8 +1146,8 @@ def panel_yield(k):
             ys=[m["yields"][b] for b in xs]
             fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Muni",
                 line=dict(color=PURPLE,width=2),marker=dict(size=8)))
-            st.plotly_chart(base_layout(fig,"Municipal Yield Curve (ETF proxy)","%",h=320),
-                            use_container_width=True,key=k+"_chart")
+            base_layout(fig,"Municipal Yield Curve (ETF proxy)","%",h=320); fig.update_yaxes(dtick=ytick)
+            st.plotly_chart(fig,use_container_width=True,key=k+"_chart")
             dl(pd.DataFrame({"Bucket":xs,"Yield%":ys}),"Export","JAWS_muni.xlsx",k+"_dl")
         else:
             st.info("Muni data unavailable right now (ETF yields).")
