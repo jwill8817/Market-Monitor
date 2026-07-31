@@ -709,6 +709,16 @@ def dl(df, label, fname, key):
     st.download_button("⬇ "+label, data=xlsx_bytes(df), file_name=fname, key=key,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+def _nice_dtick(span, target=8):
+    """A 'nice' y-axis tick step (~target intervals across span), from 0.1/0.25/0.5/1/2.5/5…"""
+    if not span or span <= 0: return None
+    raw = span/max(target,1)
+    import math
+    mag = 10**math.floor(math.log10(raw))
+    for m in (1,2,2.5,5,10):
+        if m*mag >= raw: return round(m*mag, 4)
+    return round(10*mag, 4)
+
 def base_layout(fig, title, ysuffix="", h=330):
     # Title sits in its own band at the very top (left-aligned, bright white);
     # legend drops below the plot so the two never overlap (esp. on mobile).
@@ -1136,7 +1146,7 @@ def panel_yield(k):
                     fig.add_trace(go.Scatter(x=xs,y=[t["yields"][m] for m in xs],
                         mode="lines+markers",name="TIPS",line=dict(color=GREEN,dash="dash")))
             except Exception: pass
-        base_layout(fig,"US Treasury Yield Curve","%",h=320); fig.update_yaxes(dtick=ytick)
+        base_layout(fig,"US Treasury Yield Curve","%",h=320); fig.update_yaxes(tickmode="linear", tick0=0, dtick=ytick)
         st.plotly_chart(fig,use_container_width=True,key=k+"_chart")
         if rowsout: dl(pd.DataFrame(rowsout),"Export","JAWS_yieldcurve.xlsx",k+"_dl")
     elif mode=="Municipal":
@@ -1146,7 +1156,7 @@ def panel_yield(k):
             ys=[m["yields"][b] for b in xs]
             fig.add_trace(go.Scatter(x=xs,y=ys,mode="lines+markers",name="Muni",
                 line=dict(color=PURPLE,width=2),marker=dict(size=8)))
-            base_layout(fig,"Municipal Yield Curve (ETF proxy)","%",h=320); fig.update_yaxes(dtick=ytick)
+            base_layout(fig,"Municipal Yield Curve (ETF proxy)","%",h=320); fig.update_yaxes(tickmode="linear", tick0=0, dtick=ytick)
             st.plotly_chart(fig,use_container_width=True,key=k+"_chart")
             dl(pd.DataFrame({"Bucket":xs,"Yield%":ys}),"Export","JAWS_muni.xlsx",k+"_dl")
         else:
@@ -1682,7 +1692,9 @@ def panel_vix_term(k):
     shape="contango — calm now, more vol priced further out" if slope>0 else "backwardation — near-term stress"
     _sp=(max(_vy)-min(_vy)) or 1.0
     fig=base_layout(fig,f"VIX term structure · {v['as_of']}","",h=310)
-    fig.update_yaxes(range=[min(_vy)-0.10*_sp, max(_vy)+0.22*_sp])
+    _lo, _hi = min(_vy)-0.10*_sp, max(_vy)+0.22*_sp
+    fig.update_yaxes(range=[_lo, _hi],
+                     tickmode="linear", tick0=0, dtick=(_nice_dtick(_hi-_lo, target=8) or 1))
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     st.caption(f"Shape: **{shape}**. Constant-maturity CBOE vol indices (free, no futures license). "
                "Upward = contango (roll cost for long vol); inverted = near-term stress. "
