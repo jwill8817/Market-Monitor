@@ -58,6 +58,7 @@ INDICES = {
     "DAX":        "^GDAXI",
     "Nikkei 225": "^N225",
     "Hang Seng":  "^HSI",
+    "KOSPI":      "^KS11",
     "CAC 40":     "^FCHI",
     "ASX 200":    "^AXJO",
     "MSCI EM":    "EEM",
