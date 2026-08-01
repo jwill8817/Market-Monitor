@@ -3504,11 +3504,11 @@ with _g2[0]:
 with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "secenrg")
 
 # ── Full-width sections (stacked) ──
+_sec("GCB","Global Central-Bank Monitor (rates + market-implied odds)", panel_global_cb, "secgcb")
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
 _sec("CROWD","Crowded Positioning (longs & shorts)", panel_crowding, "seccrowd")
 _sec("EQFIN","Implied Equity Financing (futures vs SOFR)", panel_eq_financing, "seceqfin")
 _sec("SKEWIX","CBOE SKEW Index (tail-risk over time)", panel_skew_index, "secskewix")
-_sec("GCB","Global Central-Bank Monitor (rates + market-implied odds)", panel_global_cb, "secgcb")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")
