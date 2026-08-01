@@ -501,19 +501,20 @@ def rate_path(): import futures_data as fx; return fx.fetch_rate_expectation_pat
 def zq_strip_auto(): import futures_data as fx; return fx.fetch_zq_strip()
 @st.cache_data(ttl=900, show_spinner=False)
 def cb_rate_markets(): import prediction_markets as pm; return pm.fetch_cb_rate_markets()
-@st.cache_data(ttl=1800, show_spinner=False)
-def cb_rate_series(series):
-    """Full daily history of a central-bank policy rate from FRED, as a Series (or None)."""
-    import fi_spreads as fs
+@st.cache_data(ttl=3600, show_spinner=False)
+def cb_rate_series(area):
+    """Daily policy-rate history for a BIS area code (US/XM/GB/JP/CA/AU/CH), as a Series (or None)."""
+    import cb_rates
     try:
-        d,v=fs._fred_fetch_all(series)
-        if not d: return None
-        s=pd.Series(v, index=pd.to_datetime(d)).sort_index()
+        hist=cb_rates.fetch_policy_rate_history(area)
+        if not hist: return None
+        s=pd.Series([v for _,v in hist], index=pd.to_datetime([d for d,_ in hist])).sort_index()
         return s[~s.index.duplicated(keep="last")]
     except Exception:
         return None
 def cb_rate_moves(s):
     """(current, as_of, {period: Δbps}) trailing policy-rate changes from a rate Series."""
+    if s is not None: s=s.dropna()
     if s is None or s.empty: return None, None, {}
     cur=float(s.iloc[-1]); asof=s.index[-1]
     def chg(ref):
@@ -2039,8 +2040,8 @@ def panel_global_cb(k):
     exp_rates=[]
     for cb in cbs:
         rate="—"; asofs=""; moves={p:None for p in per}
-        if cb["fred"]:
-            s=cb_rate_series(cb["fred"]); cur,asof,mv=cb_rate_moves(s)
+        if cb.get("area"):
+            s=cb_rate_series(cb["area"]); cur,asof,mv=cb_rate_moves(s)
             if cur is not None:
                 rate=f"{cur:.2f}%"; asofs=str(asof.date()); moves=mv
         has=bool(cb["contracts"])
@@ -2064,10 +2065,11 @@ def panel_global_cb(k):
                           "As_of":asofs,**{f"d{p}_bps":moves[p] for p in per},
                           "Cut_pct":cb["cut"],"Hold_pct":cb["hold"],"Hike_pct":cb["hike"]})
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
-    st.caption("**Rate** = current policy rate from FRED daily history (Fed upper target, ECB deposit rate, "
-               "BoE via SONIA ≈ Bank Rate); '—' where no timely free source (we don't hardcode a stale number). "
-               "**MTD…3Y** = change in the policy rate over that trailing window, in **bps** (red = net hikes, "
-               "green = net cuts). **Cut / Hold / Hike** = market-implied odds aggregated from Polymarket + Kalshi "
+    st.caption("**Rate** = current policy rate from the **BIS** central-bank policy-rate dataset (daily, one "
+               "consistent source for all banks — Fed target midpoint, ECB deposit rate, BoE Bank Rate, BoJ call "
+               "rate, BoC overnight target, RBA cash rate, SNB policy rate). **MTD…3Y** = change in the policy "
+               "rate over that trailing window, in **bps** (red = net hikes, green = net cuts). "
+               "**Cut / Hold / Hike** = market-implied odds aggregated from Polymarket + Kalshi "
                "rate-decision contracts. **Self-populating**: a bank's odds appear only once contracts exist — "
                "today usually just the Fed; others fill in automatically as markets list them. For the precise "
                "Fed meeting path, see the Fed Rate Expectations panel (Fed Funds futures).")

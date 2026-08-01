@@ -142,18 +142,18 @@ def fetch_kalshi(limit=1000):
 # Each CB: (display name, short tag, match keywords, FRED policy-rate series or None).
 # FRED series only where the feed is timely; None = show current rate as unavailable
 # rather than risk a stale hardcoded number. Odds fill in automatically when a market appears.
-# (display name, tag, match keywords, FRED daily rate series or None, rate label)
+# (display name, tag, match keywords, BIS area code, policy-rate label)
 CB_DEFS = [
     ("Federal Reserve", "Fed", ["fed ", "fed's", "federal reserve", "fomc", "powell",
-                                 "fed interest", "fed rate"], "DFEDTARU", "Fed funds upper target"),
+                                 "fed interest", "fed rate"], "US", "Fed funds target (midpoint)"),
     ("European Central Bank", "ECB", ["ecb", "european central bank", "lagarde"],
-     "ECBDFR", "ECB deposit facility rate"),
+     "XM", "ECB deposit facility rate"),
     ("Bank of England", "BoE", ["bank of england", "boe ", " boe", "bailey"],
-     "IUDSOIA", "SONIA (≈ Bank Rate)"),
-    ("Bank of Japan", "BoJ", ["bank of japan", "boj ", " boj", "ueda"], None, None),
-    ("Bank of Canada", "BoC", ["bank of canada", "boc ", " boc", "macklem"], None, None),
-    ("Reserve Bank of Australia", "RBA", ["reserve bank of australia", "rba ", " rba"], None, None),
-    ("Swiss National Bank", "SNB", ["swiss national bank", "snb ", " snb"], None, None),
+     "GB", "Bank Rate"),
+    ("Bank of Japan", "BoJ", ["bank of japan", "boj ", " boj", "ueda"], "JP", "Uncollateralized o/n call rate"),
+    ("Bank of Canada", "BoC", ["bank of canada", "boc ", " boc", "macklem"], "CA", "Overnight rate target"),
+    ("Reserve Bank of Australia", "RBA", ["reserve bank of australia", "rba ", " rba"], "AU", "Cash rate target"),
+    ("Swiss National Bank", "SNB", ["swiss national bank", "snb ", " snb"], "CH", "SNB policy rate"),
 ]
 _HIKE = ["increase", "hike", "raise", "raising", "higher", "up by", "above"]
 _CUT = ["decrease", "cut", "cutting", "lower", "reduce", "reducing", "down by", "below"]
@@ -186,7 +186,7 @@ def fetch_cb_rate_markets():
     rows = fetch_polymarket() + fetch_kalshi()
     ratey = lambda q: any(w in (" " + (q or "").lower() + " ") for w in _RATEY)
     out = []
-    for name, tag, kws, fred, ratelbl in CB_DEFS:
+    for name, tag, kws, area, ratelbl in CB_DEFS:
         matched = [r for r in rows
                    if any(k in (" " + r["question"].lower() + " ") for k in kws) and ratey(r["question"])]
         agg = {"hike": 0.0, "hold": 0.0, "cut": 0.0}
@@ -200,7 +200,7 @@ def fetch_cb_rate_markets():
             if cls in agg:
                 agg[cls] += r["prob"]; seen[cls] = True
         clist.sort(key=lambda x: -x["vol24"])
-        out.append({"name": name, "tag": tag, "fred": fred, "rate_label": ratelbl, "contracts": clist,
+        out.append({"name": name, "tag": tag, "area": area, "rate_label": ratelbl, "contracts": clist,
                     "hike": round(agg["hike"], 1) if seen["hike"] else None,
                     "hold": round(agg["hold"], 1) if seen["hold"] else None,
                     "cut": round(agg["cut"], 1) if seen["cut"] else None})

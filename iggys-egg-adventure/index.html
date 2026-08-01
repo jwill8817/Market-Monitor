@@ -2091,96 +2091,157 @@ function drawMegalosaurus(b) {
 
 function drawYantuanosaurus(b) {
   if (!b || b.hp<=0) return;
-  const bx=b.x-cameraX, by=b.y;
-  if (bx+b.w < -20 || bx > W+20) return;
+  const sx = b.x - cameraX;
+  if (sx+b.w < -20 || sx > W+20) return;
   if (b.invincible>0 && b.state!=='defeated' && Math.floor(b.invincible/5)%2===0) return;
-  ctx.save(); ctx.translate(bx+b.w/2, by+b.h/2);
-  if (b.facing < 0) ctx.scale(-1,1);
-  ctx.scale(2.2,2.2);
-  const ox=0, oy=0;
-  const stun = b.state==='stun';
-  const bounce = Math.sin(Date.now()/120)*1.5;
+
+  ctx.save();
+  ctx.translate(sx + b.w/2, b.y + b.h*0.55);
+  ctx.scale(b.facing, 1);
+
+  const breathe  = Math.sin(Date.now()/370)*2;
+  const legSwing = Math.sin(b.frame*1.35)*10;
+  const tailWag  = Math.sin(b.frame*0.95)*6;
+  const defeated = b.state==='defeated';
   const rockfall = b.state==='rockfall';
 
-  // Tail
-  ctx.fillStyle='#6d4c41';
-  ctx.beginPath(); ctx.moveTo(ox-28,oy+18); ctx.quadraticCurveTo(ox-52,oy+28,ox-44,oy+10); ctx.quadraticCurveTo(ox-38,oy+2,ox-18,oy+12); ctx.fill();
+  ctx.scale(2.2, 2.2);
 
-  // Body
-  ctx.fillStyle=stun?'#b0bec5':'#8d6e63';
-  ctx.beginPath(); ctx.ellipse(ox,oy+8,28,22,0,0,Math.PI*2); ctx.fill();
+  // ── Tail ──
+  ctx.beginPath();
+  ctx.moveTo(-20,16+breathe);
+  ctx.bezierCurveTo(-42+tailWag,22,-66+tailWag*1.5,25,-84+tailWag*2,17);
+  ctx.bezierCurveTo(-70,9,-42,7,-20,10);
+  ctx.fillStyle='#7b3a20'; ctx.fill();
 
-  // Neck
-  ctx.fillStyle=stun?'#b0bec5':'#8d6e63';
-  ctx.beginPath(); ctx.moveTo(ox+10,oy-8); ctx.lineTo(ox+22,oy-22); ctx.lineTo(ox+14,oy-24); ctx.lineTo(ox+4,oy-10); ctx.fill();
+  // ── Body — reddish-brown theropod ──
+  ctx.beginPath(); ctx.ellipse(6,14+breathe,33,21,0,0,Math.PI*2);
+  const bodyG=ctx.createRadialGradient(2,10+breathe,2,4,12+breathe,33);
+  bodyG.addColorStop(0,'#b5651d'); bodyG.addColorStop(1,'#7b3a20');
+  ctx.fillStyle=bodyG; ctx.fill(); ctx.strokeStyle='#5a2a12'; ctx.lineWidth=2.5; ctx.stroke();
+  // Pale belly
+  ctx.beginPath(); ctx.ellipse(2,21+breathe,20,13,0.1,0,Math.PI*2);
+  ctx.fillStyle='#e8d5b0'; ctx.fill();
+  // Scale texture
+  ctx.strokeStyle='rgba(90,42,18,0.35)'; ctx.lineWidth=1;
+  for(let r=0;r<3;r++) for(let c=0;c<4;c++){
+    ctx.beginPath(); ctx.arc(-10+c*12,4+r*10+breathe,4,0,Math.PI*2); ctx.stroke();
+  }
 
-  // Head crest (distinctive Yantuanosaurus feature)
-  ctx.fillStyle='#bf360c';
-  ctx.beginPath(); ctx.moveTo(ox+20,oy-28); ctx.quadraticCurveTo(ox+28,oy-38,ox+16,oy-36); ctx.lineTo(ox+18,oy-26); ctx.fill();
+  // ── Neck — forward-lean like Allosaurus ──
+  ctx.beginPath(); ctx.moveTo(22,2+breathe);
+  ctx.bezierCurveTo(36,-4,46,-12,52,-22);
+  ctx.bezierCurveTo(46,-10,36,-2,28,12+breathe);
+  ctx.fillStyle='#9e4a22'; ctx.fill();
 
-  // Head
-  ctx.fillStyle=stun?'#b0bec5':'#795548';
-  ctx.beginPath(); ctx.ellipse(ox+24,oy-22+bounce,16,12,0.2,0,Math.PI*2); ctx.fill();
+  // ── Head — large with bony snout ridge ──
+  ctx.beginPath(); ctx.ellipse(58,-24,22,16,-0.06,0,Math.PI*2);
+  const headG=ctx.createRadialGradient(54,-26,2,56,-24,22);
+  headG.addColorStop(0,'#b5651d'); headG.addColorStop(1,'#7b3a20');
+  ctx.fillStyle=headG; ctx.fill(); ctx.strokeStyle='#5a2a12'; ctx.lineWidth=2.5; ctx.stroke();
 
-  // Jaw
-  ctx.fillStyle='#6d4c41';
-  const jawOpen = b.state==='intro' ? 4 : (rockfall ? 6 : 2);
-  ctx.beginPath(); ctx.ellipse(ox+30,oy-14+bounce+jawOpen/2,10,5+jawOpen,0.15,0,Math.PI*2); ctx.fill();
+  // Nasal/snout ridge crest
+  ctx.beginPath();
+  ctx.moveTo(42,-16); ctx.bezierCurveTo(58,-8,78,-10,94,-14);
+  ctx.bezierCurveTo(90,-8,72,-6,56,-6); ctx.lineTo(42,-8); ctx.closePath();
+  ctx.fillStyle='#9e4a22'; ctx.fill(); ctx.strokeStyle='#5a2a12'; ctx.lineWidth=2; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(70,-18,8,5,0.1,0,Math.PI*2);
+  ctx.fillStyle='#c0622a'; ctx.fill();
+
+  // Lower jaw
+  const jawDrop = rockfall ? 12 : (b.state==='intro' ? 8 : 0);
+  ctx.beginPath(); ctx.moveTo(42,-6+jawDrop*0.3);
+  ctx.bezierCurveTo(62,-6+jawDrop*0.3,88,-8+jawDrop*0.3,102,-12+jawDrop*0.3);
+  ctx.bezierCurveTo(102,-4+jawDrop*0.3,88,-1+jawDrop*0.3,62,0+jawDrop*0.3);
+  ctx.lineTo(42,0+jawDrop*0.3); ctx.closePath();
+  ctx.fillStyle='#7b3a20'; ctx.fill(); ctx.strokeStyle='#5a2a12'; ctx.lineWidth=2; ctx.stroke();
+
+  // Mouth interior
+  if (jawDrop > 3) {
+    ctx.beginPath(); ctx.moveTo(44,-6); ctx.lineTo(102,-12); ctx.lineTo(102,-4); ctx.lineTo(44,0); ctx.closePath();
+    ctx.fillStyle='#c62828'; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(62,-6); ctx.bezierCurveTo(78,-6,84,-2,78,-2); ctx.closePath();
+    ctx.fillStyle='#b71c1c'; ctx.fill();
+  }
 
   // Teeth
-  ctx.fillStyle='#fff';
-  [-3,2,7].forEach(tx=>{
-    ctx.beginPath(); ctx.moveTo(ox+24+tx,oy-10+bounce+jawOpen);
-    ctx.lineTo(ox+22+tx,oy-6+bounce+jawOpen); ctx.lineTo(ox+26+tx,oy-6+bounce+jawOpen); ctx.fill();
-  });
+  ctx.fillStyle='#fffde7';
+  for(let i=0;i<6;i++){
+    ctx.beginPath(); ctx.moveTo(44+i*9,-6+jawDrop*0.3); ctx.lineTo(46+i*9,-13+jawDrop*0.3); ctx.lineTo(50+i*9,-6+jawDrop*0.3); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(45+i*9,0+jawDrop*0.3);  ctx.lineTo(47+i*9,7+jawDrop*0.3);  ctx.lineTo(51+i*9,0+jawDrop*0.3);  ctx.fill();
+  }
 
   // Eye
-  ctx.fillStyle=stun?'#90caf9':'#1a1a00';
-  ctx.beginPath(); ctx.arc(ox+20,oy-25+bounce,4,0,Math.PI*2); ctx.fill();
-  if (!stun) { ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ox+21,oy-26+bounce,1.5,0,Math.PI*2); ctx.fill(); }
-
-  // Arms
-  ctx.fillStyle='#8d6e63';
-  ctx.beginPath(); ctx.moveTo(ox+12,oy); ctx.lineTo(ox+22,oy+14); ctx.lineTo(ox+16,oy+16); ctx.lineTo(ox+6,oy+2); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(ox-6,oy+4); ctx.lineTo(ox-14,oy+16); ctx.lineTo(ox-8,oy+18); ctx.lineTo(ox+0,oy+6); ctx.fill();
-
-  // Claws
-  ctx.fillStyle='#4e342e';
-  [[ox+18,oy+16],[ox+22,oy+18],[ox-10,oy+18],[ox-14,oy+20]].forEach(([cx2,cy2])=>{
-    ctx.beginPath(); ctx.moveTo(cx2,cy2); ctx.lineTo(cx2+4,cy2+5); ctx.lineTo(cx2+2,cy2+5); ctx.fill();
-  });
-
-  // Legs
-  ctx.fillStyle='#795548';
-  ctx.beginPath(); ctx.moveTo(ox-10,oy+24); ctx.lineTo(ox-16,oy+44); ctx.lineTo(ox-6,oy+44); ctx.lineTo(ox-2,oy+24); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(ox+8,oy+24); ctx.lineTo(ox+12,oy+44); ctx.lineTo(ox+22,oy+44); ctx.lineTo(ox+16,oy+24); ctx.fill();
-
-  // Feet
-  ctx.fillStyle='#6d4c41';
-  [ox-18,ox+10].forEach(fx=>{ ctx.beginPath(); ctx.ellipse(fx+4,oy+46,8,4,0,0,Math.PI*2); ctx.fill(); });
-
-  // Frustrated face
-  if (b.frustratedBubble) {
-    ctx.fillStyle='rgba(255,100,0,0.9)';
-    ctx.beginPath(); ctx.arc(ox+36,oy-36+bounce,12,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#fff'; ctx.font='bold 10px Arial'; ctx.textAlign='center';
-    ctx.fillText('😤',ox+36,oy-32+bounce);
+  ctx.beginPath(); ctx.arc(50,-30,7,0,Math.PI*2);
+  ctx.fillStyle=defeated?'#ccc':'#e65100'; ctx.fill();
+  if (!defeated) {
+    ctx.beginPath(); ctx.arc(50,-30,5,0,Math.PI*2); ctx.fillStyle='#ff8f00'; ctx.fill();
+    ctx.beginPath(); ctx.arc(51,-31,2.5,0,Math.PI*2); ctx.fillStyle='#1a0800'; ctx.fill();
+    ctx.beginPath(); ctx.arc(52,-32,1.2,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+  } else {
+    ctx.strokeStyle='#5a2a12'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(46,-34); ctx.lineTo(54,-26); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(54,-34); ctx.lineTo(46,-26); ctx.stroke();
+    const st=Date.now()/200;
+    ctx.fillStyle='rgba(255,80,80,0.7)';
+    [[-4,46,5],[6,54,4],[0,60,3]].forEach(([dx,dy,r])=>{
+      ctx.beginPath(); ctx.arc(46+dx+Math.sin(st+dx)*2,-dy+Math.cos(st)*2,r,0,Math.PI*2); ctx.fill();
+    });
   }
 
-  // Speech bubble
-  if (b.speechBubble && b.speechText) {
-    ctx.restore(); ctx.save();
-    ctx.translate(bx+b.w/2, by+b.h/2);
-    if (b.facing < 0) ctx.scale(-1,1);
-    ctx.font='bold 12px Comic Sans MS';
-    const tw=ctx.measureText(b.speechText).width+16;
-    const bx2=26, by2=-62, bh2=24;
-    drawRoundRect(bx2,by2,tw,bh2,6,'rgba(255,255,255,0.93)','#546e7a');
-    ctx.fillStyle='#1a1a2e'; ctx.textAlign='left';
-    ctx.fillText(b.speechText,bx2+8,by2+16);
-  }
+  // Brow ridge
+  ctx.beginPath();
+  if(defeated){ ctx.moveTo(40,-36); ctx.lineTo(62,-28); }
+  else        { ctx.moveTo(42,-38); ctx.lineTo(62,-42); }
+  ctx.strokeStyle='#5a2a12'; ctx.lineWidth=3.5; ctx.stroke();
 
+  // Nostril
+  ctx.beginPath(); ctx.ellipse(95,-16,3,2,0.3,0,Math.PI*2); ctx.fillStyle='#5a2a12'; ctx.fill();
+
+  // ── Arms — Allosaurus-length, 3 hooked claws ──
+  ctx.save(); ctx.translate(26,10+breathe); ctx.rotate(-0.45);
+  ctx.beginPath(); ctx.ellipse(0,9,8,14,0,0,Math.PI*2);
+  ctx.fillStyle='#9e4a22'; ctx.fill(); ctx.strokeStyle='#5a2a12'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(4,22,6,10,0.2,0,Math.PI*2);
+  ctx.fillStyle='#8a3e1a'; ctx.fill(); ctx.strokeStyle='#5a2a12'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#4a1a08';
+  ctx.beginPath(); ctx.moveTo(-2,30); ctx.lineTo(-7,38); ctx.lineTo(-1,31); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(4,31);  ctx.lineTo(4,39);  ctx.lineTo(9,32);  ctx.fill();
+  ctx.beginPath(); ctx.moveTo(10,29); ctx.lineTo(14,37); ctx.lineTo(16,30); ctx.fill();
   ctx.restore();
+
+  // ── Legs — animated walk cycle with claws ──
+  ctx.save(); ctx.translate(-10,28+breathe); ctx.rotate(-legSwing*0.05);
+  drawRoundRect(-11,0,23,30,8,'#7b3a20','#5a2a12');
+  ctx.beginPath(); ctx.ellipse(2,32,16,6,0,0,Math.PI*2); ctx.fillStyle='#7b3a20'; ctx.fill();
+  ctx.fillStyle='#5a2a12';
+  [-12,-4,4,13].forEach(cx=>{ ctx.beginPath(); ctx.moveTo(cx,30); ctx.lineTo(cx-2,38); ctx.lineTo(cx+5,31); ctx.fill(); });
+  ctx.restore();
+
+  ctx.save(); ctx.translate(12,28+breathe); ctx.rotate(legSwing*0.05);
+  drawRoundRect(-11,0,23,30,8,'#9e4a22','#7b3a20');
+  ctx.beginPath(); ctx.ellipse(2,32,16,6,0,0,Math.PI*2); ctx.fillStyle='#9e4a22'; ctx.fill();
+  ctx.fillStyle='#7b3a20';
+  [-12,-4,4,13].forEach(cx=>{ ctx.beginPath(); ctx.moveTo(cx,30); ctx.lineTo(cx-2,38); ctx.lineTo(cx+5,31); ctx.fill(); });
+  ctx.restore();
+
+  ctx.restore(); // unscale
+
+  // ── Speech bubble ──
+  const bubbleText = b.speechBubble ? b.speechText : b.frustratedBubble ? 'MY MOUNTAIN!! NOOOO!!' : null;
+  if (bubbleText) {
+    const bubX = sx + (b.facing > 0 ? b.w + 10 : -250);
+    const bubY  = b.y - 76;
+    const bw = 245, bh = 46;
+    drawRoundRect(bubX, bubY, bw, bh, 10, 'white', b.frustratedBubble ? '#c62828' : '#5a2a12');
+    const tailX = b.facing > 0 ? bubX-1 : bubX+bw+1;
+    ctx.beginPath();
+    ctx.moveTo(tailX,bubY+bh*0.6); ctx.lineTo(tailX+(b.facing>0?-18:18),bubY+bh*0.8); ctx.lineTo(tailX,bubY+bh*0.9);
+    ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#c62828':'#5a2a12'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=b.frustratedBubble?'#880e4f':'#3a1a08';
+    ctx.font=`bold ${b.frustratedBubble?14:13}px Comic Sans MS`;
+    ctx.textAlign='center'; ctx.fillText(bubbleText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
+  }
 }
 
 function drawTRex(b) {
