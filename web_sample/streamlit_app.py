@@ -502,10 +502,28 @@ def zq_strip_auto(): import futures_data as fx; return fx.fetch_zq_strip()
 @st.cache_data(ttl=900, show_spinner=False)
 def cb_rate_markets(): import prediction_markets as pm; return pm.fetch_cb_rate_markets()
 @st.cache_data(ttl=1800, show_spinner=False)
-def cb_current_rate(series):
-    import futures_data as fx
-    try: d,v=fx._fred_latest(series); return (str(d)[:10], float(v)) if v is not None else (None,None)
-    except Exception: return (None,None)
+def cb_rate_series(series):
+    """Full daily history of a central-bank policy rate from FRED, as a Series (or None)."""
+    import fi_spreads as fs
+    try:
+        d,v=fs._fred_fetch_all(series)
+        if not d: return None
+        s=pd.Series(v, index=pd.to_datetime(d)).sort_index()
+        return s[~s.index.duplicated(keep="last")]
+    except Exception:
+        return None
+def cb_rate_moves(s):
+    """(current, as_of, {period: Δbps}) trailing policy-rate changes from a rate Series."""
+    if s is None or s.empty: return None, None, {}
+    cur=float(s.iloc[-1]); asof=s.index[-1]
+    def chg(ref):
+        base=s[s.index<=pd.Timestamp(ref)]
+        return None if base.empty else round((cur-float(base.iloc[-1]))*100)   # bps
+    q0=pd.Timestamp(asof.year, 3*((asof.month-1)//3)+1, 1)
+    refs={"MTD":asof.replace(day=1),"QTD":q0,"YTD":pd.Timestamp(asof.year,1,1),
+          "1Y":asof-relativedelta(years=1),"2Y":asof-relativedelta(years=2),
+          "3Y":asof-relativedelta(years=3)}
+    return cur, asof, {k:chg(v) for k,v in refs.items()}
 @st.cache_data(ttl=900, show_spinner=False)
 def prediction_markets_data(sources, topics):
     import prediction_markets as pmkt
@@ -2009,39 +2027,51 @@ def panel_global_cb(k):
             cells+=(f"<span style='display:inline-block;height:11px;width:{v/tot*100:.0f}%;"
                     f"background:{col};' title='{nm} {v:.0f}%'></span>")
         return f"<span style='display:inline-block;width:120px;vertical-align:middle;border:1px solid {BORDER}'>{cells}</span>"
-    hdr=["Central bank","Policy rate","Cut","Hold","Hike","Implied move (mkt)","Next / contract"]
+    per=["MTD","QTD","YTD","1Y","2Y","3Y"]
+    hdr=["Central bank","Rate","As of"]+per+["Cut","Hold","Hike","Implied move (mkt)"]
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
     def _pc(v,col):
         return f"<td style='color:{TEXT3}'>—</td>" if v is None else f"<td style='color:{col}'>{v:.0f}%</td>"
+    def _bps(v):
+        if v is None: return f"<td style='color:{TEXT3}'>—</td>"
+        col=RED if v>0 else (GREEN if v<0 else TEXT3)
+        return f"<td style='color:{col}'>{v:+d}</td>" if v else f"<td style='color:{TEXT3}'>0</td>"
+    exp_rates=[]
     for cb in cbs:
-        rate="—"
+        rate="—"; asofs=""; moves={p:None for p in per}
         if cb["fred"]:
-            asof,rv=cb_current_rate(cb["fred"])
-            if rv is not None: rate=f"{rv:.2f}%"
+            s=cb_rate_series(cb["fred"]); cur,asof,mv=cb_rate_moves(s)
+            if cur is not None:
+                rate=f"{cur:.2f}%"; asofs=str(asof.date()); moves=mv
         has=bool(cb["contracts"])
-        # dominant direction
         best=None
         if has:
             cand=[(nm,cb[nm]) for nm in ("cut","hold","hike") if cb[nm] is not None]
             if cand: best=max(cand,key=lambda x:x[1])
         if best:
             bc={"cut":GREEN,"hold":TEXT2,"hike":RED}[best[0]]
-            move=f"<span style='color:{bc}'>{best[0]} {best[1]:.0f}%</span>"
+            move=f"<span style='color:{bc}'>{best[0]} {best[1]:.0f}%</span>  {_bar(cb)}"
         else:
             move=f"<span style='color:{TEXT3}'>no live market</span>"
-        end=cb["contracts"][0]["end"] if has else ""
-        nm_disp=f"{cb['name']} <span style='color:{TEXT3}'>({cb['tag']})</span>"
+        rlbl=cb.get("rate_label") or ""
+        nm_disp=(f"{cb['name']} <span style='color:{TEXT3}'>({cb['tag']})</span>"
+                 + (f"<br><span style='color:{TEXT3};font-size:10px'>{rlbl}</span>" if rlbl else ""))
         h+=(f"<tr><td style='text-align:left'>{nm_disp}</td><td>{rate}</td>"
-            f"{_pc(cb['cut'],GREEN)}{_pc(cb['hold'],TEXT2)}{_pc(cb['hike'],RED)}"
-            f"<td>{_bar(cb)}</td><td style='color:{TEXT3};font-size:11px'>{end or '—'}</td></tr>")
+            f"<td style='color:{TEXT3};font-size:11px'>{asofs or '—'}</td>"
+            +"".join(_bps(moves[p]) for p in per)
+            +f"{_pc(cb['cut'],GREEN)}{_pc(cb['hold'],TEXT2)}{_pc(cb['hike'],RED)}<td>{move}</td></tr>")
+        exp_rates.append({"Bank":cb["name"],"Tag":cb["tag"],"Rate_label":rlbl,"Rate_pct":rate,
+                          "As_of":asofs,**{f"d{p}_bps":moves[p] for p in per},
+                          "Cut_pct":cb["cut"],"Hold_pct":cb["hold"],"Hike_pct":cb["hike"]})
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
-    st.caption("**Policy rate** = current level from FRED where the feed is timely (Fed upper target, "
-               "ECB deposit rate); '—' where no live free source (we don't hardcode a possibly-stale number). "
-               "**Cut / Hold / Hike** = market-implied odds aggregated from Polymarket + Kalshi rate-decision "
-               "contracts (summed Yes-probability by direction). **Self-populating**: a bank shows odds only "
-               "once contracts exist — today usually just the Fed; others fill in automatically as markets list "
-               "them (e.g. near an ECB/BoE meeting). For the precise Fed meeting-by-meeting path, see the "
-               "Fed Rate Expectations panel (Fed Funds futures).")
+    st.caption("**Rate** = current policy rate from FRED daily history (Fed upper target, ECB deposit rate, "
+               "BoE via SONIA ≈ Bank Rate); '—' where no timely free source (we don't hardcode a stale number). "
+               "**MTD…3Y** = change in the policy rate over that trailing window, in **bps** (red = net hikes, "
+               "green = net cuts). **Cut / Hold / Hike** = market-implied odds aggregated from Polymarket + Kalshi "
+               "rate-decision contracts. **Self-populating**: a bank's odds appear only once contracts exist — "
+               "today usually just the Fed; others fill in automatically as markets list them. For the precise "
+               "Fed meeting path, see the Fed Rate Expectations panel (Fed Funds futures).")
+    dl(pd.DataFrame(exp_rates),"Export CB rate table","JAWS_global_cb_rates.xlsx",k+"_ratedl")
     # Transparency: list the matched contracts feeding the odds.
     if live:
         with st.expander("Matched rate-decision contracts (the markets behind the odds)"):
