@@ -3529,6 +3529,8 @@ def _sec(tag, title, fn, *a):
 _g1=st.columns(2)
 with _g1[0]: _sec("CRV","Curves", panel_curves, "q3")
 with _g1[1]: _sec("FED","Fed Rate Expectations & Hike/Cut Odds", panel_fed, "secfed")
+# Global CB monitor sits right under the Fed/yield-curve panels (full-width table).
+_sec("GCB","Global Central-Bank Monitor (rates + market-implied odds)", panel_global_cb, "secgcb")
 _g2=st.columns(2)
 with _g2[0]:
     _sec("VIXT","VIX Term Structure", panel_vix_term, "secvixt")
@@ -3536,7 +3538,6 @@ with _g2[0]:
 with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "secenrg")
 
 # ── Full-width sections (stacked) ──
-_sec("GCB","Global Central-Bank Monitor (rates + market-implied odds)", panel_global_cb, "secgcb")
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
 _sec("CROWD","Crowded Positioning (longs & shorts)", panel_crowding, "seccrowd")
 _sec("EQFIN","Implied Equity Financing (futures vs SOFR)", panel_eq_financing, "seceqfin")
