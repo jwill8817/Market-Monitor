@@ -1002,12 +1002,8 @@ function updateBoss(dt) {
         boss.state='lunge'; boss.stateTimer=55; boss.facing = px > bx ? 1 : -1;
       } else if (boss.type === 'megalo' && roll < 0.4 * aggression) {
         boss.state='stomp'; boss.stateTimer=55;
-        setTimeout(()=>{
-          if(boss) {
-            bossShockwaves.push({x:boss.x+boss.w/2, y:boss.y+boss.h, radius:10, speed:7, life:1});
-            bossShockwaves.push({x:boss.x+boss.w/2, y:boss.y+boss.h, radius:10, speed:-7, life:1});
-          }
-        }, 350);
+        setTimeout(()=>{ if(boss) bossShockwaves.push({x:boss.x+boss.w/2, y:boss.y+boss.h, radius:10, speed:7, life:1}); }, 200);
+        setTimeout(()=>{ if(boss) bossShockwaves.push({x:boss.x+boss.w/2, y:boss.y+boss.h, radius:10, speed:6, life:1}); }, 550);
       } else if (boss.type === 'yantu' && roll < 0.35 * aggression) {
         boss.state='rockfall'; boss.stateTimer=90;
         for (let i=0; i<4; i++) {
@@ -4797,6 +4793,7 @@ function draw() {
   // Shockwaves (T-Rex roar)
   ctx.save();
   for (const sw of bossShockwaves) {
+    if (sw.radius <= 0) continue;
     ctx.globalAlpha = sw.life * 0.7;
     ctx.strokeStyle = '#ffe082'; ctx.lineWidth = 6;
     ctx.beginPath(); ctx.arc(sw.x-cameraX, sw.y, sw.radius, 0, Math.PI*2); ctx.stroke();
