@@ -2014,9 +2014,23 @@ def panel_global_cb(k):
     """Global central-bank monitor: current policy rate (FRED, where timely) + market-implied
     hike/hold/cut odds captured from prediction markets. Self-populating — a bank's odds appear
     only when a contract exists (today usually just the Fed), filling in automatically otherwise."""
-    import html as _html
+    import html as _html, datetime as _dt, futures_data as _fx
     cbs=cb_rate_markets()
     live=[c for c in cbs if c["contracts"]]
+    _today=_dt.date.today()
+    def _next_meet(cb):
+        """(date, is_authoritative) of the next decision. Fed = official FOMC calendar;
+        other banks = earliest matched-contract resolution date (a market-derived proxy)."""
+        if cb["tag"]=="Fed":
+            for (yy,mm,dd) in _fx.FOMC_DATES:
+                d=_dt.date(yy,mm,dd)
+                if d>=_today: return d, True
+        ds=[]
+        for c in cb["contracts"]:
+            try: ds.append(_dt.date.fromisoformat((c.get("end") or "")[:10]))
+            except Exception: pass
+        fut=[d for d in ds if d>=_today]
+        return (min(fut) if fut else (min(ds) if ds else None)), False
     def _bar(cb):
         # mini stacked cut/hold/hike bar; None-safe
         seg=[("cut",cb["cut"],GREEN),("hold",cb["hold"],TEXT2),("hike",cb["hike"],RED)]
@@ -2029,7 +2043,7 @@ def panel_global_cb(k):
                     f"background:{col};' title='{nm} {v:.0f}%'></span>")
         return f"<span style='display:inline-block;width:120px;vertical-align:middle;border:1px solid {BORDER}'>{cells}</span>"
     per=["MTD","QTD","YTD","1Y","2Y","3Y"]
-    hdr=["Central bank","Rate","As of"]+per+["Cut","Hold","Hike","Implied move (mkt)"]
+    hdr=["Central bank","Rate","As of"]+per+["Next decision","Cut","Hold","Hike","Implied move (mkt)"]
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
     def _pc(v,col):
         return f"<td style='color:{TEXT3}'>—</td>" if v is None else f"<td style='color:{col}'>{v:.0f}%</td>"
@@ -2057,12 +2071,21 @@ def panel_global_cb(k):
         rlbl=cb.get("rate_label") or ""
         nm_disp=(f"{cb['name']} <span style='color:{TEXT3}'>({cb['tag']})</span>"
                  + (f"<br><span style='color:{TEXT3};font-size:10px'>{rlbl}</span>" if rlbl else ""))
+        nd,auth=_next_meet(cb); nd_iso=""
+        if nd:
+            nd_iso=nd.isoformat(); days=(nd-_today).days
+            dtxt=("today" if days==0 else (f"in {days}d" if days>0 else f"{-days}d ago"))
+            star="" if auth else " *"
+            ndcell=(f"<td><span style='color:{TEXT1}'>{nd_iso}</span>"
+                    f"<br><span style='color:{ACCENT};font-size:11px'>{dtxt}{star}</span></td>")
+        else:
+            ndcell=f"<td style='color:{TEXT3}'>—</td>"
         h+=(f"<tr><td style='text-align:left'>{nm_disp}</td><td>{rate}</td>"
             f"<td style='color:{TEXT3};font-size:11px'>{asofs or '—'}</td>"
-            +"".join(_bps(moves[p]) for p in per)
+            +"".join(_bps(moves[p]) for p in per)+ndcell
             +f"{_pc(cb['cut'],GREEN)}{_pc(cb['hold'],TEXT2)}{_pc(cb['hike'],RED)}<td>{move}</td></tr>")
         exp_rates.append({"Bank":cb["name"],"Tag":cb["tag"],"Rate_label":rlbl,"Rate_pct":rate,
-                          "As_of":asofs,**{f"d{p}_bps":moves[p] for p in per},
+                          "As_of":asofs,**{f"d{p}_bps":moves[p] for p in per},"Next_decision":nd_iso,
                           "Cut_pct":cb["cut"],"Hold_pct":cb["hold"],"Hike_pct":cb["hike"]})
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
     st.caption("**Rate** = current policy rate from the **BIS** central-bank policy-rate dataset (daily, one "
@@ -2070,9 +2093,11 @@ def panel_global_cb(k):
                "rate, BoC overnight target, RBA cash rate, SNB policy rate). **MTD…3Y** = change in the policy "
                "rate over that trailing window, in **bps** (red = net hikes, green = net cuts). "
                "**Cut / Hold / Hike** = market-implied odds aggregated from Polymarket + Kalshi "
-               "rate-decision contracts. **Self-populating**: a bank's odds appear only once contracts exist — "
-               "today usually just the Fed; others fill in automatically as markets list them. For the precise "
-               "Fed meeting path, see the Fed Rate Expectations panel (Fed Funds futures).")
+               "rate-decision contracts. **Next decision** = the Fed's official FOMC date; for other banks it's "
+               "the matched contract's resolution date (**\\***, a market-derived proxy for the meeting). "
+               "**Self-populating**: a bank's odds appear only once contracts exist — today usually just the Fed; "
+               "others fill in automatically as markets list them. For the precise Fed meeting path, see the "
+               "Fed Rate Expectations panel (Fed Funds futures).")
     dl(pd.DataFrame(exp_rates),"Export CB rate table","JAWS_global_cb_rates.xlsx",k+"_ratedl")
     # Transparency: list the matched contracts feeding the odds.
     if live:
