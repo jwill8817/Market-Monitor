@@ -500,6 +500,13 @@ def rate_path(): import futures_data as fx; return fx.fetch_rate_expectation_pat
 @st.cache_data(ttl=3600, show_spinner=False)
 def zq_strip_auto(): import futures_data as fx; return fx.fetch_zq_strip()
 @st.cache_data(ttl=900, show_spinner=False)
+def cb_rate_markets(): import prediction_markets as pm; return pm.fetch_cb_rate_markets()
+@st.cache_data(ttl=1800, show_spinner=False)
+def cb_current_rate(series):
+    import futures_data as fx
+    try: d,v=fx._fred_latest(series); return (str(d)[:10], float(v)) if v is not None else (None,None)
+    except Exception: return (None,None)
+@st.cache_data(ttl=900, show_spinner=False)
 def prediction_markets_data(sources, topics):
     import prediction_markets as pmkt
     return pmkt.fetch_prediction_markets(list(sources), list(topics))
@@ -1984,6 +1991,78 @@ def panel_fed(k):
                          **{f"P({kk}bp)":vv for kk,vv in r["outcomes"].items()}})
         dl(pd.DataFrame(_exp),"Export","JAWS_fed_meeting_probs.xlsx",k+"_dl")
 
+def panel_global_cb(k):
+    """Global central-bank monitor: current policy rate (FRED, where timely) + market-implied
+    hike/hold/cut odds captured from prediction markets. Self-populating — a bank's odds appear
+    only when a contract exists (today usually just the Fed), filling in automatically otherwise."""
+    import html as _html
+    cbs=cb_rate_markets()
+    live=[c for c in cbs if c["contracts"]]
+    def _bar(cb):
+        # mini stacked cut/hold/hike bar; None-safe
+        seg=[("cut",cb["cut"],GREEN),("hold",cb["hold"],TEXT2),("hike",cb["hike"],RED)]
+        tot=sum(v for _,v,_ in seg if v) or 0
+        if tot<=0: return "<span style='color:%s'>—</span>"%TEXT3
+        cells=""
+        for nm,v,col in seg:
+            if not v: continue
+            cells+=(f"<span style='display:inline-block;height:11px;width:{v/tot*100:.0f}%;"
+                    f"background:{col};' title='{nm} {v:.0f}%'></span>")
+        return f"<span style='display:inline-block;width:120px;vertical-align:middle;border:1px solid {BORDER}'>{cells}</span>"
+    hdr=["Central bank","Policy rate","Cut","Hold","Hike","Implied move (mkt)","Next / contract"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    def _pc(v,col):
+        return f"<td style='color:{TEXT3}'>—</td>" if v is None else f"<td style='color:{col}'>{v:.0f}%</td>"
+    for cb in cbs:
+        rate="—"
+        if cb["fred"]:
+            asof,rv=cb_current_rate(cb["fred"])
+            if rv is not None: rate=f"{rv:.2f}%"
+        has=bool(cb["contracts"])
+        # dominant direction
+        best=None
+        if has:
+            cand=[(nm,cb[nm]) for nm in ("cut","hold","hike") if cb[nm] is not None]
+            if cand: best=max(cand,key=lambda x:x[1])
+        if best:
+            bc={"cut":GREEN,"hold":TEXT2,"hike":RED}[best[0]]
+            move=f"<span style='color:{bc}'>{best[0]} {best[1]:.0f}%</span>"
+        else:
+            move=f"<span style='color:{TEXT3}'>no live market</span>"
+        end=cb["contracts"][0]["end"] if has else ""
+        nm_disp=f"{cb['name']} <span style='color:{TEXT3}'>({cb['tag']})</span>"
+        h+=(f"<tr><td style='text-align:left'>{nm_disp}</td><td>{rate}</td>"
+            f"{_pc(cb['cut'],GREEN)}{_pc(cb['hold'],TEXT2)}{_pc(cb['hike'],RED)}"
+            f"<td>{_bar(cb)}</td><td style='color:{TEXT3};font-size:11px'>{end or '—'}</td></tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("**Policy rate** = current level from FRED where the feed is timely (Fed upper target, "
+               "ECB deposit rate); '—' where no live free source (we don't hardcode a possibly-stale number). "
+               "**Cut / Hold / Hike** = market-implied odds aggregated from Polymarket + Kalshi rate-decision "
+               "contracts (summed Yes-probability by direction). **Self-populating**: a bank shows odds only "
+               "once contracts exist — today usually just the Fed; others fill in automatically as markets list "
+               "them (e.g. near an ECB/BoE meeting). For the precise Fed meeting-by-meeting path, see the "
+               "Fed Rate Expectations panel (Fed Funds futures).")
+    # Transparency: list the matched contracts feeding the odds.
+    if live:
+        with st.expander("Matched rate-decision contracts (the markets behind the odds)"):
+            lh=["Bank","Dir","Prob","Contract","Src","Ends"]
+            lt='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in lh)+"</tr>"
+            for cb in live:
+                for c in cb["contracts"]:
+                    dcol={"hike":RED,"cut":GREEN,"hold":TEXT2}.get(c["move"],TEXT3)
+                    q=_html.escape(c["question"][:70])
+                    lt+=(f"<tr><td>{cb['tag']}</td><td style='color:{dcol}'>{c['move'] or '?'}</td>"
+                         f"<td>{c['prob']:.1f}%</td><td style='text-align:left'>{q}</td>"
+                         f"<td style='color:{TEXT3}'>{c['source']}</td>"
+                         f"<td style='color:{TEXT3};font-size:11px'>{c['end'] or '—'}</td></tr>")
+            st.markdown(lt+"</table></div>", unsafe_allow_html=True)
+        _exp=[{"Bank":cb["name"],"Tag":cb["tag"],"Direction":c["move"],"Prob_pct":c["prob"],
+               "Contract":c["question"],"Source":c["source"],"Ends":c["end"],"URL":c["url"]}
+              for cb in live for c in cb["contracts"]]
+        dl(pd.DataFrame(_exp),"Export CB rate-market odds","JAWS_global_cb_odds.xlsx",k+"_dl")
+    else:
+        st.caption("No central-bank rate-decision contracts are live on the feeds right now.")
+
 def panel_prediction(k):
     import prediction_markets as pmkt
     c1,c2=st.columns(2)
@@ -3429,6 +3508,7 @@ _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secstee
 _sec("CROWD","Crowded Positioning (longs & shorts)", panel_crowding, "seccrowd")
 _sec("EQFIN","Implied Equity Financing (futures vs SOFR)", panel_eq_financing, "seceqfin")
 _sec("SKEWIX","CBOE SKEW Index (tail-risk over time)", panel_skew_index, "secskewix")
+_sec("GCB","Global Central-Bank Monitor (rates + market-implied odds)", panel_global_cb, "secgcb")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
 _sec("NEWS","Top Stories", panel_news, "q4")

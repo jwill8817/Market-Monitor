@@ -138,6 +138,72 @@ def fetch_kalshi(limit=1000):
     return out
 
 
+# ── Central-bank rate-decision capture (self-populating from prediction markets) ──
+# Each CB: (display name, short tag, match keywords, FRED policy-rate series or None).
+# FRED series only where the feed is timely; None = show current rate as unavailable
+# rather than risk a stale hardcoded number. Odds fill in automatically when a market appears.
+CB_DEFS = [
+    ("Federal Reserve", "Fed", ["fed ", "fed's", "federal reserve", "fomc", "powell",
+                                 "fed interest", "fed rate"], "DFEDTARU"),
+    ("European Central Bank", "ECB", ["ecb", "european central bank", "lagarde"], "ECBDFR"),
+    ("Bank of England", "BoE", ["bank of england", "boe ", " boe", "bailey"], None),
+    ("Bank of Japan", "BoJ", ["bank of japan", "boj ", " boj", "ueda"], None),
+    ("Bank of Canada", "BoC", ["bank of canada", "boc ", " boc", "macklem"], None),
+    ("Reserve Bank of Australia", "RBA", ["reserve bank of australia", "rba ", " rba"], None),
+    ("Swiss National Bank", "SNB", ["swiss national bank", "snb ", " snb"], None),
+]
+_HIKE = ["increase", "hike", "raise", "raising", "higher", "up by", "above"]
+_CUT = ["decrease", "cut", "cutting", "lower", "reduce", "reducing", "down by", "below"]
+_HOLD = ["no change", "unchanged", "hold ", "keep rates", "keep interest", "leave rates",
+         "maintain", "no cut", "no hike", "steady", "same"]
+_RATEY = ["interest rate", "rate hike", "rate cut", "rate decision", "basis point", "bps",
+          " rates ", "monetary policy", "rate by", "policy rate", "cut rates", "hike rates",
+          "raise rates", "lower rates"]
+
+
+def _rate_move_class(q):
+    ql = " " + (q or "").lower() + " "
+    # order matters: 'no hike/no cut' → hold, checked first
+    if any(w in ql for w in _HOLD):
+        return "hold"
+    if any(w in ql for w in _HIKE):
+        return "hike"
+    if any(w in ql for w in _CUT):
+        return "cut"
+    return None
+
+
+def fetch_cb_rate_markets():
+    """Scan Polymarket + Kalshi for central-bank rate-decision contracts, grouped by bank.
+    Self-populating: a bank shows aggregated hike/hold/cut odds only when contracts exist
+    (today typically just the Fed); others fill in automatically as markets are listed.
+    Aggregation sums the Yes-probability of each mutually-exclusive outcome by direction, so
+    with a full outcome set hike+hold+cut ≈ 100%; with a lone contract it may be partial.
+    Returns [{name, tag, fred, contracts:[...], hike, hold, cut, updated}]."""
+    rows = fetch_polymarket() + fetch_kalshi()
+    ratey = lambda q: any(w in (" " + (q or "").lower() + " ") for w in _RATEY)
+    out = []
+    for name, tag, kws, fred in CB_DEFS:
+        matched = [r for r in rows
+                   if any(k in (" " + r["question"].lower() + " ") for k in kws) and ratey(r["question"])]
+        agg = {"hike": 0.0, "hold": 0.0, "cut": 0.0}
+        seen = {"hike": False, "hold": False, "cut": False}
+        clist = []
+        for r in matched:
+            cls = _rate_move_class(r["question"])
+            clist.append({"source": r["source"], "question": r["question"], "outcome": r["outcome"],
+                          "prob": r["prob"], "move": cls, "vol24": r["vol24"],
+                          "end": r["end"], "url": r["url"]})
+            if cls in agg:
+                agg[cls] += r["prob"]; seen[cls] = True
+        clist.sort(key=lambda x: -x["vol24"])
+        out.append({"name": name, "tag": tag, "fred": fred, "contracts": clist,
+                    "hike": round(agg["hike"], 1) if seen["hike"] else None,
+                    "hold": round(agg["hold"], 1) if seen["hold"] else None,
+                    "cut": round(agg["cut"], 1) if seen["cut"] else None})
+    return out
+
+
 def fetch_prediction_markets(sources, topics):
     """Combined, topic-filtered, de-duplicated, sorted by 24h volume desc."""
     rows = []
