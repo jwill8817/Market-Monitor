@@ -2014,17 +2014,20 @@ def panel_global_cb(k):
     """Global central-bank monitor: current policy rate (FRED, where timely) + market-implied
     hike/hold/cut odds captured from prediction markets. Self-populating — a bank's odds appear
     only when a contract exists (today usually just the Fed), filling in automatically otherwise."""
-    import html as _html, datetime as _dt, futures_data as _fx
+    import html as _html, datetime as _dt, futures_data as _fx, cb_meetings as _cbm
     cbs=cb_rate_markets()
     live=[c for c in cbs if c["contracts"]]
     _today=_dt.date.today()
     def _next_meet(cb):
         """(date, is_authoritative) of the next decision. Fed = official FOMC calendar;
-        other banks = earliest matched-contract resolution date (a market-derived proxy)."""
+        ECB/BoE/BoJ/BoC/RBA = official published calendars (cb_meetings); otherwise the
+        earliest matched-contract resolution date (a market-derived proxy)."""
         if cb["tag"]=="Fed":
             for (yy,mm,dd) in _fx.FOMC_DATES:
                 d=_dt.date(yy,mm,dd)
                 if d>=_today: return d, True
+        off=_cbm.next_meeting(cb["tag"], _today)
+        if off: return off, True
         ds=[]
         for c in cb["contracts"]:
             try: ds.append(_dt.date.fromisoformat((c.get("end") or "")[:10]))
@@ -2093,8 +2096,9 @@ def panel_global_cb(k):
                "rate, BoC overnight target, RBA cash rate, SNB policy rate). **MTD…3Y** = change in the policy "
                "rate over that trailing window, in **bps** (red = net hikes, green = net cuts). "
                "**Cut / Hold / Hike** = market-implied odds aggregated from Polymarket + Kalshi "
-               "rate-decision contracts. **Next decision** = the Fed's official FOMC date; for other banks it's "
-               "the matched contract's resolution date (**\\***, a market-derived proxy for the meeting). "
+               "rate-decision contracts. **Next decision** = the bank's official scheduled decision date "
+               "(Fed FOMC calendar + ECB/BoE/BoJ/BoC/RBA published calendars); a **\\*** marks a date derived "
+               "from a prediction-market contract instead (used only where no official calendar is loaded). "
                "**Self-populating**: a bank's odds appear only once contracts exist — today usually just the Fed; "
                "others fill in automatically as markets list them. For the precise Fed meeting path, see the "
                "Fed Rate Expectations panel (Fed Funds futures).")
