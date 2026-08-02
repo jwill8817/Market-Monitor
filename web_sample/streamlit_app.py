@@ -1640,6 +1640,79 @@ _PER_START={"MTD":lambda:date.today().replace(day=1),
             "20Y":lambda:date.today()-relativedelta(years=20),
             "Max":lambda:date(1900,1,1)}
 
+def panel_return_dist(k):
+    """Return-distribution histogram for 1–2 assets over a chosen return frequency, with a
+    marker showing where the latest return falls. First pick = bars, second pick = density line."""
+    import numpy as np
+    chosen=ticker_picker(k, ["S&P 500"])
+    labels=list(chosen.keys())
+    c1,c2=st.columns([1,1])
+    tf=c1.select_slider("Return frequency", ["Daily","Weekly","Monthly","Quarterly","Annual"],
+                        value="Monthly", key=k+"_tf")
+    per=c2.select_slider("History", ["1Y","3Y","5Y","10Y","20Y","Max"], value="10Y", key=k+"_per")
+    if not labels:
+        st.info("Pick one asset (or two — the **first** shows as bars, the **second** as a line)."); return
+    rule={"Daily":None,"Weekly":"W","Monthly":"ME","Quarterly":"QE","Annual":"YE"}[tf]
+    yrs={"1Y":1,"3Y":3,"5Y":5,"10Y":10,"20Y":20,"Max":None}[per]
+    start=(date.today()-relativedelta(years=yrs)) if yrs else None
+    rets={}
+    for lbl in labels[:2]:
+        s=md_history(chosen[lbl], start=start)
+        if s is None or s.empty: continue
+        s=s.sort_index()
+        if rule: s=s.resample(rule).last()
+        r=(s.pct_change().dropna()*100.0)
+        if len(r)>=3: rets[lbl]=r
+    if not rets:
+        st.warning("Not enough data for that asset/frequency/period — widen the history or pick a longer frequency."); return
+    fig=go.Figure(); cols=[ACCENT,BLUE]; allv=np.concatenate([v.values for v in rets.values()])
+    xlo,xhi=float(np.min(allv)),float(np.max(allv)); pad=0.05*(xhi-xlo or 1.0)
+    grid=np.linspace(xlo-pad,xhi+pad,240)
+    exp_rows=[]
+    for i,(lbl,r) in enumerate(rets.items()):
+        col=cols[i%len(cols)]; v=r.values; latest=float(v[-1])
+        pct=float((v<latest).mean()*100)          # percentile rank of the latest return
+        if i==0:
+            fig.add_trace(go.Histogram(x=v, histnorm="probability density", nbinsx=41,
+                marker_color=col, opacity=0.72, name=f"{lbl} (bars)"))
+        else:
+            try:
+                from scipy.stats import gaussian_kde
+                ys=gaussian_kde(v)(grid)
+                fig.add_trace(go.Scatter(x=grid,y=ys,mode="lines",line=dict(color=col,width=2.6),
+                    name=f"{lbl} (line)"))
+            except Exception:
+                fig.add_trace(go.Histogram(x=v, histnorm="probability density", nbinsx=41,
+                    marker_color=col, opacity=0.4, name=f"{lbl}"))
+        # latest-return indicator
+        fig.add_vline(x=latest, line=dict(color=col,dash="dash",width=2),
+            annotation_text=f"{lbl} latest {latest:+.2f}% ({pct:.0f}%ile)",
+            annotation_position=("top left" if i else "top right"),
+            annotation_font=dict(size=10,color=col))
+        exp_rows.append({"Asset":lbl,"Freq":tf,"N":len(v),"Mean%":round(float(v.mean()),3),
+            "Median%":round(float(np.median(v)),3),"Std%":round(float(v.std(ddof=1)),3),
+            "Min%":round(float(v.min()),3),"Max%":round(float(v.max()),3),
+            "Latest%":round(latest,3),"Latest_pctile":round(pct,1)})
+    base_layout(fig,f"Return distribution — {tf.lower()} returns","",h=440)
+    fig.update_xaxes(title=f"{tf} return (%)"); fig.update_yaxes(title="Probability density")
+    fig.update_layout(barmode="overlay")
+    st.plotly_chart(fig, use_container_width=True, key=k+"_dist")
+    # Stats table
+    hh=["Asset","N","Mean %","Median %","Std %","Min %","Max %","Latest %","Latest %ile"]
+    ht='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+    for row in exp_rows:
+        lc=GREEN if row["Latest%"]>=0 else RED
+        ht+=(f"<tr><td style='text-align:left'>{row['Asset']}</td><td>{row['N']}</td>"
+             f"<td>{row['Mean%']:+.2f}</td><td>{row['Median%']:+.2f}</td><td>{row['Std%']:.2f}</td>"
+             f"<td style='color:{GREEN}'>{row['Min%']:+.1f}</td><td style='color:{RED}'>{row['Max%']:+.1f}</td>"
+             f"<td style='color:{lc}'>{row['Latest%']:+.2f}</td><td>{row['Latest_pctile']:.0f}%</td></tr>")
+    st.markdown(ht+"</table></div>", unsafe_allow_html=True)
+    st.caption("Histogram of periodic returns (**first pick = bars**, **second = density line**), normalized to "
+               "probability density so bars and line are comparable. The dashed vertical line marks the **latest "
+               "return** and its **percentile** within its own history (e.g. 90%ile = only 10% of periods were "
+               "higher). Returns = simple % change of the (adjusted) price at the chosen frequency.")
+    dl(pd.DataFrame(exp_rows),"Export distribution stats","JAWS_return_distribution.xlsx",k+"_dl")
+
 def panel_outperf(k):
     """Outperformance of series A vs series B — rolling excess return or cumulative
     relative performance, with average/±2σ bands, rolling window, and full-period control."""
@@ -3577,6 +3650,7 @@ _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("RSHP","Rolling Sharpe Ratio (ex-T-bill)", panel_rolling_sharpe, "secrshp")
 _sec("CHRT","Chart", panel_chart, "secchart")
+_sec("DIST","Return Distribution (histogram + latest marker)", panel_return_dist, "secdist")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
 _sec("SPRD","Commodity Spreads (crack · crush · ratios)", panel_commodity_spreads, "secsprd")
