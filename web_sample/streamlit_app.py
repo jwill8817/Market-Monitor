@@ -707,6 +707,15 @@ def xlsx_bytes(df, sheet="Data"):
         df.to_excel(w, index=False, sheet_name=sheet[:31])
     return buf.getvalue()
 
+def xlsx_bytes_multi(sheets):
+    """Write several DataFrames to one workbook. `sheets` = {sheet_name: DataFrame}."""
+    buf=io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter",
+                        datetime_format="mm/dd/yyyy", date_format="mm/dd/yyyy") as w:
+        for name,df in sheets.items():
+            (df if df is not None else pd.DataFrame()).to_excel(w, index=False, sheet_name=str(name)[:31])
+    return buf.getvalue()
+
 def export_series_xlsx(df, returns_mode):
     """Bulk-export writer: MM/DD/YYYY dates; return columns as true Excel % cells."""
     import xlsxwriter
@@ -733,6 +742,9 @@ def export_series_xlsx(df, returns_mode):
     wb.close(); return buf.getvalue()
 def dl(df, label, fname, key):
     st.download_button("⬇ "+label, data=xlsx_bytes(df), file_name=fname, key=key,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+def dl_multi(sheets, label, fname, key):
+    st.download_button("⬇ "+label, data=xlsx_bytes_multi(sheets), file_name=fname, key=key,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 def _nice_dtick(span, target=8):
@@ -1711,7 +1723,11 @@ def panel_return_dist(k):
                "probability density so bars and line are comparable. The dashed vertical line marks the **latest "
                "return** and its **percentile** within its own history (e.g. 90%ile = only 10% of periods were "
                "higher). Returns = simple % change of the (adjusted) price at the chosen frequency.")
-    dl(pd.DataFrame(exp_rows),"Export distribution stats","JAWS_return_distribution.xlsx",k+"_dl")
+    # Full export: stats + the raw periodic return series for every chosen asset.
+    _retdf=pd.concat({lbl:r for lbl,r in rets.items()}, axis=1)
+    _retdf.index.name="Date"; _retdf=_retdf.reset_index()
+    dl_multi({"Stats":pd.DataFrame(exp_rows), f"{tf} returns":_retdf},
+             "Export distribution + returns","JAWS_return_distribution.xlsx",k+"_dl")
 
     # ── Move & probability calculator (empirical history + normal model) ──
     st.divider()
@@ -2502,6 +2518,23 @@ def panel_crowding(k):
                "Consolidated Short Interest** file (the authoritative bi-monthly exchange data, ~2-week lag): "
                "**DTC** = days-to-cover (short ÷ avg daily volume), **Short (M)** = shares short in millions, "
                "**Δ%** = change vs prior report (red = shorts building). Filtered to liquid US-listed names.")
+    # Export both tables (longs + shorts) to one workbook.
+    try:
+        _lr=etf_top_holdings("GVIP") or []
+        longs_df=pd.DataFrame([{"#":i,"Ticker":tk,"Name":nm,"Weight%":round(w*100,2)}
+                               for i,(tk,nm,w) in enumerate(_lr[:nrows],1)])
+        _sr=(si["rows"] if si and si.get("rows") else [])
+        shorts_df=pd.DataFrame([{"#":i,"Ticker":x.get("symbolCode",""),"Name":(x.get("issueName") or "").strip(),
+                                 "DaysToCover":float(x.get("daysToCoverQuantity") or 0),
+                                 "ShortShares_M":round(int(x.get("currentShortPositionQuantity") or 0)/1e6,2),
+                                 "Change%":float(x.get("changePercent") or 0),"Exch":x.get("marketClassCode",""),
+                                 "SettlementDate":(si.get("date") if si else "")}
+                                for i,x in enumerate(_sr,1)])
+        if not longs_df.empty or not shorts_df.empty:
+            dl_multi({"Crowded longs (GVIP)":longs_df,"Crowded shorts (FINRA)":shorts_df},
+                     "Export longs & shorts","JAWS_crowding.xlsx",k+"_dl")
+    except Exception:
+        pass
 
 def panel_skew(k):
     c1,c2=st.columns([1,1])
@@ -2537,6 +2570,10 @@ def panel_skew(k):
                   "**upside** is priced above downside — unusual, a melt-up/greed signal")
             st.caption(f"Skew (90/110 risk reversal) = **{d['rr']:+.1f} vol pts** → {tone}. "
                        "Moneyness-based (not true 25-delta); yfinance IVs are delayed and can be noisy at thin strikes.")
+        curve_df=pd.DataFrame({"Strike_pct_of_spot":d["m"],"ImpliedVol_pct":d["iv"]})
+        meta_df=pd.DataFrame([{"Underlying":sym,"Expiry":d["expiry"],"DTE":d["dte"],"Spot":d["spot"],
+                               "ATM_IV":d["atm"],"RiskReversal_90_110":d["rr"],"RiskReversal_95_105":d["rr5"]}])
+        dl_multi({"Skew curve":curve_df,"Summary":meta_df},"Export skew",f"JAWS_skew_{sym}.xlsx",k+"_dl")
     st.caption("Live option-implied skew from the yfinance chain. The **CBOE SKEW index history** "
                "(tail-risk over time) is in its own full-width section below.")
 
@@ -2604,6 +2641,12 @@ def panel_news(k):
                 f'<span style="color:{TEXT3};font-size:9px;"> · {age}</span><br>'
                 f'<a href="{url}" target="_blank" style="color:{TEXT1};text-decoration:none;font-size:12px;">'
                 f'{title}</a></div>', unsafe_allow_html=True)
+    import datetime as _dtn
+    news_df=pd.DataFrame([{"Source":it.get("source",""),"Title":it.get("title",""),
+                           "URL":it.get("url",""),"Age":_fmt_age(it.get("ts"),now),
+                           "Published":(_dtn.datetime.fromtimestamp(it["ts"]).isoformat()
+                                        if it.get("ts") else "")} for it in capped])
+    dl(news_df,"Export headlines","JAWS_news.xlsx",k+"_dl")
 
 def panel_valuation(k):
     # ── Current multiples cross-section ──
