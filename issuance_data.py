@@ -38,6 +38,15 @@ def load_issuance():
     return df.sort_values("month")
 
 
+def load_annual():
+    """Annual aggregate issuance (SIFMA fixed income): period, asset_class, value_bn."""
+    df = _read("issuance_annual.csv")
+    if df.empty or "period" not in df.columns:
+        return pd.DataFrame(columns=["period", "asset_class", "value_bn"])
+    df["value_bn"] = pd.to_numeric(df["value_bn"], errors="coerce")
+    return df.dropna(subset=["value_bn"])
+
+
 def load_ma():
     """M&A activity: period, freq (A/Q), region, sector, value_bn, deal_count."""
     df = _read("ma_activity.csv")

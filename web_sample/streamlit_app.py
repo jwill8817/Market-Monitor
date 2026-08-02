@@ -1808,6 +1808,8 @@ def panel_return_dist(k):
 def _issuance_df(): import issuance_data as isd; return isd.load_issuance()
 @st.cache_data(ttl=3600, show_spinner=False)
 def _ma_df(): import issuance_data as isd; return isd.load_ma()
+@st.cache_data(ttl=3600, show_spinner=False)
+def _issuance_annual_df(): import issuance_data as isd; return isd.load_annual()
 
 def panel_issuance(k):
     """Primary-market issuance (SIFMA, monthly) + M&A activity (IMAA), each vs its own history."""
@@ -1905,6 +1907,23 @@ def panel_issuance(k):
                    "month against the full available history for that series; **TTM** = trailing 12 months. "
                    "Equity IPO/secondary and corporate IG/HY/convertible are the SIFMA breakouts. Uploaded rows "
                    "merge with committed data; use **Save committed CSV** to persist them in the repo.")
+    # ── Annual aggregate issuance (SIFMA fixed income, broad asset classes) ──
+    ann=_issuance_annual_df()
+    if not ann.empty:
+        st.divider()
+        st.markdown(f"**Annual issuance by asset class** <span style='color:{TEXT3};font-size:12px'>"
+                    "SIFMA fixed income · $bn</span>", unsafe_allow_html=True)
+        aw=ann.pivot_table(index="period",columns="asset_class",values="value_bn",aggfunc="sum").sort_index()
+        af=go.Figure()
+        for i,c in enumerate(aw.columns):
+            af.add_trace(go.Bar(x=aw.index.astype(str),y=aw[c],name=c,marker_color=PALETTE[i%len(PALETTE)]))
+        base_layout(af,"US fixed-income issuance by asset class ($bn)","",h=340)
+        af.update_layout(barmode="stack")
+        st.plotly_chart(af, use_container_width=True, key=k+"_annchart")
+        dl(ann,"Export annual issuance","JAWS_issuance_annual.xlsx",k+"_anndl")
+        st.caption("Broad-asset-class annual issuance (UST/MBS/Corporates/Munis/Agency/ABS) from SIFMA's "
+                   "aggregate file — the reliably auto-fetchable series. The monthly IG/HY/IPO detail above "
+                   "comes from the detailed SIFMA files (uploaded, since SIFMA blocks automated downloads).")
     # ── M&A activity (IMAA, annual/quarterly) ──
     ma=_ma_df()
     st.divider()
