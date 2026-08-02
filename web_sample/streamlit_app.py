@@ -1804,6 +1804,92 @@ def panel_return_dist(k):
                "one-sided VaR-style worst/best X%. Frequency converts a tail probability into 'about once per N "
                "periods' at the chosen return frequency.")
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _issuance_df(): import issuance_data as isd; return isd.load_issuance()
+@st.cache_data(ttl=3600, show_spinner=False)
+def _ma_df(): import issuance_data as isd; return isd.load_ma()
+
+def panel_issuance(k):
+    """Primary-market issuance (SIFMA, monthly) + M&A activity (IMAA), each vs its own history."""
+    import numpy as np
+    df=_issuance_df()
+    if df.empty:
+        st.info("Issuance data hasn't been populated yet — a scheduled monthly agent pulls SIFMA issuance "
+                "into `data/issuance_monthly.csv`. It'll appear here after the first refresh runs.")
+    else:
+        df=df.copy(); df["series"]=df["asset_class"]+" — "+df["category"]
+        wide=df.pivot_table(index="month", columns="series", values="value_bn", aggfunc="sum").sort_index()
+        asof=wide.index.max()
+        st.markdown(f"**Issuance vs history** <span style='color:{TEXT3};font-size:12px'>SIFMA · $bn · "
+                    f"latest {asof.date()}</span>", unsafe_allow_html=True)
+        rows=[]
+        for col in wide.columns:
+            s=wide[col].dropna()
+            if len(s)<6: continue
+            latest=float(s.iloc[-1])
+            mom=(latest/float(s.iloc[-2])-1)*100 if len(s)>=2 and s.iloc[-2] else None
+            yoy=(latest/float(s.iloc[-13])-1)*100 if len(s)>=13 and s.iloc[-13] else None
+            ttm=float(s.iloc[-12:].sum()) if len(s)>=12 else float(s.sum())
+            mu=float(s.mean()); sd=float(s.std(ddof=1)) or 1.0
+            z=(latest-mu)/sd; pct=float((s<latest).mean()*100)
+            ac,cat=col.split(" — ",1)
+            rows.append({"Asset class":ac,"Category":cat,"Latest $bn":round(latest,1),
+                         "MoM %":(round(mom,1) if mom is not None else None),
+                         "YoY %":(round(yoy,1) if yoy is not None else None),
+                         "TTM $bn":round(ttm,1),"Avg $bn":round(mu,1),
+                         "Z":round(z,2),"%ile":round(pct,0)})
+        if rows:
+            hh=["Asset class","Category","Latest $bn","MoM %","YoY %","TTM $bn","Avg $bn","Z","%ile"]
+            h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+            for r in rows:
+                zc=RED if r["Z"]>=1 else (GREEN if r["Z"]<=-1 else TEXT2)
+                def _pcell(v):
+                    if v is None: return f"<td style='color:{TEXT3}'>—</td>"
+                    return f"<td style='color:{GREEN if v>=0 else RED}'>{v:+.1f}</td>"
+                h+=(f"<tr><td style='text-align:left'>{r['Asset class']}</td>"
+                    f"<td style='text-align:left'>{r['Category']}</td><td>{r['Latest $bn']:,.1f}</td>"
+                    f"{_pcell(r['MoM %'])}{_pcell(r['YoY %'])}<td>{r['TTM $bn']:,.1f}</td>"
+                    f"<td>{r['Avg $bn']:,.1f}</td><td style='color:{zc}'>{r['Z']:+.2f}</td>"
+                    f"<td>{r['%ile']:.0f}%</td></tr>")
+            st.markdown(h+"</table></div>", unsafe_allow_html=True)
+        # Chart a chosen series
+        pick=st.selectbox("Chart issuance series", list(wide.columns), key=k+"_pick")
+        s=wide[pick].dropna()
+        fig=go.Figure()
+        fig.add_trace(go.Bar(x=s.index,y=s.values,marker_color=BLUE,name=pick))
+        if len(s)>=6:
+            fig.add_trace(go.Scatter(x=s.index,y=s.rolling(12,min_periods=3).mean().values,
+                mode="lines",line=dict(color=ACCENT,width=2),name="12m avg"))
+        base_layout(fig,f"{pick} — monthly issuance ($bn)","",h=360)
+        add_today_marker(fig, s)
+        st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
+        dl_multi({"Issuance (tidy)":df[["month","asset_class","category","value_bn"]],
+                  "Issuance (wide)":wide.reset_index()},
+                 "Export issuance","JAWS_issuance.xlsx",k+"_dl")
+        st.caption("Monthly primary-market issuance from **SIFMA** ($bn). **Z** and **%ile** rank the latest "
+                   "month against the full available history for that series; **TTM** = trailing 12 months. "
+                   "Equity IPO/secondary and corporate IG/HY/convertible are the SIFMA breakouts.")
+    # ── M&A activity (IMAA, annual/quarterly) ──
+    ma=_ma_df()
+    st.divider()
+    if ma.empty:
+        st.caption("M&A activity (IMAA) will appear here after the scheduled refresh populates "
+                   "`data/ma_activity.csv` (annual/quarterly totals — free M&A data isn't monthly/by-sector).")
+    else:
+        st.markdown(f"**M&A activity** <span style='color:{TEXT3};font-size:12px'>IMAA · annual/quarterly</span>",
+                    unsafe_allow_html=True)
+        show=ma.sort_values("period")
+        fig2=go.Figure()
+        agg=show[show.get("sector","All").fillna("All").eq("All")] if "sector" in show else show
+        if not agg.empty and "value_bn" in agg:
+            fig2.add_trace(go.Bar(x=agg["period"].astype(str),y=agg["value_bn"],marker_color=PURPLE,name="Value $bn"))
+        base_layout(fig2,"M&A announced value ($bn)","",h=320)
+        st.plotly_chart(fig2, use_container_width=True, key=k+"_machart")
+        dl(ma,"Export M&A","JAWS_ma_activity.xlsx",k+"_madl")
+        st.caption("M&A from **IMAA** (free). Aggregate announced value/counts by period (and sector where "
+                   "available) — coarser than the monthly issuance data because free M&A feeds don't publish "
+                   "monthly-by-sector detail.")
+
 def panel_outperf(k):
     """Outperformance of series A vs series B — rolling excess return or cumulative
     relative performance, with average/±2σ bands, rolling window, and full-period control."""
@@ -3762,6 +3848,7 @@ with _g2[1]: _sec("CURV","Futures Curves & Roll Yield", panel_energy_curve, "sec
 # ── Full-width sections (stacked) ──
 _sec("STEEP","Term-Structure Steepness (vol & rates)", panel_steepness, "secsteep")
 _sec("CROWD","Crowded Positioning (longs & shorts)", panel_crowding, "seccrowd")
+_sec("ISSU","Issuance & Deal Activity (SIFMA · IMAA)", panel_issuance, "secissu")
 _sec("EQFIN","Implied Equity Financing (futures vs SOFR)", panel_eq_financing, "seceqfin")
 _sec("SKEWIX","CBOE SKEW Index (tail-risk over time)", panel_skew_index, "secskewix")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
