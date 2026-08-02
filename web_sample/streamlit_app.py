@@ -1749,24 +1749,44 @@ def panel_return_dist(k):
         m[1].metric("Normal-model probability", f"{nrm*100:.1f}%", help=f"Using μ={mu:.2f}%, σ={sd:.2f}% (assumes a normal distribution).")
         m[2].metric("Expected frequency (empirical)", _freq_txt(emp))
     else:
-        cc1,cc2=st.columns([1,1.2])
-        prob=cc1.number_input("Probability (%)", min_value=0.1, max_value=99.9, value=5.0,
-                              step=0.5, key=k+"_prob")
-        tail=cc2.radio("Tail", ["Downside (worst X%)","Upside (best X%)"], key=k+"_tail")
+        cc1,cc2=st.columns([1,1.4])
+        rtype=cc2.radio("Interpretation",
+                        ["Central range (between X and Y)","Downside tail (worst X%)","Upside tail (best X%)"],
+                        key=k+"_rtype")
+        _dv=80.0 if rtype.startswith("Central") else 5.0
+        prob=cc1.number_input("Probability (%)", min_value=0.1, max_value=99.9, value=_dv,
+                              step=1.0, key=k+"_prob")
         pp=prob/100.0
-        if tail.startswith("Down"):
+        if rtype.startswith("Central"):
+            a=(100.0-prob)/2.0                       # each tail outside the central band
+            elo,ehi=float(np.percentile(v,a)),float(np.percentile(v,100-a))
+            nlo,nhi=float(_norm.ppf(a/100,mu,sd)),float(_norm.ppf(1-a/100,mu,sd))
+            m=st.columns(2)
+            m[0].metric(f"Empirical — middle {prob:g}% of {tf.lower()} returns", f"{elo:+.2f}%  to  {ehi:+.2f}%",
+                        help=f"From the {a:g}th to the {100-a:g}th percentile of {n} observations.")
+            m[1].metric("Normal-model range", f"{nlo:+.2f}%  to  {nhi:+.2f}%", help=f"μ={mu:.2f}%, σ={sd:.2f}%.")
+            st.caption(f"So **{prob:g}%** of {tf.lower()} returns land between **{elo:+.2f}%** and **{ehi:+.2f}%**; "
+                       f"the remaining {100-prob:g}% split as ~{a:g}% below {elo:+.2f}% and ~{a:g}% above {ehi:+.2f}% "
+                       "(empirical). Normal-model = symmetric μ ± z·σ.")
+        elif rtype.startswith("Downside"):
             emp_q=float(np.percentile(v, prob)); nrm_q=float(_norm.ppf(pp,mu,sd))
+            m=st.columns(3)
+            m[0].metric(f"Empirical — {prob:g}% chance at or below", f"{emp_q:+.2f}%",
+                        help=f"The {tf.lower()} return at the {prob:g}th percentile of {n} observations (a VaR-style worst case).")
+            m[1].metric("Normal-model", f"{nrm_q:+.2f}%", help=f"μ={mu:.2f}%, σ={sd:.2f}%.")
+            m[2].metric("≈ once per", _freq_txt(pp))
         else:
             emp_q=float(np.percentile(v, 100-prob)); nrm_q=float(_norm.ppf(1-pp,mu,sd))
-        m=st.columns(3)
-        m[0].metric(f"Empirical move ({prob:g}% tail)", f"{emp_q:+.2f}%",
-                    help=f"The {tf.lower()} return at that percentile of the {n} historical observations.")
-        m[1].metric("Normal-model move", f"{nrm_q:+.2f}%", help=f"Using μ={mu:.2f}%, σ={sd:.2f}%.")
-        m[2].metric("≈ once per", _freq_txt(pp))
+            m=st.columns(3)
+            m[0].metric(f"Empirical — {prob:g}% chance at or above", f"{emp_q:+.2f}%",
+                        help=f"The {tf.lower()} return at the {100-prob:g}th percentile of {n} observations.")
+            m[1].metric("Normal-model", f"{nrm_q:+.2f}%", help=f"μ={mu:.2f}%, σ={sd:.2f}%.")
+            m[2].metric("≈ once per", _freq_txt(pp))
     st.caption("**Empirical** = counted straight from this asset's historical returns (no distribution "
                "assumption). **Normal-model** = uses the mean (μ) and standard deviation (σ) only, so it can "
-               "understate fat tails. Frequency converts probability into 'about once per N periods' at the "
-               "chosen return frequency.")
+               "understate fat tails. **Central range** = the middle X% (a two-sided interval); **tails** = the "
+               "one-sided VaR-style worst/best X%. Frequency converts a tail probability into 'about once per N "
+               "periods' at the chosen return frequency.")
 
 def panel_outperf(k):
     """Outperformance of series A vs series B — rolling excess return or cumulative
