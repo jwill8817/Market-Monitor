@@ -1695,7 +1695,7 @@ def panel_return_dist(k):
             "Latest%":round(latest,3),"Latest_pctile":round(pct,1)})
     base_layout(fig,f"Return distribution — {tf.lower()} returns","",h=440)
     fig.update_xaxes(title=f"{tf} return (%)"); fig.update_yaxes(title="Probability density")
-    fig.update_layout(barmode="overlay")
+    fig.update_layout(barmode="overlay", bargap=0.22)   # skinnier bars w/ gaps between bins
     st.plotly_chart(fig, use_container_width=True, key=k+"_dist")
     # Stats table
     hh=["Asset","N","Mean %","Median %","Std %","Min %","Max %","Latest %","Latest %ile"]
@@ -1712,6 +1712,61 @@ def panel_return_dist(k):
                "return** and its **percentile** within its own history (e.g. 90%ile = only 10% of periods were "
                "higher). Returns = simple % change of the (adjusted) price at the chosen frequency.")
     dl(pd.DataFrame(exp_rows),"Export distribution stats","JAWS_return_distribution.xlsx",k+"_dl")
+
+    # ── Move & probability calculator (empirical history + normal model) ──
+    st.divider()
+    st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Move &amp; probability calculator — from this asset\'s distribution</span>',
+                unsafe_allow_html=True)
+    from scipy.stats import norm as _norm
+    ppy={"Daily":252,"Weekly":52,"Monthly":12,"Quarterly":4,"Annual":1}[tf]
+    q1,q2=st.columns([1,1])
+    who=q1.selectbox("Asset", list(rets.keys()), key=k+"_calcasset")
+    mode=q2.radio("Calculate", ["Probability of a move","Move size for a probability"],
+                  key=k+"_calcmode")
+    v=rets[who].values; mu=float(v.mean()); sd=float(v.std(ddof=1)); n=len(v)
+    def _freq_txt(p):
+        if p<=0: return "essentially never"
+        one_in=1.0/p
+        yrs=one_in/ppy
+        unit=tf.lower().rstrip("ly")+"s" if tf!="Daily" else "days"
+        per=f"~1 in {one_in:,.0f} {('periods' if tf not in ('Daily',) else 'days')}"
+        return f"{per}  (≈ once per {yrs:.1f} yr)" if yrs>=0.15 else f"{per}"
+    if mode.startswith("Prob"):
+        cc1,cc2=st.columns([1,1.2])
+        thr=cc1.number_input(f"{tf} move threshold (%)", value=round(abs(2*sd),2),
+                             step=0.25, key=k+"_thr")
+        side=cc2.radio("Direction", [f"Up ≥ +{thr:g}%", f"Down ≤ −{thr:g}%", f"Either way ≥ {thr:g}%"],
+                       key=k+"_side", horizontal=False)
+        if side.startswith("Up"):
+            emp=float((v>=thr).mean()); nrm=float(_norm.sf(thr,mu,sd))
+        elif side.startswith("Down"):
+            emp=float((v<=-thr).mean()); nrm=float(_norm.cdf(-thr,mu,sd))
+        else:
+            emp=float((np.abs(v)>=thr).mean()); nrm=float(_norm.sf(thr,mu,sd)+_norm.cdf(-thr,mu,sd))
+        m=st.columns(3)
+        m[0].metric("Empirical probability", f"{emp*100:.1f}%", help=f"Share of the {n} historical {tf.lower()} returns meeting the condition.")
+        m[1].metric("Normal-model probability", f"{nrm*100:.1f}%", help=f"Using μ={mu:.2f}%, σ={sd:.2f}% (assumes a normal distribution).")
+        m[2].metric("Expected frequency (empirical)", _freq_txt(emp))
+    else:
+        cc1,cc2=st.columns([1,1.2])
+        prob=cc1.number_input("Probability (%)", min_value=0.1, max_value=99.9, value=5.0,
+                              step=0.5, key=k+"_prob")
+        tail=cc2.radio("Tail", ["Downside (worst X%)","Upside (best X%)"], key=k+"_tail")
+        pp=prob/100.0
+        if tail.startswith("Down"):
+            emp_q=float(np.percentile(v, prob)); nrm_q=float(_norm.ppf(pp,mu,sd))
+        else:
+            emp_q=float(np.percentile(v, 100-prob)); nrm_q=float(_norm.ppf(1-pp,mu,sd))
+        m=st.columns(3)
+        m[0].metric(f"Empirical move ({prob:g}% tail)", f"{emp_q:+.2f}%",
+                    help=f"The {tf.lower()} return at that percentile of the {n} historical observations.")
+        m[1].metric("Normal-model move", f"{nrm_q:+.2f}%", help=f"Using μ={mu:.2f}%, σ={sd:.2f}%.")
+        m[2].metric("≈ once per", _freq_txt(pp))
+    st.caption("**Empirical** = counted straight from this asset's historical returns (no distribution "
+               "assumption). **Normal-model** = uses the mean (μ) and standard deviation (σ) only, so it can "
+               "understate fat tails. Frequency converts probability into 'about once per N periods' at the "
+               "chosen return frequency.")
 
 def panel_outperf(k):
     """Outperformance of series A vs series B — rolling excess return or cumulative
@@ -3627,6 +3682,8 @@ def _sec(tag, title, fn, *a):
             st.error(f"⚠ {title}: {type(e).__name__}: {e}")
             with st.expander("details"): st.code(_tb.format_exc())
 
+# Return-distribution explorer sits up top (full-width), above the curves grid.
+_sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
 # ── Half-width grid: curves & rate/vol snapshots right under the two tables ──
 _g1=st.columns(2)
 with _g1[0]: _sec("CRV","Curves", panel_curves, "q3")
@@ -3650,7 +3707,6 @@ _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("RSHP","Rolling Sharpe Ratio (ex-T-bill)", panel_rolling_sharpe, "secrshp")
 _sec("CHRT","Chart", panel_chart, "secchart")
-_sec("DIST","Return Distribution (histogram + latest marker)", panel_return_dist, "secdist")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
 _sec("SPRD","Commodity Spreads (crack · crush · ratios)", panel_commodity_spreads, "secsprd")
