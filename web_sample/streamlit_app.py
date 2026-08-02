@@ -1812,7 +1812,38 @@ def _ma_df(): import issuance_data as isd; return isd.load_ma()
 def panel_issuance(k):
     """Primary-market issuance (SIFMA, monthly) + M&A activity (IMAA), each vs its own history."""
     import numpy as np
-    df=_issuance_df()
+    base=_issuance_df()
+    # ── Upload path (SIFMA blocks automated downloads, so load it here) ──
+    with st.expander("➕ Add / update issuance data (upload — SIFMA blocks auto-download)"):
+        st.caption("SIFMA blocks automated fetching, so load data here: in your browser open sifma.org → "
+                   "**US Corporate Bonds Statistics** / **US Equity and Related Statistics**, download the Excel, "
+                   "then fill the template below and upload. It shows immediately; use **Save committed CSV** to "
+                   "persist it (drop the file into `data/issuance_monthly.csv` in the repo).")
+        _tmpl=("month,asset_class,category,value_bn\n"
+               "2026-06-30,Equity,IPO,12.3\n2026-06-30,Equity,Secondary,35.1\n"
+               "2026-06-30,Corporate Bonds,Investment Grade,110.0\n"
+               "2026-06-30,Corporate Bonds,High Yield,22.0\n"
+               "2026-06-30,Corporate Bonds,Convertible,5.0\n")
+        st.download_button("⬇ CSV template", _tmpl.encode(), "JAWS_issuance_template.csv",
+                           "text/csv", key=k+"_tmpl")
+        up=st.file_uploader("Upload issuance CSV (month, asset_class, category, value_bn)",
+                            type=["csv"], key=k+"_uploader")
+        if up is not None:
+            try:
+                nd=pd.read_csv(up)
+                nd["month"]=pd.to_datetime(nd["month"], errors="coerce")
+                nd["value_bn"]=pd.to_numeric(nd["value_bn"], errors="coerce")
+                nd=nd.dropna(subset=["month","value_bn"])[["month","asset_class","category","value_bn"]]
+                st.session_state[k+"_updata"]=nd
+                st.success(f"Loaded {len(nd)} rows covering {nd['month'].min().date()} → {nd['month'].max().date()}.")
+            except Exception as e:
+                st.error(f"Couldn't parse that CSV: {e}")
+    df=base
+    _up=st.session_state.get(k+"_updata")
+    if _up is not None and not _up.empty:
+        df=(pd.concat([base,_up], ignore_index=True)
+              .drop_duplicates(subset=["month","asset_class","category"], keep="last")
+              .sort_values("month"))
     if df.empty:
         st.info("Issuance data hasn't been populated yet — a scheduled monthly agent pulls SIFMA issuance "
                 "into `data/issuance_monthly.csv`. It'll appear here after the first refresh runs.")
@@ -1863,12 +1894,17 @@ def panel_issuance(k):
         base_layout(fig,f"{pick} — monthly issuance ($bn)","",h=360)
         add_today_marker(fig, s)
         st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
-        dl_multi({"Issuance (tidy)":df[["month","asset_class","category","value_bn"]],
-                  "Issuance (wide)":wide.reset_index()},
+        _ex=df[["month","asset_class","category","value_bn"]].copy()
+        _ex["month"]=pd.to_datetime(_ex["month"]).dt.date
+        dl_multi({"Issuance (tidy)":_ex,"Issuance (wide)":wide.reset_index()},
                  "Export issuance","JAWS_issuance.xlsx",k+"_dl")
+        st.download_button("⬇ Save committed CSV (→ data/issuance_monthly.csv)",
+                           _ex.sort_values("month").to_csv(index=False).encode(),
+                           "issuance_monthly.csv","text/csv",key=k+"_save")
         st.caption("Monthly primary-market issuance from **SIFMA** ($bn). **Z** and **%ile** rank the latest "
                    "month against the full available history for that series; **TTM** = trailing 12 months. "
-                   "Equity IPO/secondary and corporate IG/HY/convertible are the SIFMA breakouts.")
+                   "Equity IPO/secondary and corporate IG/HY/convertible are the SIFMA breakouts. Uploaded rows "
+                   "merge with committed data; use **Save committed CSV** to persist them in the repo.")
     # ── M&A activity (IMAA, annual/quarterly) ──
     ma=_ma_df()
     st.divider()
