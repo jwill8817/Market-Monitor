@@ -319,6 +319,8 @@ def _annualized(start_price, end_price, years):
 
 # Periods that get annualized (>1Y)
 _ANNUALIZE = {"3Y": 3, "5Y": 5, "10Y": 10}
+# "To-date" periods anchored to the prior period's last close (not the first bar inside)
+_TO_DATE = {"MTD", "QTD", "YTD"}
 
 def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=False):
     """
@@ -357,6 +359,24 @@ def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=Fals
             returns = {}
             for period, start in starts.items():
                 start_dt = datetime.datetime.combine(start, datetime.time())
+                # To-date periods (MTD/YTD) anchor to the PRIOR period's last close (e.g. the
+                # last trading day before the 1st of the month), so the move over the whole
+                # period is captured — not the first bar *inside* it (which drops the first
+                # trading day and, early in a month, collapses MTD toward 1D).
+                if period in _TO_DATE:
+                    prior = close[close.index < start_dt]
+                    if not prior.empty:
+                        base = float(prior.iloc[-1])
+                    else:
+                        sub = close[close.index >= start_dt]
+                        base = float(sub.iloc[0]) if not sub.empty else None
+                    if base is None:
+                        returns[period] = None
+                    elif absolute:
+                        returns[period] = round(current - base, 4)
+                    else:
+                        returns[period] = _pct(base, current)
+                    continue
                 subset   = close[close.index >= start_dt]
                 if subset.empty:
                     returns[period] = None
