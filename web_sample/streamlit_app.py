@@ -3604,8 +3604,10 @@ def panel_exporter():
                                  list(catalog.keys()), key="exp_tool")
 
         c1,c2,c3,c4=st.columns(4)
-        freq=c1.radio("Frequency",["Daily","Monthly"],horizontal=True,key="exp_freq")
+        freq=c1.selectbox("Frequency",["Daily","Monthly","Quarterly","Annual"],key="exp_freq")
         dtp =c2.radio("Data",["Prices","Returns"],horizontal=True,key="exp_dt")
+        _RULE={"Monthly":"ME","Quarterly":"QE","Annual":"YE"}
+        rule=_RULE.get(freq)   # None for Daily
         start=c3.date_input("Start", value=date.today()-relativedelta(years=5),
                             min_value=date(1950,1,1), key="exp_start")
         end =c4.date_input("End", value=date.today(), key="exp_end")
@@ -3640,7 +3642,7 @@ def panel_exporter():
                 if s is None or s.empty:
                     missing.append(sym); continue
                 s=s.sort_index()
-                if freq=="Monthly": s=s.resample("ME").last()
+                if rule: s=s.resample(rule).last()
                 if dtp=="Returns":  s=s.pct_change()*100
                 s=s[(s.index>=lo)&(s.index<=hi)]
                 if not s.empty: cols[sym]=s
@@ -3649,10 +3651,10 @@ def panel_exporter():
                 kind,(d,v)=catalog[label]
                 s=pd.Series(v, index=pd.to_datetime(d)).sort_index().dropna()
                 if kind=="factor":                 # values are decimal returns
-                    if freq=="Monthly": s=(1+s).resample("ME").prod()-1
+                    if rule: s=(1+s).resample(rule).prod()-1
                     s=((1+s).cumprod()*100) if dtp=="Prices" else (s*100)
                 else:                              # level series (spreads/rates/funding)
-                    if freq=="Monthly": s=s.resample("ME").last()
+                    if rule: s=s.resample(rule).last()
                     if dtp=="Returns": s=s.pct_change()*100
                 s=s[(s.index>=lo)&(s.index<=hi)].dropna()
                 if not s.empty: cols[label]=s
