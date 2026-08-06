@@ -242,6 +242,18 @@ def md_returns(key, custom_start=None, custom_end=None, absolute=False):
     return data, dmap[key]
 
 @st.cache_data(ttl=900, show_spinner=False)
+def md_calendar(key, n_years=6, absolute=False):
+    import market_data as md
+    dmap={"indices":md.INDICES,"volatility":md.VOLATILITY,"fx":md.FX,
+          "fixed_income":md.FIXED_INCOME,"munis":md.MUNIS,"factors":md.FACTORS,
+          "commodities":md.COMMODITIES,"sectors":md.SECTORS,
+          "hedge_funds":getattr(md,"HEDGE_FUNDS",{}),
+          "risk_premia":getattr(md,"RISK_PREMIA",{}),
+          "aqr":getattr(md,"AQR_FUNDS",{}),
+          "crypto":getattr(md,"CRYPTO",{})}
+    return md.fetch_calendar_returns(dmap[key], n_years=n_years, absolute=absolute), dmap[key]
+
+@st.cache_data(ttl=900, show_spinner=False)
 def _md_history_remote(sym, start=None, adjusted=True):
     import market_data as md
     try:
@@ -913,8 +925,52 @@ def multpl_series(url):
 # ════════════════════════════════════════════════════════════════
 RET_HDR=["Name","Tkr","Price","1D%","MTD%","YTD%","1Y%","3Y%","5Y%","10Y%","Custom%"]
 
+def _panel_returns_calendar(catkey, label, k, absolute):
+    """Alternative view: 1D/MTD/QTD/YTD, current-year quarters & months, and prior full
+    calendar-year returns (labelled by year)."""
+    ny=st.select_slider("Prior calendar years", [3,4,5,6,8,10], value=6, key=k+"_cny")
+    with st.spinner(f"Loading {label} (calendar)…"):
+        data,tmap=md_calendar(catkey, n_years=ny, absolute=absolute)
+    fc=f_abs if absolute else f_pct
+    # union of month labels + year labels actually present, ordered
+    _MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    months=[m for m in _MO if any(m in (d.get("months") or {}) for d in data.values())]
+    years=sorted({y for d in data.values() for y in (d.get("years") or {})}, reverse=True)
+    hdr=(["Name","Tkr","Price","1D","MTD","QTD","YTD","Q1","Q2","Q3","Q4"]+months
+         +[str(y) for y in years])
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    for name,info in data.items():
+        if not info or info.get("price") is None:
+            h+=f"<tr><td>{name}</td><td colspan='{len(hdr)-1}' style='color:{TEXT3}'>no data</td></tr>"; continue
+        q=info.get("quarters",{}); mo=info.get("months",{}); yr=info.get("years",{})
+        cells=[f"<td>{name}</td>",f"<td style='color:{TEXT3}'>{tmap.get(name,'')}</td>",
+               f"<td>{f_price(info.get('price'),name)}</td>",
+               f"<td>{fc(info.get('1D'))}</td>",f"<td>{fc(info.get('MTD'))}</td>",
+               f"<td>{fc(info.get('QTD'))}</td>",f"<td>{fc(info.get('YTD'))}</td>"]
+        cells+=[f"<td>{fc(q.get(qq))}</td>" for qq in ("Q1","Q2","Q3","Q4")]
+        cells+=[f"<td>{fc(mo.get(m))}</td>" for m in months]
+        cells+=[f"<td>{fc(yr.get(y))}</td>" for y in years]
+        h+="<tr>"+"".join(cells)+"</tr>"
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("**Calendar view.** 1D/MTD/QTD/YTD to date; **Q1–Q4** and **Jan–…** are current-year "
+               "calendar quarters/months; year columns are **full calendar-year** returns (Dec→Dec), "
+               "labelled by year. Each period measures from the prior period's close.")
+    # Export (flat)
+    rows=[]
+    for name,info in data.items():
+        base={"Name":name,"Ticker":tmap.get(name,""),"Price":info.get("price"),
+              "1D":info.get("1D"),"MTD":info.get("MTD"),"QTD":info.get("QTD"),"YTD":info.get("YTD")}
+        base.update({qq:(info.get("quarters",{}) or {}).get(qq) for qq in ("Q1","Q2","Q3","Q4")})
+        base.update({m:(info.get("months",{}) or {}).get(m) for m in months})
+        base.update({str(y):(info.get("years",{}) or {}).get(y) for y in years})
+        rows.append(base)
+    dl(pd.DataFrame(rows), "Export", f"JAWS_{catkey}_calendar.xlsx", k+"_caldl")
+
 def panel_returns(catkey, label, k):
     absolute = catkey in ("rates","funding")
+    if st.radio("View",["Standard","Calendar"],horizontal=True,key=k+"_view",
+                label_visibility="collapsed")=="Calendar":
+        return _panel_returns_calendar(catkey, label, k, absolute)
     cs = st.session_state.get(k+"_cs")
     ce = st.session_state.get(k+"_ce")
     with st.spinner(f"Loading {label}…"):

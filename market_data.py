@@ -322,6 +322,85 @@ _ANNUALIZE = {"3Y": 3, "5Y": 5, "10Y": 10}
 # "To-date" periods anchored to the prior period's last close (not the first bar inside)
 _TO_DATE = {"MTD", "QTD", "YTD"}
 
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def fetch_calendar_returns(ticker_dict, n_years=6, absolute=False):
+    """Calendar-period performance for each ticker:
+      price, 1D, MTD, QTD, YTD, current-year Q1..Q4, current-year months (Jan..now),
+      and full prior-CALENDAR-year returns keyed by the actual year (descending).
+    Period returns come from resampled period-end closes so each cell measures from the
+    prior period's close (e.g. Dec-31 → Dec-31 for a full year). absolute=True gives level
+    differences instead of % (for yield-like series)."""
+    import pandas as pd
+    today = datetime.date.today()
+    cur_year = today.year
+    start = datetime.date(cur_year - n_years - 1, 1, 1).isoformat()
+
+    def _chg(a, b):
+        if a is None or b is None:
+            return None
+        return round(b - a, 4) if absolute else _pct(a, b)
+
+    out = {}
+    for name, ticker in ticker_dict.items():
+        try:
+            close = price_history(ticker, start=start)
+            if close.empty:
+                out[name] = {"price": None}
+                continue
+            current = float(close.iloc[-1])
+            prev = float(close.iloc[-2]) if len(close) > 1 else current
+            me = close.resample("ME").last().dropna()    # month-end closes
+            qe = close.resample("QE").last().dropna()     # quarter-end closes
+            ye = close.resample("YE").last().dropna()     # year-end closes
+
+            def _period_ret(ser, mask_year=None, mask_q=None, mask_month=None):
+                """Return for the period-end bar matching the filters vs the prior bar."""
+                for i in range(len(ser) - 1, -1, -1):
+                    idx = ser.index[i]
+                    if mask_year is not None and idx.year != mask_year:
+                        continue
+                    if mask_q is not None and idx.quarter != mask_q:
+                        continue
+                    if mask_month is not None and idx.month != mask_month:
+                        continue
+                    base = float(ser.iloc[i - 1]) if i >= 1 else None
+                    return _chg(base, float(ser.iloc[i]))
+                return None
+
+            rec = {"price": current, "1D": _chg(prev, current)}
+            # To-date: current-period end bar (holds the latest price) vs prior period end.
+            rec["MTD"] = _chg(float(me.iloc[-2]), current) if len(me) >= 2 else None
+            rec["QTD"] = _chg(float(qe.iloc[-2]), current) if len(qe) >= 2 else None
+            rec["YTD"] = _chg(float(ye.iloc[-2]), current) if len(ye) >= 2 else None
+            # Current-year quarters
+            rec["quarters"] = {f"Q{q}": _period_ret(qe, mask_year=cur_year, mask_q=q)
+                               for q in (1, 2, 3, 4)}
+            # Current-year months (only those with data)
+            months = {}
+            for m in range(1, 13):
+                v = _period_ret(me, mask_year=cur_year, mask_month=m)
+                if v is not None:
+                    months[_MONTHS[m - 1]] = v
+            rec["months"] = months
+            # Prior full calendar years (descending), labelled by actual year
+            years = {}
+            for i in range(len(ye) - 1, 0, -1):
+                yr = ye.index[i].year
+                if yr >= cur_year:
+                    continue
+                years[yr] = _chg(float(ye.iloc[i - 1]), float(ye.iloc[i]))
+                if len(years) >= n_years:
+                    break
+            rec["years"] = years
+            out[name] = rec
+        except Exception:
+            out[name] = {"price": None}
+    return out
+
+
 def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=False):
     """
     Fetch returns for each ticker.
