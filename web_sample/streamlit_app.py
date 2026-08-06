@@ -1866,6 +1866,81 @@ def panel_return_dist(k):
                "one-sided VaR-style worst/best X%. Frequency converts a tail probability into 'about once per N "
                "periods' at the chosen return frequency.")
 
+def panel_periodic_returns(k):
+    """Compare periodic (monthly/quarterly/annual) returns of 1+ assets as grouped bars or a
+    scatter (per-asset colors; enlarged latest + mean markers)."""
+    import numpy as np
+    chosen=ticker_picker(k, ["S&P 500","NASDAQ"])
+    labels=list(chosen.keys())
+    c1,c2,c3=st.columns(3)
+    freq=c1.radio("Frequency",["Monthly","Quarterly","Annual"],horizontal=True,key=k+"_freq")
+    ctype=c2.radio("Chart",["Bars","Scatter"],horizontal=True,key=k+"_ct")
+    tfmode=c3.radio("Range",["Lookback","Custom"],horizontal=True,key=k+"_tfm")
+    rule={"Monthly":"ME","Quarterly":"QE","Annual":"YE"}[freq]
+    unit={"Monthly":"months","Quarterly":"quarters","Annual":"years"}[freq]
+    if tfmode=="Lookback":
+        n=int(st.number_input(f"How many {unit}", min_value=2, max_value=600,
+              value={"Monthly":24,"Quarterly":16,"Annual":12}[freq], step=1, key=k+"_n"))
+        cstart=cend=None
+    else:
+        d1,d2=st.columns(2)
+        cstart=d1.date_input("Start", value=date.today()-relativedelta(years=5),
+                             min_value=date(1900,1,1), key=k+"_cs")
+        cend=d2.date_input("End", value=date.today(), key=k+"_ce"); n=None
+    if not labels:
+        st.info("Pick one or more assets above to compare periodic returns."); return
+    def _plab(idx):
+        if freq=="Annual": return [str(t.year) for t in idx]
+        if freq=="Quarterly": return [f"{t.year}Q{t.quarter}" for t in idx]
+        return [t.strftime("%Y-%m") for t in idx]
+    series={}
+    for lbl in labels:
+        s=md_history(chosen[lbl])
+        if s is None or s.empty: continue
+        r=(s.sort_index().resample(rule).last().pct_change()*100).dropna()
+        if tfmode=="Custom":
+            r=r[(r.index>=pd.Timestamp(cstart))&(r.index<=pd.Timestamp(cend))]
+        else:
+            r=r.tail(n)
+        if not r.empty: series[lbl]=r
+    if not series:
+        st.warning("No data for that selection — widen the range or frequency."); return
+    fig=go.Figure()
+    if ctype=="Bars":
+        for i,(lbl,r) in enumerate(series.items()):
+            col=PALETTE[i%len(PALETTE)]
+            fig.add_trace(go.Bar(x=_plab(r.index), y=r.values, name=lbl, marker_color=col))
+        fig.update_layout(barmode="group")
+        fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+    else:
+        for i,(lbl,r) in enumerate(series.items()):
+            col=PALETTE[i%len(PALETTE)]; mu=float(r.mean()); latest=float(r.iloc[-1])
+            fig.add_trace(go.Scatter(x=r.index,y=r.values,mode="markers",name=lbl,
+                marker=dict(size=7,color=col,opacity=0.8)))
+            # mean dot (diamond) + latest dot (big white-filled colored ring)
+            fig.add_trace(go.Scatter(x=[r.index[-1]],y=[mu],mode="markers",showlegend=False,
+                hovertext=f"{lbl} mean {mu:+.2f}%",hoverinfo="text",
+                marker=dict(size=14,color=col,symbol="diamond",line=dict(color="#fff",width=1.5))))
+            fig.add_trace(go.Scatter(x=[r.index[-1]],y=[latest],mode="markers",showlegend=False,
+                hovertext=f"{lbl} latest {latest:+.2f}%",hoverinfo="text",
+                marker=dict(size=16,color="#ffffff",line=dict(color=col,width=3))))
+        fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+    base_layout(fig,f"{freq} returns — comparison","%",h=440)
+    if ctype=="Bars": fig.update_xaxes(title=freq[:-2] if freq!="Monthly" else "Month")
+    st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
+    # Stats + export
+    st.caption("Bars = grouped periodic returns per asset. **Scatter**: small dots = each period; the big "
+               "**◇ diamond** = that asset's mean and the big **◯ ringed dot** = its latest period (both at the "
+               "right edge, per-asset color). Returns = % change of the period-end price.")
+    exp=pd.concat({lbl:r for lbl,r in series.items()}, axis=1)
+    exp.index=_plab(exp.index); exp.index.name="Period"
+    st.markdown(f"<span style='color:{TEXT3};font-size:12px'>Mean / latest by asset:</span>",unsafe_allow_html=True)
+    mrow=st.columns(min(len(series),4) or 1)
+    for i,(lbl,r) in enumerate(series.items()):
+        mrow[i%len(mrow)].metric(f"{lbl}", f"{float(r.iloc[-1]):+.2f}%",
+            help=f"latest {freq.lower()} return · mean {float(r.mean()):+.2f}% over {len(r)} periods")
+    dl(exp.reset_index(), "Export periodic returns", f"JAWS_periodic_{freq.lower()}.xlsx", k+"_dl")
+
 def panel_outperf(k):
     """Outperformance of series A vs series B — rolling excess return or cumulative
     relative performance, with average/±2σ bands, rolling window, and full-period control."""
@@ -3834,6 +3909,7 @@ _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("RSHP","Rolling Sharpe Ratio (ex-T-bill)", panel_rolling_sharpe, "secrshp")
 _sec("CHRT","Chart", panel_chart, "secchart")
+_sec("PRET","Periodic Returns (compare monthly/quarterly/annual)", panel_periodic_returns, "secpret")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
 _sec("SPRD","Commodity Spreads (crack · crush · ratios)", panel_commodity_spreads, "secsprd")
