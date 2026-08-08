@@ -1897,31 +1897,51 @@ def panel_composition(k):
     comp=fund_composition(sym)
     sectors=comp.get("sectors",{}); ratings=comp.get("ratings",{})
     def _nice(s): return s.replace("_"," ").title().replace("Reit","REIT").replace("Us ","US ")
-    if sectors:
-        data=sectors; title=f"{sym} — GICS sector allocation"
-    elif ratings:
-        data=ratings; title=f"{sym} — credit-quality allocation"
-    else:
-        st.warning(f"No sector/credit composition available for **{sym}** via yfinance (try an index ETF "
-                   "like SPY/QQQ/AGG)."); return
-    items=sorted(data.items(), key=lambda x:-x[1])
-    labels=[_nice(l) for l,_ in items]; vals=[v*100 for _,v in items]
     _PIE=[ACCENT,BLUE,GREEN,YELLOW,PURPLE,CYAN,"#ff6b6b","#ffa94d","#4dd4c0","#b088f9","#f78fb3","#8fd14f"]
-    fig=go.Figure(go.Pie(labels=labels, values=vals, sort=False, direction="clockwise",
-        hole=0.55 if style=="Donut" else 0.0, textinfo="percent", textposition="inside",
-        insidetextorientation="radial",
-        marker=dict(colors=[_PIE[i%len(_PIE)] for i in range(len(labels))], line=dict(color=BG,width=1))))
-    base_layout(fig,title,h=470)
-    if style=="Donut":
-        fig.add_annotation(text=f"<b>{sym}</b>",x=0.5,y=0.5,xref="paper",yref="paper",
-                           showarrow=False,font=dict(size=18,color=TEXT1))
-    st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
-    st.caption(f"**Current snapshot** (fetched {date.today().isoformat()}) — GICS sector weights for equity "
-               "indices, credit-quality weights for bond indices, via the tracking ETF (yfinance). "
-               "**Point-in-time history isn't available for free** — this is the latest published composition, "
-               "not an arbitrary past date. Weights may not sum to exactly 100% (rounding / uncategorized).")
-    df=pd.DataFrame({"Category":labels,"Weight %":[round(v,2) for v in vals]})
-    dl(df, "Export composition", f"JAWS_composition_{sym}.xlsx", k+"_dl")
+    def _draw(pairs, title, key, center=""):
+        pairs=[(l,v) for l,v in pairs if v and v>0.001]
+        pairs.sort(key=lambda x:-x[1])
+        labels=[l for l,_ in pairs]; vals=[v for _,v in pairs]
+        fig=go.Figure(go.Pie(labels=labels, values=vals, sort=False, direction="clockwise",
+            hole=0.55 if style=="Donut" else 0.0, textinfo="percent", textposition="inside",
+            insidetextorientation="radial",
+            marker=dict(colors=[_PIE[i%len(_PIE)] for i in range(len(labels))], line=dict(color=BG,width=1))))
+        base_layout(fig,title,h=440)
+        if style=="Donut" and center:
+            fig.add_annotation(text=f"<b>{center}</b>",x=0.5,y=0.5,xref="paper",yref="paper",
+                               showarrow=False,font=dict(size=16,color=TEXT1))
+        st.plotly_chart(fig, use_container_width=True, key=key)
+        return pd.DataFrame({"Category":labels,"Weight %":[round(v,2) for v in vals]})
+    if sectors:
+        df=_draw([(_nice(l),v*100) for l,v in sectors.items()],
+                 f"{sym} — GICS sector allocation", k+"_chart", sym)
+        st.caption(f"**Current snapshot** (fetched {date.today().isoformat()}) — GICS sector weights via the "
+                   "tracking ETF (yfinance). Point-in-time history isn't available for free; this is the latest "
+                   "published composition. Weights may not sum to exactly 100% (rounding / uncategorized).")
+        dl(df, "Export composition", f"JAWS_composition_{sym}.xlsx", k+"_dl"); return
+    if ratings:
+        gov=ratings.get("us_government",0.0)
+        hy=ratings.get("bb",0)+ratings.get("b",0)+ratings.get("below_b",0)
+        ig=max(0.0, 1.0-gov-hy)
+        type_pairs=[("Government (Treasury/Agency/MBS)",gov*100),
+                    ("Investment-Grade Credit",ig*100),("High-Yield",hy*100)]
+        _lad=[("aaa","AAA"),("aa","AA"),("a","A"),("bbb","BBB"),
+              ("bb","BB"),("b","B"),("below_b","CCC & below"),("other","Other")]
+        cc1,cc2=st.columns(2)
+        with cc1:
+            dft=_draw(type_pairs, f"{sym} — by type (Govt / IG / HY)", k+"_ctype", sym)
+        with cc2:
+            dfq=_draw([(nm, ratings.get(kk,0)*100) for kk,nm in _lad],
+                      f"{sym} — credit-quality ladder", k+"_cqual")
+        st.caption(f"**Current snapshot** ({date.today().isoformat()}). **By type**: the fund's US-government "
+                   "share (Treasury / agency / gov-MBS) vs investment-grade credit vs high-yield "
+                   "(HY = BB/B/CCC & below). **Quality ladder**: the rating distribution across all holdings. "
+                   "Free data can't separate MBS / Treasury / Agency *within* the government bucket. "
+                   "(HY = BB and below; Govt bonds sit in the AA/AAA rungs of the ladder.)")
+        dl_multi({"By type":dft,"Quality ladder":dfq},
+                 "Export composition", f"JAWS_composition_{sym}.xlsx", k+"_dl"); return
+    st.warning(f"No sector/credit composition available for **{sym}** via yfinance (try an index ETF "
+               "like SPY/QQQ/AGG).")
 
 def panel_periodic_returns(k):
     """Compare periodic (monthly/quarterly/annual) returns of 1+ assets as grouped bars or a
