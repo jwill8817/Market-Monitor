@@ -1905,40 +1905,76 @@ def panel_periodic_returns(k):
         if not r.empty: series[lbl]=r
     if not series:
         st.warning("No data for that selection — widen the range or frequency."); return
-    fig=go.Figure()
-    if ctype=="Bars":
-        for i,(lbl,r) in enumerate(series.items()):
-            col=PALETTE[i%len(PALETTE)]
-            fig.add_trace(go.Bar(x=_plab(r.index), y=r.values, name=lbl, marker_color=col))
-        fig.update_layout(barmode="group")
-        fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-    else:
-        for i,(lbl,r) in enumerate(series.items()):
-            col=PALETTE[i%len(PALETTE)]; mu=float(r.mean()); latest=float(r.iloc[-1])
-            fig.add_trace(go.Scatter(x=r.index,y=r.values,mode="markers",name=lbl,
-                marker=dict(size=7,color=col,opacity=0.8)))
-            # mean dot (diamond) + latest dot (big white-filled colored ring)
-            fig.add_trace(go.Scatter(x=[r.index[-1]],y=[mu],mode="markers",showlegend=False,
-                hovertext=f"{lbl} mean {mu:+.2f}%",hoverinfo="text",
-                marker=dict(size=14,color=col,symbol="diamond",line=dict(color="#fff",width=1.5))))
-            fig.add_trace(go.Scatter(x=[r.index[-1]],y=[latest],mode="markers",showlegend=False,
-                hovertext=f"{lbl} latest {latest:+.2f}%",hoverinfo="text",
-                marker=dict(size=16,color="#ffffff",line=dict(color=col,width=3))))
-        fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-    base_layout(fig,f"{freq} returns — comparison","%",h=440)
-    if ctype=="Bars": fig.update_xaxes(title=freq[:-2] if freq!="Monthly" else "Month")
-    st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
-    # Stats + export
-    st.caption("Bars = grouped periodic returns per asset. **Scatter**: small dots = each period; the big "
-               "**◇ diamond** = that asset's mean and the big **◯ ringed dot** = its latest period (both at the "
-               "right edge, per-asset color). Returns = % change of the period-end price.")
     exp=pd.concat({lbl:r for lbl,r in series.items()}, axis=1)
     exp.index=_plab(exp.index); exp.index.name="Period"
-    st.markdown(f"<span style='color:{TEXT3};font-size:12px'>Mean / latest by asset:</span>",unsafe_allow_html=True)
-    mrow=st.columns(min(len(series),4) or 1)
-    for i,(lbl,r) in enumerate(series.items()):
-        mrow[i%len(mrow)].metric(f"{lbl}", f"{float(r.iloc[-1]):+.2f}%",
-            help=f"latest {freq.lower()} return · mean {float(r.mean()):+.2f}% over {len(r)} periods")
+    if ctype=="Bars":
+        fig=go.Figure()
+        for i,(lbl,r) in enumerate(series.items()):
+            fig.add_trace(go.Bar(x=_plab(r.index), y=r.values, name=lbl,
+                                 marker_color=PALETTE[i%len(PALETTE)]))
+        fig.update_layout(barmode="group"); fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+        base_layout(fig,f"{freq} returns — comparison","%",h=440)
+        fig.update_xaxes(title=("Month" if freq=="Monthly" else freq[:-2]))
+        st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
+        st.caption("Grouped periodic returns per asset (% change of the period-end price).")
+        mrow=st.columns(min(len(series),4) or 1)
+        for i,(lbl,r) in enumerate(series.items()):
+            mrow[i%len(mrow)].metric(lbl, f"{float(r.iloc[-1]):+.2f}%",
+                help=f"latest {freq.lower()} return · mean {float(r.mean()):+.2f}% over {len(r)} periods")
+        dl(exp.reset_index(), "Export periodic returns", f"JAWS_periodic_{freq.lower()}.xlsx", k+"_dl")
+        return
+    # ── Scatter: returns of Y asset(s) vs an X asset (traditional X–Y) ──
+    if len(series)<2:
+        st.info("Pick **two or more** assets for an X–Y scatter (one on each axis)."); return
+    from scipy import stats as _stats
+    sc1,sc2,sc3=st.columns([1.2,2,1])
+    xasset=sc1.selectbox("X axis asset", list(series), key=k+"_xa")
+    _yopts=[l for l in series if l!=xasset]
+    ys=sc2.multiselect("Y axis asset(s)", _yopts, default=_yopts[:1] or _yopts, key=k+"_ya")
+    fitline=sc3.checkbox("Fit line + p-value", value=True, key=k+"_fit")
+    if not ys:
+        st.info("Choose at least one Y asset."); return
+    xr=series[xasset]; fig=go.Figure(); statrows=[]
+    for i,yl in enumerate(ys):
+        col=PALETTE[i%len(PALETTE)]
+        pair=pd.concat([xr.rename("x"),series[yl].rename("y")],axis=1,join="inner").dropna()
+        if len(pair)<3: continue
+        xv=pair["x"].values; yv=pair["y"].values
+        fig.add_trace(go.Scatter(x=xv,y=yv,mode="markers",name=yl,
+            marker=dict(size=7,color=col,opacity=0.8)))
+        fig.add_trace(go.Scatter(x=[float(xv.mean())],y=[float(yv.mean())],mode="markers",
+            showlegend=False,hovertext=f"{yl} mean ({float(xv.mean()):+.2f}, {float(yv.mean()):+.2f})",
+            hoverinfo="text",marker=dict(size=15,color=col,symbol="diamond",line=dict(color="#fff",width=1.5))))
+        fig.add_trace(go.Scatter(x=[float(xv[-1])],y=[float(yv[-1])],mode="markers",
+            showlegend=False,hovertext=f"{yl} latest ({float(xv[-1]):+.2f}, {float(yv[-1]):+.2f})",
+            hoverinfo="text",marker=dict(size=17,color="#ffffff",line=dict(color=col,width=3))))
+        if fitline:
+            lr=_stats.linregress(xv,yv)
+            xln=np.array([xv.min(),xv.max()])
+            fig.add_trace(go.Scatter(x=xln,y=lr.intercept+lr.slope*xln,mode="lines",
+                line=dict(color=col,width=2),showlegend=False,
+                hovertext=f"{yl}: β={lr.slope:.2f}, r²={lr.rvalue**2:.2f}, p={lr.pvalue:.3g}",hoverinfo="text"))
+            statrows.append({"Y vs X":f"{yl} vs {xasset}","n":len(pair),"Slope β":round(float(lr.slope),3),
+                "Corr r":round(float(lr.rvalue),3),"R²":round(float(lr.rvalue**2),3),
+                "p-value":float(lr.pvalue),"Intercept":round(float(lr.intercept),3)})
+    fig.add_hline(y=0,line=dict(color=TEXT3,dash="dot")); fig.add_vline(x=0,line=dict(color=TEXT3,dash="dot"))
+    base_layout(fig,f"{freq} returns — {', '.join(ys)} vs {xasset}","%",h=460)
+    fig.update_xaxes(title=f"{xasset} {freq.lower()} return (%)")
+    fig.update_yaxes(title=f"Y {freq.lower()} return (%)")
+    st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
+    st.caption("Traditional X–Y scatter of **paired periodic returns** (each dot = one common period). "
+               "Per-asset color; the big **◇ diamond** = the (mean X, mean Y) point and the big **◯ ringed dot** "
+               "= the latest common period. With **Fit line** on, each Y gets an OLS line and a **p-value** "
+               "(H₀: no relationship — p < 0.05 ≈ statistically significant).")
+    if statrows:
+        hh=["Y vs X","n","Slope β","Corr r","R²","p-value","Intercept"]
+        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+        for r in statrows:
+            pc=GREEN if r["p-value"]<0.05 else (YELLOW if r["p-value"]<0.10 else TEXT2)
+            h+=(f"<tr><td style='text-align:left'>{r['Y vs X']}</td><td>{r['n']}</td>"
+                f"<td>{r['Slope β']:+.3f}</td><td>{r['Corr r']:+.3f}</td><td>{r['R²']:.3f}</td>"
+                f"<td style='color:{pc}'>{r['p-value']:.4f}</td><td>{r['Intercept']:+.3f}</td></tr>")
+        st.markdown(h+"</table></div>", unsafe_allow_html=True)
     dl(exp.reset_index(), "Export periodic returns", f"JAWS_periodic_{freq.lower()}.xlsx", k+"_dl")
 
 def panel_outperf(k):
