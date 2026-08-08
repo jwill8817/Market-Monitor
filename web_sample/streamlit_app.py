@@ -1866,6 +1866,63 @@ def panel_return_dist(k):
                "one-sided VaR-style worst/best X%. Frequency converts a tail probability into 'about once per N "
                "periods' at the chosen return frequency.")
 
+@st.cache_data(ttl=21600, show_spinner=False)
+def fund_composition(sym):
+    """Current GICS sector weights (equity funds) + credit-quality weights (bond funds) via yfinance."""
+    import yfinance as yf
+    out={"sectors":{}, "ratings":{}}
+    try:
+        fd=yf.Ticker(sym).funds_data
+        sw=getattr(fd,"sector_weightings",None) or {}
+        out["sectors"]={k:float(v) for k,v in sw.items() if v}
+        try:
+            br=getattr(fd,"bond_ratings",None) or {}
+            out["ratings"]={k:float(v) for k,v in br.items() if v}
+        except Exception: pass
+    except Exception: pass
+    return out
+
+_COMPOSITION_IDX={"S&P 500 (SPY)":"SPY","Nasdaq-100 (QQQ)":"QQQ","Dow 30 (DIA)":"DIA",
+    "Russell 2000 (IWM)":"IWM","US Total Market (VTI)":"VTI","Developed ex-US (VEA)":"VEA",
+    "Emerging Mkts (VWO)":"VWO","Europe (VGK)":"VGK","Japan (EWJ)":"EWJ",
+    "US Agg Bonds (AGG)":"AGG","US Corp IG (LQD)":"LQD","US High-Yield (HYG)":"HYG"}
+
+def panel_composition(k):
+    """Sector (equity) or credit-quality (bond) allocation of an index, as a donut/pie snapshot."""
+    c1,c2,c3=st.columns([2,1,1])
+    pick=c1.selectbox("Index (ETF proxy)", list(_COMPOSITION_IDX)+["Custom ticker…"], key=k+"_idx")
+    sym=(c2.text_input("Ticker", "SPY", key=k+"_sym").strip().upper()
+         if pick=="Custom ticker…" else _COMPOSITION_IDX[pick])
+    style=c3.radio("Style",["Donut","Pie"],horizontal=True,key=k+"_style")
+    comp=fund_composition(sym)
+    sectors=comp.get("sectors",{}); ratings=comp.get("ratings",{})
+    def _nice(s): return s.replace("_"," ").title().replace("Reit","REIT").replace("Us ","US ")
+    if sectors:
+        data=sectors; title=f"{sym} — GICS sector allocation"
+    elif ratings:
+        data=ratings; title=f"{sym} — credit-quality allocation"
+    else:
+        st.warning(f"No sector/credit composition available for **{sym}** via yfinance (try an index ETF "
+                   "like SPY/QQQ/AGG)."); return
+    items=sorted(data.items(), key=lambda x:-x[1])
+    labels=[_nice(l) for l,_ in items]; vals=[v*100 for _,v in items]
+    _PIE=[ACCENT,BLUE,GREEN,YELLOW,PURPLE,CYAN,"#ff6b6b","#ffa94d","#4dd4c0","#b088f9","#f78fb3","#8fd14f"]
+    fig=go.Figure(go.Pie(labels=labels, values=vals, sort=False, direction="clockwise",
+        hole=0.55 if style=="Donut" else 0.0, textinfo="percent", textposition="inside",
+        insidetextorientation="radial",
+        marker=dict(colors=[_PIE[i%len(_PIE)] for i in range(len(labels))], line=dict(color=BG,width=1))))
+    base_layout(fig,title,h=470)
+    if style=="Donut":
+        fig.add_annotation(text=f"<b>{sym}</b>",x=0.5,y=0.5,xref="paper",yref="paper",
+                           showarrow=False,font=dict(size=18,color=TEXT1))
+    st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
+    st.caption(f"**Current snapshot** (fetched {date.today().isoformat()}) — GICS sector weights for equity "
+               "indices, credit-quality weights for bond indices, via the tracking ETF (yfinance). "
+               "**Point-in-time history isn't available for free** — this is the latest published composition, "
+               "not an arbitrary past date. Weights may not sum to exactly 100% (rounding / uncategorized).")
+    df=pd.DataFrame({"Category":labels,"Weight %":[round(v,2) for v in vals]})
+    dl(df, "Export composition", f"JAWS_composition_{sym}.xlsx", k+"_dl")
+
 def panel_periodic_returns(k):
     """Compare periodic (monthly/quarterly/annual) returns of 1+ assets as grouped bars or a
     scatter (per-asset colors; enlarged latest + mean markers)."""
@@ -3957,6 +4014,7 @@ _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("RSHP","Rolling Sharpe Ratio (ex-T-bill)", panel_rolling_sharpe, "secrshp")
 _sec("CHRT","Chart", panel_chart, "secchart")
+_sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("PRET","Periodic Returns (compare monthly/quarterly/annual)", panel_periodic_returns, "secpret")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
