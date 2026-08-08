@@ -4010,6 +4010,7 @@ def _sec(tag, title, fn, *a):
             with st.expander("details"): st.code(_tb.format_exc())
 
 # Return-distribution explorer sits up top (full-width), above the curves grid.
+_sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
 # ── Half-width grid: curves & rate/vol snapshots right under the two tables ──
 _g1=st.columns(2)
@@ -4034,7 +4035,6 @@ _sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("RSHP","Rolling Sharpe Ratio (ex-T-bill)", panel_rolling_sharpe, "secrshp")
 _sec("CHRT","Chart", panel_chart, "secchart")
-_sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("PRET","Periodic Returns (compare monthly/quarterly/annual)", panel_periodic_returns, "secpret")
 _sec("REL","Relative Performance (A vs B)", panel_outperf, "secrel")
 _sec("RVOL","Realized Volatility", panel_rvol, "secrvol")
