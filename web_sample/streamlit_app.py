@@ -1927,14 +1927,15 @@ def panel_periodic_returns(k):
     if len(series)<2:
         st.info("Pick **two or more** assets for an X–Y scatter (one on each axis)."); return
     from scipy import stats as _stats
-    sc1,sc2,sc3=st.columns([1.2,2,1])
+    sc1,sc2,sc3,sc4=st.columns([1.3,1.9,0.9,0.9])
     xasset=sc1.selectbox("X axis asset", list(series), key=k+"_xa")
     _yopts=[l for l in series if l!=xasset]
     ys=sc2.multiselect("Y axis asset(s)", _yopts, default=_yopts[:1] or _yopts, key=k+"_ya")
     fitline=sc3.checkbox("Fit line + p-value", value=True, key=k+"_fit")
+    show_eq=sc4.checkbox("Equation on chart", value=True, key=k+"_eq", disabled=not fitline)
     if not ys:
         st.info("Choose at least one Y asset."); return
-    xr=series[xasset]; fig=go.Figure(); statrows=[]
+    xr=series[xasset]; fig=go.Figure(); statrows=[]; eqs=[]
     for i,yl in enumerate(ys):
         col=PALETTE[i%len(PALETTE)]
         pair=pd.concat([xr.rename("x"),series[yl].rename("y")],axis=1,join="inner").dropna()
@@ -1957,10 +1958,21 @@ def panel_periodic_returns(k):
             statrows.append({"Y vs X":f"{yl} vs {xasset}","n":len(pair),"Slope β":round(float(lr.slope),3),
                 "Corr r":round(float(lr.rvalue),3),"R²":round(float(lr.rvalue**2),3),
                 "p-value":float(lr.pvalue),"Intercept":round(float(lr.intercept),3)})
+            eqs.append((yl,col,float(lr.slope),float(lr.intercept),float(lr.rvalue**2),float(lr.pvalue)))
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dot")); fig.add_vline(x=0,line=dict(color=TEXT3,dash="dot"))
     base_layout(fig,f"{freq} returns — {', '.join(ys)} vs {xasset}","%",h=460)
-    fig.update_xaxes(title=f"{xasset} {freq.lower()} return (%)")
-    fig.update_yaxes(title=f"Y {freq.lower()} return (%)")
+    fig.update_xaxes(title=f"{xasset} — {freq.lower()} return (%)")
+    _ylab=(ys[0] if len(ys)==1 else " · ".join(ys))
+    fig.update_yaxes(title=f"{_ylab} — {freq.lower()} return (%)")
+    # Optional in-chart regression equation(s), one line per Y series.
+    if show_eq and fitline and eqs:
+        for j,(yl,col,b,a,r2,pv) in enumerate(eqs):
+            txt=(f"{yl}: y = {b:.2f}x {'+' if a>=0 else '−'} {abs(a):.2f}"
+                 f"   R²={r2:.2f}, p={pv:.2g}")
+            fig.add_annotation(xref="paper",yref="paper",x=0.015,y=0.985-j*0.062,xanchor="left",
+                yanchor="top",text=txt,showarrow=False,align="left",
+                font=dict(size=11,color=col),bgcolor="rgba(13,17,23,0.72)",
+                bordercolor=col,borderwidth=1,borderpad=3)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     st.caption("Traditional X–Y scatter of **paired periodic returns** (each dot = one common period). "
                "Per-asset color; the big **◇ diamond** = the (mean X, mean Y) point and the big **◯ ringed dot** "
