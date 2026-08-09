@@ -1868,19 +1868,40 @@ def panel_return_dist(k):
 
 @st.cache_data(ttl=21600, show_spinner=False)
 def fund_composition(sym):
-    """Current GICS sector weights (equity funds) + credit-quality weights (bond funds) via yfinance."""
+    """Current GICS sector weights, credit-quality/bond-position, and top holdings via yfinance."""
     import yfinance as yf
-    out={"sectors":{}, "ratings":{}}
+    out={"sectors":{}, "ratings":{}, "bondpos":0.0, "holdings":[]}
     try:
         fd=yf.Ticker(sym).funds_data
-        sw=getattr(fd,"sector_weightings",None) or {}
-        out["sectors"]={k:float(v) for k,v in sw.items() if v}
-        try:
-            br=getattr(fd,"bond_ratings",None) or {}
-            out["ratings"]={k:float(v) for k,v in br.items() if v}
+        out["sectors"]={k:float(v) for k,v in (getattr(fd,"sector_weightings",None) or {}).items() if v}
+        out["ratings"]={k:float(v) for k,v in (getattr(fd,"bond_ratings",None) or {}).items() if v}
+        ac=getattr(fd,"asset_classes",None) or {}
+        try: out["bondpos"]=float(ac.get("bondPosition") or 0.0)
         except Exception: pass
+        th=getattr(fd,"top_holdings",None)
+        if th is not None and hasattr(th,"iterrows"):
+            wc=next((c for c in th.columns if "percent" in str(c).lower()), None)
+            if wc is not None:
+                for s,row in th.iterrows():
+                    try: out["holdings"].append((str(s), float(row[wc])))
+                    except Exception: pass
     except Exception: pass
     return out
+
+# Yahoo exchange-suffix → region (for best-effort geographic breakdown from top holdings)
+_SUF_REGION={".TO":"Canada",".V":"Canada",".NE":"Canada",".CN":"Canada",
+ ".L":"Europe",".PA":"Europe",".DE":"Europe",".F":"Europe",".MI":"Europe",".MC":"Europe",".AS":"Europe",
+ ".SW":"Europe",".VX":"Europe",".ST":"Europe",".OL":"Europe",".CO":"Europe",".HE":"Europe",".BR":"Europe",
+ ".LS":"Europe",".VI":"Europe",".IR":"Europe",".WA":"Europe",".DU":"Europe",".MU":"Europe",".HM":"Europe",
+ ".T":"Japan",
+ ".HK":"Asia ex-Japan",".SS":"Asia ex-Japan",".SZ":"Asia ex-Japan",".TW":"Asia ex-Japan",".TWO":"Asia ex-Japan",
+ ".KS":"Asia ex-Japan",".KQ":"Asia ex-Japan",".SI":"Asia ex-Japan",".AX":"Asia ex-Japan",".NZ":"Asia ex-Japan",
+ ".NS":"Asia ex-Japan",".BO":"Asia ex-Japan",".JK":"Asia ex-Japan",".BK":"Asia ex-Japan",".KL":"Asia ex-Japan",
+ ".SA":"Latin America",".MX":"Latin America",".BA":"Latin America",".SN":"Latin America",
+ ".JO":"Other",".TA":"Other",".SR":"Other",".QA":"Other",".KW":"Other"}
+def _region_of(sym):
+    if "." not in sym: return "United States"
+    return _SUF_REGION.get("."+sym.rsplit(".",1)[1], "Other/Unknown")
 
 _COMPOSITION_IDX={"S&P 500 (SPY)":"SPY","Nasdaq-100 (QQQ)":"QQQ","Dow 30 (DIA)":"DIA",
     "Russell 2000 (IWM)":"IWM","US Total Market (VTI)":"VTI","Developed ex-US (VEA)":"VEA",
@@ -1889,13 +1910,16 @@ _COMPOSITION_IDX={"S&P 500 (SPY)":"SPY","Nasdaq-100 (QQQ)":"QQQ","Dow 30 (DIA)":
 
 def panel_composition(k):
     """Sector (equity) or credit-quality (bond) allocation of an index, as a donut/pie snapshot."""
-    c1,c2,c3=st.columns([2,1,1])
-    pick=c1.selectbox("Index (ETF proxy)", list(_COMPOSITION_IDX)+["Custom ticker…"], key=k+"_idx")
-    sym=(c2.text_input("Ticker", "SPY", key=k+"_sym").strip().upper()
-         if pick=="Custom ticker…" else _COMPOSITION_IDX[pick])
+    c1,c2,c3=st.columns([1.5,1.5,1])
+    pick=c1.selectbox("Preset index", ["—"]+list(_COMPOSITION_IDX), key=k+"_idx")
+    typed=c2.text_input("or type any ticker", "", key=k+"_sym",
+                        placeholder="e.g. VT, EFA, EMB, EWZ").strip().upper()
+    sym=typed or (_COMPOSITION_IDX[pick] if pick in _COMPOSITION_IDX else "SPY")
     style=c3.radio("Style",["Donut","Pie"],horizontal=True,key=k+"_style")
     comp=fund_composition(sym)
     sectors=comp.get("sectors",{}); ratings=comp.get("ratings",{})
+    bondpos=comp.get("bondpos",0.0); holdings=comp.get("holdings",[])
+    is_bond=(bondpos>0.5) or (ratings and not sectors)
     def _nice(s): return s.replace("_"," ").title().replace("Reit","REIT").replace("Us ","US ")
     _PIE=[ACCENT,BLUE,GREEN,YELLOW,PURPLE,CYAN,"#ff6b6b","#ffa94d","#4dd4c0","#b088f9","#f78fb3","#8fd14f"]
     def _draw(pairs, title, key, center=""):
@@ -1912,14 +1936,8 @@ def panel_composition(k):
                                showarrow=False,font=dict(size=16,color=TEXT1))
         st.plotly_chart(fig, use_container_width=True, key=key)
         return pd.DataFrame({"Category":labels,"Weight %":[round(v,2) for v in vals]})
-    if sectors:
-        df=_draw([(_nice(l),v*100) for l,v in sectors.items()],
-                 f"{sym} — GICS sector allocation", k+"_chart", sym)
-        st.caption(f"**Current snapshot** (fetched {date.today().isoformat()}) — GICS sector weights via the "
-                   "tracking ETF (yfinance). Point-in-time history isn't available for free; this is the latest "
-                   "published composition. Weights may not sum to exactly 100% (rounding / uncategorized).")
-        dl(df, "Export composition", f"JAWS_composition_{sym}.xlsx", k+"_dl"); return
-    if ratings:
+    # ── Bond funds → credit/type view (route by bond position so HYG etc. don't show equity sectors) ──
+    if is_bond and ratings:
         gov=ratings.get("us_government",0.0)
         hy=ratings.get("bb",0)+ratings.get("b",0)+ratings.get("below_b",0)
         ig=max(0.0, 1.0-gov-hy)
@@ -1940,8 +1958,32 @@ def panel_composition(k):
                    "(HY = BB and below; Govt bonds sit in the AA/AAA rungs of the ladder.)")
         dl_multi({"By type":dft,"Quality ladder":dfq},
                  "Export composition", f"JAWS_composition_{sym}.xlsx", k+"_dl"); return
-    st.warning(f"No sector/credit composition available for **{sym}** via yfinance (try an index ETF "
-               "like SPY/QQQ/AGG).")
+    # ── Equity funds → Sector or Geography ──
+    if sectors or holdings:
+        view=st.radio("Breakdown",["Sector","Geography"],horizontal=True,key=k+"_view")
+        if view=="Sector" and sectors:
+            df=_draw([(_nice(l),v*100) for l,v in sectors.items()],
+                     f"{sym} — GICS sector allocation", k+"_chart", sym)
+            st.caption(f"**Current snapshot** ({date.today().isoformat()}) — GICS sector weights via the tracking "
+                       "ETF (yfinance). Point-in-time history isn't available for free; this is the latest "
+                       "published composition. Weights may not sum to exactly 100% (rounding / uncategorized).")
+            dl(df, "Export composition", f"JAWS_composition_{sym}.xlsx", k+"_dl"); return
+        if view=="Geography":
+            if not holdings:
+                st.warning("No holdings available to infer geography for this fund."); return
+            agg={}; cover=0.0
+            for s,w in holdings:
+                reg=_region_of(s); agg[reg]=agg.get(reg,0.0)+w*100; cover+=w*100
+            if cover<99.0:
+                agg["Unclassified (beyond top holdings)"]=max(0.0,100.0-cover)
+            df=_draw(list(agg.items()), f"{sym} — geography (from top holdings)", k+"_chart", sym)
+            st.caption(f"**Approximate geography** ({date.today().isoformat()}), inferred from the fund's **top "
+                       f"{len(holdings)} holdings** (~{cover:.0f}% of the fund) by exchange listing. A full "
+                       "country breakdown isn't available free, so the remainder is shown as **Unclassified**. "
+                       "US-listed = United States; foreign listings mapped to their region.")
+            dl(df, "Export geography", f"JAWS_geography_{sym}.xlsx", k+"_dl"); return
+        st.info("No sector weights for this fund — try the Geography view."); return
+    st.warning(f"No composition available for **{sym}** via yfinance (try an index ETF like SPY/QQQ/AGG).")
 
 def panel_periodic_returns(k):
     """Compare periodic (monthly/quarterly/annual) returns of 1+ assets as grouped bars or a
