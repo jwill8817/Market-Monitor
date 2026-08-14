@@ -298,6 +298,7 @@ CRYPTO = {
 def _start_dates():
     today = datetime.date.today()
     return {
+        "WTD": today - datetime.timedelta(days=today.weekday()),   # Monday of the current week
         "MTD": datetime.date(today.year, today.month, 1),
         "YTD": datetime.date(today.year, 1, 1),
         "1Y":  today - relativedelta(years=1),
@@ -320,7 +321,7 @@ def _annualized(start_price, end_price, years):
 # Periods that get annualized (>1Y)
 _ANNUALIZE = {"3Y": 3, "5Y": 5, "10Y": 10}
 # "To-date" periods anchored to the prior period's last close (not the first bar inside)
-_TO_DATE = {"MTD", "QTD", "YTD"}
+_TO_DATE = {"WTD", "MTD", "QTD", "YTD"}
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]

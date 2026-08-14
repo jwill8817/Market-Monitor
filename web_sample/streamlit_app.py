@@ -923,7 +923,7 @@ def multpl_series(url):
 # ════════════════════════════════════════════════════════════════
 # PANEL RENDERERS  (each takes a unique key prefix `k`)
 # ════════════════════════════════════════════════════════════════
-RET_HDR=["Name","Tkr","Price","1D%","MTD%","YTD%","1Y%","3Y%","5Y%","10Y%","Custom%"]
+RET_HDR=["Name","Tkr","Price","1D%","WTD%","MTD%","YTD%","1Y%","3Y%","5Y%","10Y%","Custom%"]
 
 def _panel_returns_calendar(catkey, label, k, absolute):
     """Alternative view: 1D/MTD/QTD/YTD, current-year quarters & months, and prior full
@@ -982,7 +982,8 @@ def panel_returns(catkey, label, k):
         r=info.get("returns",{})
         h+=("<tr>"f"<td>{name}</td><td style='color:{TEXT3}'>{tmap.get(name,'')}</td>"
             f"<td>{f_price(info.get('price'),name)}</td><td>{fc(info.get('change_1d'))}</td>"
-            f"<td>{fc(r.get('MTD'))}</td><td>{fc(r.get('YTD'))}</td><td>{fc(r.get('1Y'))}</td>"
+            f"<td>{fc(r.get('WTD'))}</td><td>{fc(r.get('MTD'))}</td><td>{fc(r.get('YTD'))}</td>"
+            f"<td>{fc(r.get('1Y'))}</td>"
             f"<td>{fc(r.get('3Y'))}</td><td>{fc(r.get('5Y'))}</td><td>{fc(r.get('10Y'))}</td>"
             f"<td>{fc(r.get('Custom'))}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
@@ -990,7 +991,7 @@ def panel_returns(catkey, label, k):
     c1.date_input("Custom start", value=cs, key=k+"_cs", min_value=date(1900,1,1))
     c2.date_input("Custom end", value=ce, key=k+"_ce", min_value=date(1900,1,1))
     df=pd.DataFrame([{"Name":n,"Ticker":tmap.get(n,""),"Price":i.get("price"),
-        **{p:i.get("returns",{}).get(p) for p in ["MTD","YTD","1Y","3Y","5Y","10Y","Custom"]}}
+        **{p:i.get("returns",{}).get(p) for p in ["WTD","MTD","YTD","1Y","3Y","5Y","10Y","Custom"]}}
         for n,i in data.items()])
     with c3: dl(df, "Export", f"JAWS_{catkey}.xlsx", k+"_dl")
 
@@ -1546,7 +1547,8 @@ def panel_watchlist(k):
     if not wl:
         st.info("Search above to add instruments to your watchlist. Items stay until you remove them."); return
     today=date.today()
-    anchors=[("1D",None),("MTD",today.replace(day=1)-relativedelta(days=1)),
+    anchors=[("1D",None),("WTD",today-relativedelta(days=today.weekday()+1)),
+             ("MTD",today.replace(day=1)-relativedelta(days=1)),
              ("YTD",date(today.year-1,12,31)),("1Y",today-relativedelta(years=1)),
              ("3Y",today-relativedelta(years=3)),("5Y",today-relativedelta(years=5)),
              ("10Y",today-relativedelta(years=10))]
