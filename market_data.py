@@ -300,6 +300,7 @@ def _start_dates():
     return {
         "WTD": today - datetime.timedelta(days=today.weekday()),   # Monday of the current week
         "MTD": datetime.date(today.year, today.month, 1),
+        "QTD": datetime.date(today.year, 3 * ((today.month - 1) // 3) + 1, 1),
         "YTD": datetime.date(today.year, 1, 1),
         "1Y":  today - relativedelta(years=1),
         "3Y":  today - relativedelta(years=3),
