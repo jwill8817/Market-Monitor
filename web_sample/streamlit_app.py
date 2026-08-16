@@ -3536,6 +3536,57 @@ def panel_regression():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True)
 
+        # ── Rolling multivariate betas of the model's factors (significance-styled) ──
+        import numpy as np
+        st.divider()
+        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Rolling factor betas — multivariate β of each model factor over time; '
+                    '<b>solid &amp; thick</b> where significant (p&lt;0.05), <b>dotted</b> where not</span>',
+                    unsafe_allow_html=True)
+        _wmin=len(cols)+3
+        if len(frame) <= _wmin+1:
+            st.caption("Not enough observations for a rolling window here — widen the date range or reduce factors.")
+        else:
+            _sig_cols=[c for i,c in enumerate(cols) if pvals[i+1]<0.05]
+            _unit="months" if freq=="Monthly" else "days"
+            _wmax=len(frame)-1
+            _wdef=max(_wmin, min(36 if freq=="Monthly" else 120, _wmax))
+            rc1,rc2=st.columns([1,2])
+            rw=int(rc1.number_input(f"Rolling window ({_unit})", min_value=_wmin, max_value=_wmax,
+                                    value=_wdef, step=1, key="reg_mbwin"))
+            pick=rc2.multiselect("Factors to plot", cols, default=(_sig_cols or cols)[:6], key="reg_mbfac")
+            if pick:
+                _Y=frame["__Y__"].values; _X=frame[cols].values; _idx=frame.index
+                _ci={c:cols.index(c) for c in pick}
+                bser={c:[] for c in pick}; pser={c:[] for c in pick}; dts=[]
+                for t in range(rw, len(frame)+1):
+                    f2=_ols_fit(_Y[t-rw:t], _X[t-rw:t]); dts.append(_idx[t-1])
+                    for c in pick:
+                        if f2 is None: bser[c].append(np.nan); pser[c].append(np.nan)
+                        else:
+                            j=_ci[c]; bser[c].append(float(f2["beta"][j+1])); pser[c].append(float(f2["p"][j+1]))
+                mbfig=go.Figure()
+                for i,c in enumerate(pick):
+                    col=PALETTE[i%len(PALETTE)]
+                    bv=np.array(bser[c],float); pv=np.array(pser[c],float)
+                    mbfig.add_trace(go.Scatter(x=dts,y=bv,mode="lines",name=c,opacity=0.6,
+                        line=dict(color=col,width=1,dash="dot"),
+                        hovertemplate=c+": β=%{y:.2f}<extra></extra>"))
+                    sig=np.where(pv<0.05, bv, np.nan)
+                    mbfig.add_trace(go.Scatter(x=dts,y=sig,mode="lines",showlegend=False,
+                        line=dict(color=col,width=3),connectgaps=False,
+                        hovertemplate=c+" (p&lt;0.05): β=%{y:.2f}<extra></extra>"))
+                mbfig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+                base_layout(mbfig,f"Rolling {rw}-{_unit[:2]} factor betas  ·  solid = significant (p<0.05)","",h=430)
+                st.plotly_chart(mbfig, use_container_width=True, key="reg_mbchart")
+                st.caption("Each line = a factor's β from a **rolling multivariate OLS** (all model factors present, "
+                           "so betas are partial / holding-others-constant). **Solid & thick** where that factor is "
+                           "significant in the window (p<0.05); **dotted** where it isn't. Default plots the "
+                           "full-sample significant factors — add/remove any above.")
+                _mbdf=pd.DataFrame({"Date":dts})
+                for c in pick: _mbdf[f"{c} beta"]=bser[c]; _mbdf[f"{c} p"]=pser[c]
+                dl(_mbdf,"Export rolling betas","JAWS_rolling_factor_betas.xlsx","reg_mb_dl")
+
         # ── Rolling beta & p-value (own choice menu) ──
         st.divider()
         st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
