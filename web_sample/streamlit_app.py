@@ -1988,6 +1988,72 @@ def panel_composition(k):
         st.info("No sector weights for this fund — try the Geography view."); return
     st.warning(f"No composition available for **{sym}** via yfinance (try an index ETF like SPY/QQQ/AGG).")
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _usd_monthly_returns(sym):
+    """Monthly total return (%) of a ticker in USD terms (foreign listings converted via {CUR}USD=X)."""
+    import yfinance as yf
+    s=md_history(sym)
+    if s is None or s.empty: return None
+    s=s.sort_index()
+    if getattr(s.index,"tz",None) is not None: s.index=s.index.tz_localize(None)
+    cur="USD"
+    try: cur=(getattr(yf.Ticker(sym).fast_info,"currency",None) or "USD").upper()
+    except Exception: pass
+    if cur and cur!="USD":
+        fx=md_history(f"{cur}USD=X")
+        if fx is not None and not fx.empty:
+            fx=fx.sort_index()
+            if getattr(fx.index,"tz",None) is not None: fx.index=fx.index.tz_localize(None)
+            j=pd.concat([s.rename("p"),fx.rename("fx")],axis=1).sort_index().ffill().dropna()
+            if not j.empty: s=j["p"]*j["fx"]
+    return (s.resample("ME").last().pct_change()*100).dropna()
+
+def panel_return_matrix(k):
+    """Grid of monthly returns (rows = months MM/YYYY, columns = assets) in USD terms, to
+    compare a set of assets over a chosen window."""
+    _LBL={"1475.T":"TOPIX ($)"}
+    c1,c2=st.columns([3,1])
+    txt=c1.text_input("Assets (comma-separated tickers — foreign auto-converted to USD)",
+                      "SPY, URTH, AGG, JNK, MUB, XBI, 1475.T", key=k+"_syms")
+    nmo=int(c2.number_input("Months", min_value=3, max_value=240, value=24, step=1, key=k+"_n"))
+    syms=[t.strip() for t in txt.split(",") if t.strip()]
+    if not syms:
+        st.info("Enter at least one ticker."); return
+    series={}; missing=[]
+    with st.spinner("Loading monthly returns…"):
+        for s in syms:
+            r=_usd_monthly_returns(s)
+            if r is None or r.empty: missing.append(s); continue
+            series[_LBL.get(s.upper(), s.upper())]=r
+    if missing:
+        st.caption(f"No data for: {', '.join(missing)}")
+    if not series:
+        st.warning("No data for any of those tickers."); return
+    chrono=pd.concat(series, axis=1).sort_index().tail(nmo)
+    disp=chrono.iloc[::-1]                       # most-recent month first
+    cols=list(chrono.columns)
+    hdr=["Month"]+cols
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    for dt,row in disp.iterrows():
+        h+=f"<tr><td>{dt.strftime('%m/%Y')}</td>"
+        for c in cols:
+            v=row[c]; h+=f"<td>{f_pct(None if pd.isna(v) else float(v))}</td>"
+        h+="</tr>"
+    # summary rows: mean monthly + compounded over the shown window
+    mean=chrono.mean(); cum=((1+chrono/100.0).prod()-1)*100
+    h+=f"<tr><td style='color:{TEXT2};font-weight:700'>Mean</td>"
+    for c in cols: h+=f"<td style='font-weight:700'>{f_pct(float(mean[c]))}</td>"
+    h+=f"</tr><tr><td style='color:{TEXT2};font-weight:700'>Cumulative</td>"
+    for c in cols: h+=f"<td style='font-weight:700'>{f_pct(float(cum[c]))}</td>"
+    h+="</tr>"
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption(f"Monthly **USD total returns** over the last {len(chrono)} months (most recent first). Foreign "
+               "listings (e.g. **1475.T = TOPIX** in Tokyo) are converted to USD via the {CUR}USD FX rate, so "
+               "they reflect the dollar-based return. **Mean** = average monthly return; **Cumulative** = "
+               "compounded return over the window. Dates are month-end (MM/YYYY).")
+    exp=chrono.copy(); exp.insert(0,"Month",[d.strftime("%m/%Y") for d in exp.index])
+    dl(exp.reset_index(drop=True), "Export return matrix", "JAWS_return_matrix.xlsx", k+"_dl")
+
 def panel_periodic_returns(k):
     """Compare periodic (monthly/quarterly/annual) returns of 1+ assets as grouped bars or a
     scatter (per-asset colors; enlarged latest + mean markers)."""
@@ -4108,6 +4174,7 @@ def _sec(tag, title, fn, *a):
 # Return-distribution explorer sits up top (full-width), above the curves grid.
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
+_sec("RMTX","Monthly Return Matrix (compare assets, USD)", panel_return_matrix, "secrmtx")
 # ── Half-width grid: curves & rate/vol snapshots right under the two tables ──
 _g1=st.columns(2)
 with _g1[0]: _sec("CRV","Curves", panel_curves, "q3")
