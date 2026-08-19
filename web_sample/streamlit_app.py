@@ -1730,25 +1730,33 @@ def panel_return_dist(k):
     yrs={"1Y":1,"3Y":3,"5Y":5,"10Y":10,"20Y":20,"Max":None}[per]
     start=(date.today()-relativedelta(years=yrs)) if yrs else None
     rets={}
-    for lbl in labels[:2]:
-        s=md_history(chosen[lbl], start=start)
-        if s is None or s.empty: continue
-        s=s.sort_index()
-        if rule: s=s.resample(rule).last()
-        r=(s.pct_change().dropna()*100.0)
-        if len(r)>=3: rets[lbl]=r
+    with st.spinner("Loading return distribution…"):
+        for lbl in labels[:2]:
+            s=md_history(chosen[lbl], start=start)
+            if s is None or s.empty: continue
+            s=s.sort_index()
+            if rule: s=s.resample(rule).last()
+            r=(s.pct_change().dropna()*100.0)
+            if len(r)>=3: rets[lbl]=r
     if not rets:
         st.warning("Not enough data for that asset/frequency/period — widen the history or pick a longer frequency."); return
     fig=go.Figure(); cols=[ACCENT,BLUE]; allv=np.concatenate([v.values for v in rets.values()])
     xlo,xhi=float(np.min(allv)),float(np.max(allv)); pad=0.05*(xhi-xlo or 1.0)
     grid=np.linspace(xlo-pad,xhi+pad,240)
+    _TODAY="#ffffff"                              # contrasting 'today' line (dark theme)
     exp_rows=[]
     for i,(lbl,r) in enumerate(rets.items()):
         col=cols[i%len(cols)]; v=r.values; latest=float(v[-1])
         pct=float((v<latest).mean()*100)          # percentile rank of the latest return
         if i==0:
-            fig.add_trace(go.Histogram(x=v, histnorm="probability density", nbinsx=41,
-                marker_color=col, opacity=0.72, name=f"{lbl} (bars)"))
+            # manual histogram so each bar is colored by sign: green ≥ 0, red < 0
+            counts,edges=np.histogram(v, bins=41, density=True)
+            centers=(edges[:-1]+edges[1:])/2.0
+            barcol=[GREEN if c>=0 else RED for c in centers]
+            fig.add_trace(go.Bar(x=centers, y=counts, width=(edges[1]-edges[0])*0.9,
+                marker_color=barcol, opacity=0.85, name=f"{lbl}",
+                hovertemplate="return %{x:.2f}%%<extra></extra>"))
+            tline=_TODAY
         else:
             try:
                 from scipy.stats import gaussian_kde
@@ -1758,11 +1766,12 @@ def panel_return_dist(k):
             except Exception:
                 fig.add_trace(go.Histogram(x=v, histnorm="probability density", nbinsx=41,
                     marker_color=col, opacity=0.4, name=f"{lbl}"))
-        # latest-return indicator
-        fig.add_vline(x=latest, line=dict(color=col,dash="dash",width=2),
+            tline=col
+        # latest-return indicator (contrasting for the bars asset)
+        fig.add_vline(x=latest, line=dict(color=tline,dash="dash",width=2.5),
             annotation_text=f"{lbl} latest {latest:+.2f}% ({pct:.0f}%ile)",
             annotation_position=("top left" if i else "top right"),
-            annotation_font=dict(size=10,color=col))
+            annotation_font=dict(size=10,color=tline))
         exp_rows.append({"Asset":lbl,"Freq":tf,"N":len(v),"Mean%":round(float(v.mean()),3),
             "Median%":round(float(np.median(v)),3),"Std%":round(float(v.std(ddof=1)),3),
             "Min%":round(float(v.min()),3),"Max%":round(float(v.max()),3),
@@ -1793,6 +1802,44 @@ def panel_return_dist(k):
     _retdf.index.name="Date"; _retdf=_retdf.reset_index()
     dl_multi({"Stats":pd.DataFrame(exp_rows), f"{tf} returns":_retdf},
              "Export distribution + returns","JAWS_return_distribution.xlsx",k+"_dl")
+
+    # ── Probability by move level (empirical, per level on the x-axis) ──
+    st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Probability by move level — for each return level, the empirical odds of a move '
+                'of that size or beyond</span>', unsafe_allow_html=True)
+    pc1,pc2=st.columns([1.4,1])
+    pwho=pc1.selectbox("Asset", list(rets.keys()), key=k+"_plvasset")
+    pdir=pc2.radio("Direction", ["At least (tail: ≥ up / ≤ down)","At most (≤ up / ≥ down)"],
+                   key=k+"_pldir",
+                   help="At least = tail/exceedance odds of a move that big or bigger. "
+                        "At most = odds the move stays within that level.")
+    pv=rets[pwho].values
+    _plo,_phi=float(np.floor(pv.min())),float(np.ceil(pv.max()))
+    _pstep=_nice_dtick(_phi-_plo, target=18) or 1.0
+    levels=np.round(np.arange(_plo,_phi+_pstep,_pstep),4)
+    atleast=pdir.startswith("At least")
+    probs=[]; pcols=[]
+    for x in levels:
+        if atleast:
+            p=(pv>=x).mean() if x>=0 else (pv<=x).mean()
+        else:
+            p=(pv<=x).mean() if x>=0 else (pv>=x).mean()
+        probs.append(p*100.0); pcols.append(GREEN if x>=0 else RED)
+    pfig=go.Figure(go.Bar(x=levels, y=probs, marker_color=pcols, opacity=0.85,
+        width=_pstep*0.9, hovertemplate="level %{x:.2f}%% → %{y:.1f}%%<extra></extra>"))
+    pfig.add_vline(x=float(pv[-1]), line=dict(color=_TODAY,dash="dash",width=2.5),
+        annotation_text=f"latest {float(pv[-1]):+.2f}%", annotation_font=dict(size=10,color=_TODAY))
+    base_layout(pfig,f"{pwho} — P(move) by {tf.lower()} return level","%",h=360)
+    pfig.update_xaxes(title=f"{tf} return level (%)", tickmode="linear", tick0=0, dtick=_pstep)
+    pfig.update_yaxes(title="Probability (%)", range=[0,100])
+    st.plotly_chart(pfig, use_container_width=True, key=k+"_plv")
+    _lbl=("odds of a move **that size or bigger** (right tail on the + side, left tail on the − side)"
+          if atleast else
+          "odds the move **stays within** that level (≤ on the + side, ≥ on the − side)")
+    st.caption(f"For each **return level** on the x-axis, the bar height (**Y**) is the empirical probability — "
+               f"{_lbl}. Green = positive levels, red = negative; the white dashed line marks the latest return.")
+    dl(pd.DataFrame({"Level_%":levels,"Probability_%":[round(p,2) for p in probs]}),
+       "Export probability-by-level", f"JAWS_prob_by_level_{tf.lower()}.xlsx", k+"_plvdl")
 
     # ── Move & probability calculator (empirical history + normal model) ──
     st.divider()
