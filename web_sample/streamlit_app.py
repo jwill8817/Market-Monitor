@@ -1809,15 +1809,17 @@ def panel_return_dist(k):
                 'of that size or beyond</span>', unsafe_allow_html=True)
     pc1,pc2=st.columns([1.4,1])
     pwho=pc1.selectbox("Asset", list(rets.keys()), key=k+"_plvasset")
-    pdir=pc2.radio("Direction", ["At least (tail: ≥ up / ≤ down)","At most (≤ up / ≥ down)"],
+    pdir=pc2.radio("Direction",
+                   ["This size or less (≤ on +, ≥ on −)","This size or more (tail: ≥ on +, ≤ on −)"],
                    key=k+"_pldir",
-                   help="At least = tail/exceedance odds of a move that big or bigger. "
-                        "At most = odds the move stays within that level.")
+                   help="'This size or less' = P(return ≤ level) on the + side and P(return ≥ level) on the "
+                        "− side — the odds the move is no bigger than that level (rises toward 100% at the "
+                        "extremes). 'This size or more' = the tail/exceedance odds of a move at least that big.")
     pv=rets[pwho].values
     _plo,_phi=float(np.floor(pv.min())),float(np.ceil(pv.max()))
     _pstep=_nice_dtick(_phi-_plo, target=18) or 1.0
     levels=np.round(np.arange(_plo,_phi+_pstep,_pstep),4)
-    atleast=pdir.startswith("At least")
+    atleast=pdir.startswith("This size or more")
     probs=[]; pcols=[]
     for x in levels:
         if atleast:
@@ -1833,9 +1835,11 @@ def panel_return_dist(k):
     pfig.update_xaxes(title=f"{tf} return level (%)", tickmode="linear", tick0=0, dtick=_pstep)
     pfig.update_yaxes(title="Probability (%)", range=[0,100])
     st.plotly_chart(pfig, use_container_width=True, key=k+"_plv")
-    _lbl=("odds of a move **that size or bigger** (right tail on the + side, left tail on the − side)"
+    _lbl=("odds of a move **that size or bigger** — right tail on the + side (P ≥ level), left tail on the "
+          "− side (P ≤ level)"
           if atleast else
-          "odds the move **stays within** that level (≤ on the + side, ≥ on the − side)")
+          "odds of a move **that size or smaller**: on the + side P(return ≤ level), on the − side "
+          "P(return ≥ level) — i.e. how likely the move stays no bigger than that level")
     st.caption(f"For each **return level** on the x-axis, the bar height (**Y**) is the empirical probability — "
                f"{_lbl}. Green = positive levels, red = negative; the white dashed line marks the latest return.")
     dl(pd.DataFrame({"Level_%":levels,"Probability_%":[round(p,2) for p in probs]}),
