@@ -1810,7 +1810,7 @@ def panel_return_dist(k):
     pc1,pc2=st.columns([1.4,1])
     pwho=pc1.selectbox("Asset", list(rets.keys()), key=k+"_plvasset")
     pdir=pc2.radio("Direction",
-                   ["This size or less (≤ on +, ≥ on −)","This size or more (tail: ≥ on +, ≤ on −)"],
+                   ["This size or more (tail: ≥ on +, ≤ on −)","This size or less (≤ on +, ≥ on −)"],
                    key=k+"_pldir",
                    help="'This size or less' = P(return ≤ level) on the + side and P(return ≥ level) on the "
                         "− side — the odds the move is no bigger than that level (rises toward 100% at the "
