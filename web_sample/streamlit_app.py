@@ -3347,6 +3347,30 @@ def _ridge_gcv(y, X):
         if best is None or gcv<best[2]: best=(lam,edf,gcv)
     return best if best else (1.0, float(k), None)
 
+def _attrib_geo(ysub, Xsub, beta, cols, ppy):
+    """Geometric (Cariño-linked) return attribution over a window. The total is the COMPOUNDED
+    return Π(1+r)−1 (not the arithmetic sum), and the per-factor + idiosyncratic contributions are
+    log-linked so they still sum exactly to that compounded total (and to the geometric annualized
+    figure for >1y windows). Returns (R_cum, R_ann, cum{factor}, idio_cum, ann{factor}, idio_ann),
+    all decimals."""
+    import numpy as np
+    y=np.asarray(ysub,float); n=len(y)
+    R=float(np.prod(1.0+y)-1.0)                                   # compounded cumulative return
+    contribs={c:(Xsub[:,j]*beta[j+1]) for j,c in enumerate(cols)}  # per-period βᵢ·Xᵢ
+    idio_t=y-(sum(contribs.values()) if cols else 0.0)            # α + residual per period
+    kt=np.where(np.abs(y)<1e-12, 1.0, np.log1p(y)/np.where(y==0,1.0,y))   # Cariño period coeffs
+    K=1.0 if abs(R)<1e-12 else float(np.log1p(R)/R)
+    w=kt/K                                                        # Σ wₜ·rₜ = R  ⇒ contributions reconcile
+    cum={c:float(np.sum(w*contribs[c])) for c in cols}
+    idio_cum=float(np.sum(w*idio_t))
+    if n>ppy:
+        R_ann=(1.0+R)**(ppy/n)-1.0                               # geometric CAGR
+        sc=(R_ann/R) if abs(R)>1e-12 else 1.0
+    else:
+        R_ann=R; sc=1.0
+    ann={c:cum[c]*sc for c in cols}; idio_ann=idio_cum*sc
+    return R, R_ann, cum, idio_cum, ann, idio_ann
+
 def panel_regression():
     st.markdown(f'<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
     with st.container(border=True):
@@ -3512,11 +3536,12 @@ def panel_regression():
         for lbl,N in hz:
             sub=frame if N is None else (frame.iloc[-N:] if N<=len(frame) else None)
             if sub is None or len(sub)<1: continue
-            ysub=sub["__Y__"].values; fac=float((sub[cols].values@beta[1:]).sum())
-            tot=float(ysub.sum()); idio=tot-fac
-            # Annualize only horizons longer than 1 year; 1M/1Y shown as their raw period return.
-            ann=ppy/len(sub) if len(sub)>ppy else 1.0
-            labels.append(lbl); facv.append(fac*ann*100); idiov.append(idio*ann*100); totv.append(tot*ann*100)
+            ysub=sub["__Y__"].values; Xsub=sub[cols].values
+            R,R_ann,cum,idio_cum,annc,idio_ann=_attrib_geo(ysub,Xsub,beta,cols,ppy)
+            use_ann=len(sub)>ppy                                 # annualize (geometric) for >1y
+            fac=(sum(annc.values()) if use_ann else sum(cum.values()))
+            idio=(idio_ann if use_ann else idio_cum); tot=(R_ann if use_ann else R)
+            labels.append(lbl); facv.append(fac*100); idiov.append(idio*100); totv.append(tot*100)
         if labels:
             bar=go.Figure()
             bar.add_trace(go.Bar(x=labels,y=facv,name="From Beta(s) (β·X)",marker_color=BLUE))
@@ -3547,11 +3572,13 @@ def panel_regression():
                                "Beta share %":[round(x,1) for x in pf],
                                "Idiosyncratic share %":[round(x,1) for x in pi]})
             st.caption("Top bars = total return split into **Beta-driven** (β·X, blue) and **idiosyncratic** "
-                       "(α + residual, yellow); label is the total. **1M and 1Y are the raw period return; "
-                       "3Y/5Y/10Y/Full are annualized.** Bottom bars = the same split as a **share of total "
-                       "(sums to 100%)**. When Beta and idiosyncratic returns have opposite signs, a share can "
-                       "exceed 100% while the other goes negative (they still net to 100%). Horizons longer "
-                       "than the loaded history are skipped.")
+                       "(α + residual, yellow); label is the total. Totals are **compounded** (Π(1+r)−1, so they "
+                       "match a spreadsheet cumulative return); **1M/1Y are the cumulative period return, "
+                       "3Y/5Y/10Y/Full are the geometric annualized (CAGR).** Contributions are **Cariño log-"
+                       "linked** so Beta + idiosyncratic still sum exactly to the compounded total. Bottom bars = "
+                       "the same split as a **share of total (100%)**; opposite-sign pieces can push a share past "
+                       "100% while the other goes negative (they still net to 100%). Horizons longer than the "
+                       "loaded history are skipped.")
             dl(atab, "Export attribution", "JAWS_regression_attribution.xlsx", "reg_attr_dl")
 
             # ── Per-factor breakout: return contribution & risk (variance) contribution ──
@@ -3564,12 +3591,12 @@ def panel_regression():
                 if sub is None or len(sub)<3: continue
                 hz_lbls.append(hlbl)
                 ysub=sub["__Y__"].values; Xsub=sub[cols].values
-                ann=ppy/len(sub) if len(sub)>ppy else 1.0
-                fac_tot=0.0
-                for j,c in enumerate(cols):
-                    contrib=float((Xsub[:,j]*beta[j+1]).sum())
-                    ret_by[c].append(contrib*ann*100); fac_tot+=contrib
-                ret_idio.append((float(ysub.sum())-fac_tot)*ann*100)
+                # Geometric (Cariño-linked) return contributions — sum to the compounded total.
+                _R,_Rann,_cum,_idc,_annc,_ida=_attrib_geo(ysub,Xsub,beta,cols,ppy)
+                _use_ann=len(sub)>ppy
+                for c in cols:
+                    ret_by[c].append((_annc[c] if _use_ann else _cum[c])*100)
+                ret_idio.append((_ida if _use_ann else _idc)*100)
                 resid=ysub-(beta[0]+Xsub@beta[1:])
                 parts={c:float(beta[j+1]*np.cov(ysub,Xsub[:,j],ddof=1)[0,1]) for j,c in enumerate(cols)}
                 iv=float(np.var(resid,ddof=1)); tot=sum(parts.values())+iv
@@ -3597,8 +3624,9 @@ def panel_regression():
                 _stacked(ret_by, ret_idio, f"{ylabel} — return contribution by factor (annualized >1Y)","%","reg_attr_byfac")
                 _stacked(rsk_by, rsk_idio, f"{ylabel} — contribution to risk (variance %)","%","reg_attr_risk", hundred=True)
                 _stacked(vol_by, vol_idio, f"{ylabel} — contribution to volatility (annualized %)","%","reg_attr_vol", tots=vol_tot)
-                st.caption("**Return contribution** (top): each factor's βᵢ·Xᵢ per horizon + idiosyncratic → sums to "
-                           "total return. **Risk (variance %)** (middle): each factor's share of total variance "
+                st.caption("**Return contribution** (top): each factor's βᵢ·Xᵢ per horizon + idiosyncratic, "
+                           "**Cariño-linked** so they sum to the **compounded** total return (geometric annualized "
+                           "for >1Y). **Risk (variance %)** (middle): each factor's share of total variance "
                            "(βᵢ·Cov(Y,Xᵢ)), normalized to 100%. **Volatility (bottom):** the same risk shares scaled by "
                            "the annualized vol so the bars sum to Y's annualized vol (e.g. a factor that is 50% of risk "
                            "on 15% vol = 7.5%). Stepwise is on by default to keep the breakout readable.")
