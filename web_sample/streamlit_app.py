@@ -755,6 +755,53 @@ def export_series_xlsx(df, returns_mode):
 def dl(df, label, fname, key):
     st.download_button("⬇ "+label, data=xlsx_bytes(df), file_name=fname, key=key,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+def rolling_beta_xlsx(dts, bser, pser, factors, win, unit):
+    """Workbook with rolling β & p-values per factor + native Excel line charts styled by
+    significance: a dotted base line (full β) plus a solid overlay drawn only where p<0.05.
+    p-value cells are green-highlighted when significant."""
+    import io, xlsxwriter, math
+    buf=io.BytesIO(); wb=xlsxwriter.Workbook(buf, {"in_memory":True})
+    ws=wb.add_worksheet("Rolling betas"); chw=wb.add_worksheet("Charts")
+    datef=wb.add_format({"num_format":"mm/dd/yyyy"})
+    hfmt=wb.add_format({"bold":True,"bg_color":"#1c2128","font_color":"#f0f0f0","border":1})
+    green=wb.add_format({"bg_color":"#C6EFCE","font_color":"#006100"})
+    n=len(dts)
+    ws.write(0,0,"Date",hfmt); ws.set_column(0,0,12)
+    colmap={}; col=1
+    for c in factors:
+        ws.write(0,col,f"{c} beta",hfmt); ws.write(0,col+1,f"{c} p-value",hfmt)
+        ws.write(0,col+2,f"{c} beta (sig)",hfmt)
+        ws.set_column(col,col+2,13); colmap[c]=col; col+=3
+    def _fin(x): return isinstance(x,(int,float)) and not (isinstance(x,float) and math.isnan(x))
+    for i,d in enumerate(dts):
+        ws.write_datetime(i+1,0, pd.Timestamp(d).to_pydatetime(), datef)
+        for c in factors:
+            cc=colmap[c]; b=bser[c][i]; p=pser[c][i]
+            ws.write_number(i+1,cc,float(b)) if _fin(b) else ws.write_blank(i+1,cc,None)
+            ws.write_number(i+1,cc+1,float(p)) if _fin(p) else ws.write_blank(i+1,cc+1,None)
+            if _fin(b) and _fin(p) and p<0.05: ws.write_number(i+1,cc+2,float(b))
+            else: ws.write_blank(i+1,cc+2,None)
+        # (nothing else)
+    for c in factors:                                   # green-flag significant p-values
+        pc=colmap[c]+1
+        ws.conditional_format(1,pc,n,pc,{"type":"cell","criteria":"<","value":0.05,"format":green})
+    _COLS=["#2E75B6","#C00000","#2E9E4F","#B07AA1","#E8A33D","#00A0A0","#8064A2","#D45500"]
+    for idx,c in enumerate(factors):
+        cc=colmap[c]; color=_COLS[idx%len(_COLS)]
+        ch=wb.add_chart({"type":"line"})
+        ch.add_series({"name":f"{c} β","categories":["Rolling betas",1,0,n,0],
+            "values":["Rolling betas",1,cc,n,cc],
+            "line":{"color":"#9AA0A6","width":1.0,"dash_type":"round_dot"}})
+        ch.add_series({"name":f"{c} β (p<0.05)","categories":["Rolling betas",1,0,n,0],
+            "values":["Rolling betas",1,cc+2,n,cc+2],
+            "line":{"color":color,"width":2.5}})
+        ch.set_title({"name":f"{c} — rolling {win}-{unit} β  (solid = significant p<0.05)"})
+        ch.set_x_axis({"name":"Date","date_axis":True,"num_format":"mm/yyyy"})
+        ch.set_y_axis({"name":"Beta","major_gridlines":{"visible":True}})
+        ch.set_size({"width":760,"height":300}); ch.show_blanks_as("gap")
+        chw.insert_chart(idx*16,1,ch)
+    wb.close(); return buf.getvalue()
 def dl_multi(sheets, label, fname, key):
     st.download_button("⬇ "+label, data=xlsx_bytes_multi(sheets), file_name=fname, key=key,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -3717,9 +3764,13 @@ def panel_regression():
                            "so betas are partial / holding-others-constant). **Solid & thick** where that factor is "
                            "significant in the window (p<0.05); **dotted** where it isn't. Default plots the "
                            "full-sample significant factors — add/remove any above.")
-                _mbdf=pd.DataFrame({"Date":dts})
-                for c in pick: _mbdf[f"{c} beta"]=bser[c]; _mbdf[f"{c} p"]=pser[c]
-                dl(_mbdf,"Export rolling betas","JAWS_rolling_factor_betas.xlsx","reg_mb_dl")
+                st.download_button("⬇ Export rolling betas + p-values (Excel with charts)",
+                    data=rolling_beta_xlsx(dts, bser, pser, pick, rw, _unit[:2]),
+                    file_name="JAWS_rolling_factor_betas.xlsx", key="reg_mb_dl",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                st.caption("The Excel export includes each factor's rolling **β and p-value**, plus a native "
+                           "**Excel line chart per factor** (dotted = full β, solid = where p<0.05) and "
+                           "green-highlighted significant p-values — so it's formatted by significance out of the box.")
 
         # ── Rolling beta & p-value (own choice menu) ──
         st.divider()
