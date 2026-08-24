@@ -775,7 +775,9 @@ def rolling_beta_xlsx(dts, bser, pser, factors, win, unit):
         ws.set_column(col,col+2,13); colmap[c]=col; col+=3
     def _fin(x): return isinstance(x,(int,float)) and not (isinstance(x,float) and math.isnan(x))
     for i,d in enumerate(dts):
-        ws.write_datetime(i+1,0, pd.Timestamp(d).to_pydatetime(), datef)
+        _d=pd.Timestamp(d)
+        if _d.tzinfo is not None: _d=_d.tz_localize(None)      # xlsxwriter needs naive datetimes
+        ws.write_datetime(i+1,0, _d.to_pydatetime(), datef)
         for c in factors:
             cc=colmap[c]; b=bser[c][i]; p=pser[c][i]
             ws.write_number(i+1,cc,float(b)) if _fin(b) else ws.write_blank(i+1,cc,None)
@@ -3764,13 +3766,20 @@ def panel_regression():
                            "so betas are partial / holding-others-constant). **Solid & thick** where that factor is "
                            "significant in the window (p<0.05); **dotted** where it isn't. Default plots the "
                            "full-sample significant factors — add/remove any above.")
-                st.download_button("⬇ Export rolling betas + p-values (Excel with charts)",
-                    data=rolling_beta_xlsx(dts, bser, pser, pick, rw, _unit[:2]),
-                    file_name="JAWS_rolling_factor_betas.xlsx", key="reg_mb_dl",
+                try:
+                    _xls=rolling_beta_xlsx(dts, bser, pser, pick, rw, _unit[:2]); _charted=True
+                except Exception:
+                    _mbdf=pd.DataFrame({"Date":[pd.Timestamp(d).tz_localize(None) if pd.Timestamp(d).tzinfo
+                                                else pd.Timestamp(d) for d in dts]})
+                    for c in pick: _mbdf[f"{c} beta"]=bser[c]; _mbdf[f"{c} p-value"]=pser[c]
+                    _xls=xlsx_bytes(_mbdf); _charted=False
+                st.download_button("⬇ Export rolling betas + p-values"+(" (Excel with charts)" if _charted else ""),
+                    data=_xls, file_name="JAWS_rolling_factor_betas.xlsx", key="reg_mb_dl",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                st.caption("The Excel export includes each factor's rolling **β and p-value**, plus a native "
-                           "**Excel line chart per factor** (dotted = full β, solid = where p<0.05) and "
-                           "green-highlighted significant p-values — so it's formatted by significance out of the box.")
+                st.caption("The Excel export includes each factor's rolling **β and p-value**"
+                           +(", plus a native **Excel line chart per factor** (dotted = full β, solid = where "
+                             "p<0.05) and green-highlighted significant p-values — formatted by significance "
+                             "out of the box." if _charted else " (charts unavailable for this selection)."))
 
         # ── Rolling beta & p-value (own choice menu) ──
         st.divider()
