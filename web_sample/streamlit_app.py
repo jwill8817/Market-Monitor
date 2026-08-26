@@ -977,6 +977,23 @@ def multpl_series(url):
 # PANEL RENDERERS  (each takes a unique key prefix `k`)
 # ════════════════════════════════════════════════════════════════
 RET_HDR=["Name","Tkr","Price","1D%","WTD%","MTD%","QTD%","YTD%","1Y%","3Y%","5Y%","10Y%","Custom%"]
+# Column label -> value extractor, for sorting the standard returns table.
+_RET_SORT={
+    "Name":   lambda n,i: n.lower(),
+    "Price":  lambda n,i: i.get("price"),
+    "1D%":    lambda n,i: i.get("change_1d"),
+    **{f"{p}%": (lambda p: (lambda n,i:(i.get("returns") or {}).get(p)))(p)
+       for p in ["WTD","MTD","QTD","YTD","1Y","3Y","5Y","10Y","Custom"]},
+}
+def _sorted_return_items(data, sortcol, descending):
+    """Sort (name,info) items by a display column; None values always sink to the bottom."""
+    items=list(data.items())
+    if sortcol not in _RET_SORT: return items
+    get=_RET_SORT[sortcol]
+    present=[p for p in items if get(*p) is not None]
+    missing=[p for p in items if get(*p) is None]
+    present.sort(key=lambda p:get(*p), reverse=descending)
+    return present+missing
 
 def _panel_returns_calendar(catkey, label, k, absolute):
     """Alternative view: 1D/MTD/QTD/YTD, current-year quarters & months, and prior full
@@ -1030,8 +1047,16 @@ def panel_returns(catkey, label, k):
         data,tmap = md_returns(catkey, custom_start=cs.isoformat() if cs else None,
                                custom_end=ce.isoformat() if ce else None, absolute=absolute)
     fc=f_abs if absolute else f_pct
+    # ── Sort controls (any column, asc/desc) ──
+    sc1,sc2=st.columns([2,1])
+    _opts=["Default (as listed)","Name","Price","1D%","WTD%","MTD%","QTD%","YTD%","1Y%","3Y%","5Y%","10Y%","Custom%"]
+    sortcol=sc1.selectbox("Sort by", _opts, key=k+"_sortcol", label_visibility="collapsed")
+    desc=sc2.radio("Order",["High→Low","Low→High"],horizontal=True,key=k+"_sortdir",
+                   label_visibility="collapsed")=="High→Low"
+    _items=(_sorted_return_items(data, sortcol, desc)
+            if sortcol in _RET_SORT else list(data.items()))
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in RET_HDR)+"</tr>"
-    for name,info in data.items():
+    for name,info in _items:
         r=info.get("returns",{})
         h+=("<tr>"f"<td>{name}</td><td style='color:{TEXT3}'>{tmap.get(name,'')}</td>"
             f"<td>{f_price(info.get('price'),name)}</td><td>{fc(info.get('change_1d'))}</td>"
