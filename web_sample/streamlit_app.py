@@ -780,8 +780,12 @@ def rolling_beta_xlsx(dts, bser, pser, factors, win, unit):
         ws.write_datetime(i+1,0, _d.to_pydatetime(), datef)
         for c in factors:
             cc=colmap[c]; b=bser[c][i]; p=pser[c][i]
-            ws.write_number(i+1,cc,float(b)) if _fin(b) else ws.write_blank(i+1,cc,None)
-            ws.write_number(i+1,cc+1,float(p)) if _fin(p) else ws.write_blank(i+1,cc+1,None)
+            # NB: use plain if/else statements — a bare `A if x else B` expression statement
+            # returns xlsxwriter's 0 and Streamlit "magic" would render it as stray "0"s.
+            if _fin(b): ws.write_number(i+1,cc,float(b))
+            else: ws.write_blank(i+1,cc,None)
+            if _fin(p): ws.write_number(i+1,cc+1,float(p))
+            else: ws.write_blank(i+1,cc+1,None)
             if _fin(b) and _fin(p) and p<0.05: ws.write_number(i+1,cc+2,float(b))
             else: ws.write_blank(i+1,cc+2,None)
         # (nothing else)
