@@ -3425,6 +3425,56 @@ def _ridge_gcv(y, X):
         if best is None or gcv<best[2]: best=(lam,edf,gcv)
     return best if best else (1.0, float(k), None)
 
+def _enet_fit(y, X, l1_grid):
+    """Elastic Net / Lasso via scikit-learn, penalty chosen by cross-validation.
+
+    l1_grid is the list of L1 ratios to search: [1.0] => pure Lasso; a mixed grid
+    (e.g. [.1,.5,.7,.9,.95,1.0]) => Elastic Net that tunes itself between ridge-like and
+    lasso-like, and collapses to Lasso when the data prefer it. X is standardized internally
+    so the penalty is scale-free, then betas are mapped back to raw units. Same dict shape as
+    _ols_fit so the rest of the panel is unchanged, PLUS 'cv_r2' (out-of-sample R² at the
+    chosen penalty), 'alpha', 'l1_ratio', 'nz' (non-zero factor count).
+
+    t/p are returned as NaN on purpose: after L1 selection, naive significance statistics are
+    invalid (selective-inference bias), so the panel judges factors by coefficient magnitude and
+    cross-validated R² instead of p-values. Raises ImportError if scikit-learn is unavailable."""
+    import numpy as np
+    from sklearn.linear_model import ElasticNetCV, ElasticNet
+    from sklearn.model_selection import KFold, cross_val_score
+    y=np.asarray(y,float); X=np.atleast_2d(np.asarray(X,float))
+    if X.shape[0]!=len(y): X=X.T
+    n,k=X.shape
+    if n<=k+1: return None
+    mu=X.mean(0); sd=X.std(0,ddof=1); sd[sd==0]=1.0
+    Xs=(X-mu)/sd
+    l1=list(l1_grid) if hasattr(l1_grid,"__iter__") else [float(l1_grid)]
+    nsplits=5 if n>=25 else max(2, n//5)
+    kf=KFold(n_splits=nsplits, shuffle=False)
+    try:
+        m=ElasticNetCV(l1_ratio=l1, cv=kf, max_iter=50000, fit_intercept=True)
+        m.fit(Xs, y)
+    except Exception:
+        return None
+    bs=np.asarray(m.coef_,float)                    # standardized slopes
+    b=bs/sd                                         # raw-unit slopes
+    intercept=float(m.intercept_)-float(mu@b)
+    beta=np.concatenate([[intercept], b])
+    fitted=intercept+X@b; resid=y-fitted
+    sse=float(resid@resid); sst=float(((y-y.mean())**2).sum())
+    r2=1-sse/sst if sst>0 else 0.0
+    nz=int(np.sum(np.abs(bs)>1e-10)); dof=max(n-nz-1, 1)
+    adj=1-(1-r2)*(n-1)/dof if dof>0 else r2
+    l1r=float(np.ravel(m.l1_ratio_)[0]) if np.ndim(m.l1_ratio_) else float(m.l1_ratio_)
+    try:
+        _final=ElasticNet(alpha=float(m.alpha_), l1_ratio=l1r, max_iter=50000, fit_intercept=True)
+        cv_r2=float(np.mean(cross_val_score(_final, Xs, y, cv=kf, scoring="r2")))
+    except Exception:
+        cv_r2=float("nan")
+    nan=np.full(k+1, np.nan)
+    return {"beta":beta,"se":nan.copy(),"t":nan.copy(),"p":nan.copy(),"resid":resid,"fitted":fitted,
+            "r2":r2,"adj_r2":adj,"n":n,"dof":dof,"nz":nz,"alpha":float(m.alpha_),
+            "l1_ratio":l1r,"cv_r2":cv_r2,"enet":True}
+
 def _attrib_geo(ysub, Xsub, beta, cols, ppy):
     """Geometric (Cariño-linked) return attribution over a window. The total is the COMPOUNDED
     return Π(1+r)−1 (not the arithmetic sum), and the per-factor + idiosyncratic contributions are
@@ -3458,28 +3508,39 @@ def panel_regression():
                     unsafe_allow_html=True)
         import numpy as np
         from scipy import stats
-        cf1,cf2,cf3=st.columns([1,1,1])
+        cf1,cf2=st.columns([1,2])
         freq=cf1.radio("Frequency",["Monthly","Daily"],horizontal=True,key="reg_freq")
-        use_step=cf2.checkbox("Stepwise elimination", value=True, key="reg_step",
-                              help="Backward-eliminate factors whose p-value exceeds the cutoff. "
-                                   "On by default to keep the factor breakout readable.")
-        cutoff=cf3.number_input("p-value cutoff", min_value=0.01, max_value=0.5, value=0.05,
-                                step=0.01, key="reg_cut", disabled=not use_step)
-        mf1,mf2,mf3=st.columns([1.5,1,1])
-        method=mf1.radio("Estimator",["OLS","Ridge (L2 — tames collinearity)"],horizontal=True,key="reg_method",
-                         help="OLS is unbiased but its betas get unstable/inflated when X factors are "
-                              "correlated. Ridge adds an L2 penalty that shrinks correlated coefficients "
-                              "toward each other — lower variance, more stable betas, at the cost of a small "
-                              "bias. t-stats/R² for ridge use an effective-df approximation.")
+        _METHODS=["OLS (all factors)",
+                  "Ridge (L2 — collinearity)",
+                  "Lasso (L1 — sparse selection)",
+                  "Elastic Net (L1+L2 — recommended)",
+                  "Stepwise OLS (legacy)"]
+        method=cf2.selectbox("Method", _METHODS, index=3, key="reg_method",
+                             help="One coherent estimator per choice. OLS: no selection/shrinkage — clean, "
+                                  "valid p-values; best when you deliberately picked a few factors. Ridge: keep "
+                                  "every factor, shrink correlated ones (L2). Lasso: L1 selection, drives weak "
+                                  "factors to zero. Elastic Net: L1 selection + L2 shrinkage together, "
+                                  "cross-validated — the recommended default for many/correlated factors "
+                                  "(collapses to Lasso when the data prefer it). Stepwise OLS: legacy p-value "
+                                  "backward elimination — kept for continuity; its post-selection p-values are "
+                                  "optimistic and not valid inference.")
         use_ridge=method.startswith("Ridge")
-        lam_mode=mf2.radio("Ridge λ", ["Auto (GCV)","Manual"], key="reg_lammode", disabled=not use_ridge,
-                           help="Auto picks the penalty that minimizes Generalized Cross-Validation error — "
-                                "the standard data-driven default, so you don't have to guess. Manual lets you "
-                                "set λ yourself.")
-        lam_manual=mf3.number_input("Manual λ", min_value=0.0, max_value=1000.0, value=1.0, step=0.5,
-                             key="reg_lambda", disabled=(not use_ridge or lam_mode!="Manual"),
-                             help="Penalty strength on standardized factors. 0 ≈ OLS; larger λ shrinks "
-                                  "harder. Typical range 0.1–10 for monthly factor returns.")
+        use_lasso=method.startswith("Lasso")
+        use_enet =method.startswith("Elastic")
+        use_step =method.startswith("Stepwise")
+        cutoff=0.05; lam_manual=1.0; lam_mode="Auto (GCV)"
+        if use_step:
+            cutoff=st.number_input("p-value cutoff (stepwise)", min_value=0.01, max_value=0.5, value=0.05,
+                                   step=0.01, key="reg_cut")
+        if use_ridge:
+            rc1,rc2=st.columns([1,1])
+            lam_mode=rc1.radio("Ridge λ", ["Auto (GCV)","Manual"], key="reg_lammode",
+                               help="Auto picks the penalty that minimizes Generalized Cross-Validation error — "
+                                    "the standard data-driven default. Manual lets you set λ yourself.")
+            lam_manual=rc2.number_input("Manual λ", min_value=0.0, max_value=1000.0, value=1.0, step=0.5,
+                                 key="reg_lambda", disabled=(lam_mode!="Manual"),
+                                 help="Penalty strength on standardized factors. 0 ≈ OLS; larger λ shrinks "
+                                      "harder. Typical range 0.1–10 for monthly factor returns.")
         ydict=ticker_picker("reg_y", ["S&P 500"])
         ylabel=list(ydict.keys())[0] if ydict else None
         ybasis=st.radio("Y returns basis", ["Raw","Excess (net T-bill)"], horizontal=True, key="reg_ybasis",
@@ -3529,13 +3590,34 @@ def panel_regression():
             st.markdown(f'<span style="color:{_vc};font-family:Consolas;font-size:11px;">VIF '
                         f'(collinearity, &gt;5 = high, &gt;10 = severe): {vtxt}</span>',
                         unsafe_allow_html=True)
-            if hi and not use_ridge:
-                st.caption(f"High collinearity in {', '.join(hi)} — consider the **Ridge** estimator "
-                           "above to stabilize these betas, or drop one of the correlated factors.")
+            if hi and not (use_ridge or use_enet or use_lasso):
+                st.caption(f"High collinearity in {', '.join(hi)} — consider **Ridge** or **Elastic Net** "
+                           "(Method above) to stabilize these betas, or drop one of the correlated factors.")
         lam=lam_manual; lam_auto=False
         if use_ridge and lam_mode.startswith("Auto"):
             lam,_gedf,_=_ridge_gcv(yv.values, Xall[cols].values); lam_auto=True
-        fit=_ridge_fit(yv.values, Xall[cols].values, lam) if use_ridge else _ols_fit(yv.values, Xall[cols].values)
+        if use_ridge:
+            fit=_ridge_fit(yv.values, Xall[cols].values, lam)
+        elif use_lasso or use_enet:
+            _l1=[1.0] if use_lasso else [0.1,0.5,0.7,0.9,0.95,1.0]
+            try:
+                fit=_enet_fit(yv.values, Xall[cols].values, _l1)
+            except ImportError:
+                st.warning("Lasso / Elastic Net need **scikit-learn**. Add `scikit-learn` to "
+                           "requirements.txt and reinstall, or pick OLS / Ridge / Stepwise."); return
+            # Keep only the selected support (non-zero coefficients) for the table + decomposition.
+            if fit is not None:
+                _sl=fit["beta"][1:]
+                _support=[c for c,b in zip(cols,_sl) if abs(b)>1e-10]
+                if _support and len(_support)<len(cols):
+                    _keep=[0]+[cols.index(c)+1 for c in _support]
+                    for _kk in ("beta","se","t","p"): fit[_kk]=fit[_kk][_keep]
+                    cols=_support
+                elif not _support:
+                    st.warning("Every factor was shrunk to zero at the cross-validated penalty — "
+                               "widen the date range, add factors, or try Ridge."); return
+        else:
+            fit=_ols_fit(yv.values, Xall[cols].values)
         if fit is None:
             st.warning("Regression could not be estimated (singular design or too few points)."); return
         beta=fit["beta"]; tvals=fit["t"]; pvals=fit["p"]
@@ -3570,24 +3652,46 @@ def panel_regression():
             st.caption("**Data pulled from** = the exact file/API we download each series from "
                        "(Ken French Data Library zip, AQR data-set xlsx, or yfinance/FRED). "
                        "The export button above includes Construction + full source URL.")
+        _shrunk=use_enet or use_lasso        # L1-selected: naive p-values are invalid
         hdr=["Term","Beta","t-stat","p-value"]
         h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
         for i,term in enumerate(["Alpha (intercept)"]+cols):
-            sig=GREEN if pvals[i]<0.05 else (YELLOW if pvals[i]<0.10 else TEXT2)
+            _pn=np.isnan(pvals[i]); _tn=np.isnan(tvals[i])
+            sig=TEXT2 if _pn else (GREEN if pvals[i]<0.05 else (YELLOW if pvals[i]<0.10 else TEXT2))
+            _tc="—" if _tn else f"{tvals[i]:+.2f}"
+            _pc="—" if _pn else f"{pvals[i]:.4f}"
             h+=(f"<tr><td>{term}</td><td>{beta[i]:+.4f}</td>"
-                f"<td>{tvals[i]:+.2f}</td><td style='color:{sig}'>{pvals[i]:.4f}</td></tr>")
+                f"<td>{_tc}</td><td style='color:{sig}'>{_pc}</td></tr>")
         st.markdown(h+"</table></div>", unsafe_allow_html=True)
-        m=st.columns(4)
+        _has_cv=not np.isnan(fit.get("cv_r2", float("nan")))
+        m=st.columns(5 if _has_cv else 4)
         m[0].metric("R²", f"{fit['r2']:.3f}")
         m[1].metric("Adj R²", f"{fit['adj_r2']:.3f}")
-        m[2].metric("N obs", f"{fit['n']}")
-        m[3].metric("Factors", f"{len(cols)}"+(" (stepwise)" if use_step else ""))
+        if _has_cv: m[2].metric("CV R²", f"{fit['cv_r2']:.3f}")
+        m[3 if _has_cv else 2].metric("N obs", f"{fit['n']}")
+        _fnote=" (stepwise)" if use_step else ((" of "+str(len(Xall.columns))+" (selected)") if _shrunk else "")
+        m[4 if _has_cv else 3].metric("Factors", f"{len(cols)}"+_fnote)
         if use_ridge:
             _lsrc="GCV-selected" if lam_auto else "manual"
             st.caption(f"**Ridge (λ={lam:.3g}, {_lsrc})** — coefficients shrunk toward zero to reduce collinearity "
                        f"variance; effective df ≈ {fit.get('edf',len(cols)):.1f} vs {len(cols)} factors. t-stats/"
                        "p-values are an effective-df approximation (ridge inference is not exact OLS). "
                        "'Auto (GCV)' minimizes generalized cross-validation error; switch to Manual to set λ (0 = OLS).")
+        if _shrunk:
+            _mname="Elastic Net" if use_enet else "Lasso"
+            _mix=f", L1-ratio={fit.get('l1_ratio',1.0):.2g}" if use_enet else ""
+            st.caption(f"**{_mname} (α={fit.get('alpha',float('nan')):.3g}{_mix}, cross-validated)** — "
+                       f"kept **{len(cols)} of {len(Xall.columns)}** factors; the rest were shrunk to exactly zero. "
+                       "Coefficients are penalized (biased toward zero), so **judge factors by magnitude and the "
+                       "cross-validated R²**, not p-values — after L1 selection naive p-values are invalid, so they "
+                       "are shown as '—'."
+                       + (" Elastic Net's L2 term keeps correlated factors together (grouping) and it collapses "
+                          "to Lasso when the data prefer it." if use_enet else ""))
+        if use_step:
+            st.caption("**Stepwise OLS (legacy)** — backward elimination on OLS p-values. ⚠ The p-values shown "
+                       "above are **post-selection**: they don't account for the search that chose these factors, "
+                       "so they're optimistic and **not valid inference**. Prefer Elastic Net for many factors, or "
+                       "OLS on a deliberately chosen set for clean p-values.")
         if use_step and len(cols)<len(Xall.columns):
             st.caption(f"Stepwise dropped (p > {cutoff}): {', '.join(c for c in Xall.columns if c not in cols)}")
         # Scatter + fit line — only meaningful for a single X
