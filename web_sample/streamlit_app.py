@@ -4202,6 +4202,82 @@ def panel_corr():
                 rdf=pd.DataFrame({"Date":roll.index,"RollingCorr":roll.values})
                 dl(rdf, "Export rolling corr", "JAWS_rolling_corr.xlsx", "corr_roll_dl")
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _lseg_issuance(months, min_usd):
+    import lseg_data as L
+    return L.fetch_issuance_history(months_back=int(months), min_usd=int(min_usd))
+
+def panel_lseg():
+    """PRIVATE, password-gated LSEG tab. Licensed data — never shown in the shared free app."""
+    import lseg_data as L
+    st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<span class="jaws-logo" style="font-size:16px;padding:3px 10px;">LSEG</span> '
+                    '<span class="jaws-title" style="font-size:15px;">LSEG — Issuance & Analytics</span> '
+                    '<span class="jaws-sub">private · licensed data · password-gated</span>',
+                    unsafe_allow_html=True)
+        if not L.available():
+            st.info("LSEG not configured — add **LSEG_APP_KEY / LSEG_USER / LSEG_PASSWORD** to secrets or `.env`.")
+            return
+        # ── second password gate (personal) ──
+        if not st.session_state.get("lseg_ok"):
+            want=L.tab_password()
+            if not want:
+                st.warning("Set **LSEG_TAB_PASSWORD** in secrets/.env to protect this tab, then reload."); return
+            pw=st.text_input("Enter LSEG tab password", type="password", key="lseg_pw")
+            if pw:
+                if pw==want:
+                    st.session_state["lseg_ok"]=True; st.rerun()
+                else:
+                    st.error("Incorrect password")
+            st.caption("This tab holds **licensed LSEG data** — visible only to you, behind your personal password.")
+            return
+        # ── unlocked ──
+        lc1,lc2=st.columns([6,1])
+        lc1.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                     'New bond issuance (LSEG) — monthly, USD, deals above a size threshold</span>',
+                     unsafe_allow_html=True)
+        if lc2.button("🔒 Lock", key="lseg_lock"):
+            st.session_state["lseg_ok"]=False; st.rerun()
+        c1,c2,c3=st.columns(3)
+        seg=c1.radio("Segment",["Corporate","Government & Agency","All"],key="lseg_seg")
+        months=c2.select_slider("Months back",[6,12,18,24,36],value=12,key="lseg_mo")
+        minm=c3.select_slider("Min deal size ($m)",[100,250,500,1000],value=100,key="lseg_min")
+        with st.spinner("Loading LSEG issuance…"):
+            try:
+                rows=_lseg_issuance(months, int(minm)*1_000_000)
+            except Exception as e:
+                st.error(f"LSEG fetch failed: {type(e).__name__}: {e}"); return
+        if not rows:
+            st.warning("No issuance data returned."); return
+        df=pd.DataFrame(rows)
+        seg_cols={"Corporate":["Corp IG","Corp HY","Corp NR"],
+                  "Government & Agency":["Government","Agency"],
+                  "All":["Corp IG","Corp HY","Corp NR","Government","Agency","Other"]}[seg]
+        colors={"Corp IG":BLUE,"Corp HY":RED,"Corp NR":TEXT3,"Government":GREEN,"Agency":YELLOW,"Other":PURPLE}
+        fig=go.Figure()
+        for c in seg_cols:
+            fig.add_trace(go.Bar(x=df["month"],y=df[c],name=c,marker_color=colors.get(c,ACCENT)))
+        fig.update_layout(barmode="stack")
+        base_layout(fig,f"{seg} bond issuance — deals ≥ ${minm}m ($bn/month)","",h=420)
+        st.plotly_chart(fig, use_container_width=True, key="lseg_chart")
+        # summary table: latest month + prior + avg per bucket
+        hh=["Bucket","Latest $bn","Prev $bn","Avg $bn","Max $bn"]
+        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+        for c in seg_cols:
+            s=df[c].astype(float)
+            h+=(f"<tr><td style='text-align:left'>{c}</td><td>{s.iloc[-1]:,.1f}</td>"
+                f"<td>{(s.iloc[-2] if len(s)>1 else 0):,.1f}</td><td>{s.mean():,.1f}</td><td>{s.max():,.1f}</td></tr>")
+        st.markdown(h+"</table></div>", unsafe_allow_html=True)
+        st.caption(f"Source: **LSEG** (Refinitiv). New bond issuance (FaceIssuedUSD) for deals ≥ **${minm}m**, "
+                   "by month. Corporate split by latest rating into **IG / HY / NR** (NR = unrated: MTNs/private). "
+                   "**Government** = sovereign; **Agency** = agencies/supranationals. Private, licensed data.")
+        capped=[r["month"] for r in rows if r.get("capped")]
+        if capped:
+            st.caption("⚠ Incomplete (row-capped) months — raise the size threshold: " + ", ".join(capped))
+        dl(df[["month"]+ [c for c in ["Corp IG","Corp HY","Corp NR","Government","Agency","Other"]]],
+           "Export issuance", "JAWS_lseg_issuance.xlsx", "lseg_dl")
+
 def panel_exporter():
     import re as _re
     st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
@@ -4467,7 +4543,7 @@ _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
 # Self-headed analytical sections
 for _name,_fn in [("Correlation",panel_corr),("Regression",panel_regression),
-                  ("Bulk Export",panel_exporter)]:
+                  ("LSEG (private)",panel_lseg),("Bulk Export",panel_exporter)]:
     try:
         _fn()
     except Exception as _e:
