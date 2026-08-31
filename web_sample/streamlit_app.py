@@ -4486,17 +4486,17 @@ if _auto_min>0:
     except Exception:
         pass
 
+# Private LSEG tab as a collapsible button at the very top (like Upload/Export controls).
+try:
+    panel_lseg()
+except Exception as _e:
+    st.error(f"⚠ LSEG: {type(_e).__name__}: {_e}")
+
 r1=st.columns(2)
 with r1[0]:
     with st.container(border=True): render_slot("q1", TABLE_TABS, "Equity Indices")
 with r1[1]:
     with st.container(border=True): render_slot("q2", TABLE_TABS, "Factor ETFs")
-# Private LSEG tab as a collapsible button near the top (like Upload/Export controls).
-import traceback as _tb
-try:
-    panel_lseg()
-except Exception as _e:
-    st.error(f"⚠ LSEG: {type(_e).__name__}: {_e}")
 def _hdr(tag, title):
     st.markdown(f'<span class="jaws-logo" style="font-size:15px;padding:2px 9px;">{tag}</span> '
                 f'<span class="jaws-title" style="font-size:15px;">{title}</span>',
