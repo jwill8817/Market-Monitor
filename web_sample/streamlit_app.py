@@ -4210,12 +4210,8 @@ def _lseg_issuance(months, min_usd):
 def panel_lseg():
     """PRIVATE, password-gated LSEG tab. Licensed data — never shown in the shared free app."""
     import lseg_data as L
-    st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)
-    with st.container(border=True):
-        st.markdown('<span class="jaws-logo" style="font-size:16px;padding:3px 10px;">LSEG</span> '
-                    '<span class="jaws-title" style="font-size:15px;">LSEG — Issuance & Analytics</span> '
-                    '<span class="jaws-sub">private · licensed data · password-gated</span>',
-                    unsafe_allow_html=True)
+    with st.expander("🔒  LSEG — Issuance & Analytics  (private · licensed · gated)",
+                     expanded=bool(st.session_state.get("lseg_ok"))):
         if not L.available():
             st.info("LSEG not configured — add **LSEG_APP_KEY / LSEG_USER / LSEG_PASSWORD** to secrets or `.env`.")
             return
@@ -4495,7 +4491,12 @@ with r1[0]:
     with st.container(border=True): render_slot("q1", TABLE_TABS, "Equity Indices")
 with r1[1]:
     with st.container(border=True): render_slot("q2", TABLE_TABS, "Factor ETFs")
+# Private LSEG tab as a collapsible button near the top (like Upload/Export controls).
 import traceback as _tb
+try:
+    panel_lseg()
+except Exception as _e:
+    st.error(f"⚠ LSEG: {type(_e).__name__}: {_e}")
 def _hdr(tag, title):
     st.markdown(f'<span class="jaws-logo" style="font-size:15px;padding:2px 9px;">{tag}</span> '
                 f'<span class="jaws-title" style="font-size:15px;">{title}</span>',
@@ -4543,7 +4544,7 @@ _sec("DISL","Dislocation Scanner", panel_scanner, "secscan")
 
 # Self-headed analytical sections
 for _name,_fn in [("Correlation",panel_corr),("Regression",panel_regression),
-                  ("LSEG (private)",panel_lseg),("Bulk Export",panel_exporter)]:
+                  ("Bulk Export",panel_exporter)]:
     try:
         _fn()
     except Exception as _e:
