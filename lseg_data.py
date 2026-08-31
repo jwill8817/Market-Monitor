@@ -71,7 +71,13 @@ def tab_password():
 
 
 def open_session():
-    """Open (once) and reuse a platform (cloud) session."""
+    """Open (once) and reuse a platform (cloud) session.
+
+    Opens the session object DIRECTLY (s.open()) and verifies it reached the Opened
+    state — the ld.open_session() default-session handoff is flaky on headless servers
+    (Streamlit Cloud), where it can silently leave the session closed. A session that
+    fails to open is never cached, so the next call retries cleanly.
+    """
     global _session
     with _lock:
         if _session is not None:
@@ -79,16 +85,32 @@ def open_session():
         import lseg.data as ld
         from lseg.data.session import platform
         c = _creds()
-        if not all(c.get(k) for k in ("LSEG_APP_KEY", "LSEG_USER", "LSEG_PASSWORD")):
-            raise RuntimeError("LSEG credentials missing (LSEG_APP_KEY / LSEG_USER / LSEG_PASSWORD).")
+        missing = [k for k in ("LSEG_APP_KEY", "LSEG_USER", "LSEG_PASSWORD") if not c.get(k)]
+        if missing:
+            raise RuntimeError("LSEG credentials missing: " + ", ".join(missing))
         s = platform.Definition(
             app_key=c["LSEG_APP_KEY"],
             grant=ld.session.platform.GrantPassword(username=c["LSEG_USER"], password=c["LSEG_PASSWORD"]),
         ).get_session()
         ld.session.set_default(s)
-        ld.open_session()
-        _session = s
-        return s
+        try:
+            ld.open_session()
+        except Exception as ex:
+            raise RuntimeError(
+                f"LSEG session failed to open ({type(ex).__name__}: {ex}). "
+                "Most likely the LSEG_PASSWORD / LSEG_USER / LSEG_APP_KEY in Streamlit "
+                "secrets is wrong or mismatched.")
+        # ld.open_session() opens the *default* session (a different object than `s`);
+        # verify that one reached Opened, else the credentials were rejected.
+        dflt = ld.session.get_default()
+        state = str(getattr(getattr(dflt, "open_state", None), "name", getattr(dflt, "open_state", "")))
+        if "Open" not in state:
+            raise RuntimeError(
+                f"LSEG session did not reach Opened state (state={state}). "
+                "The LSEG credentials in Streamlit secrets were likely rejected — "
+                "re-check LSEG_PASSWORD / LSEG_USER / LSEG_APP_KEY (exact value, no quotes issues, no trailing spaces).")
+        _session = dflt
+        return dflt
 
 
 # ── Credit-rating → Investment-Grade / High-Yield bucket ──
