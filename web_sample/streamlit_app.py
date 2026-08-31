@@ -4224,6 +4224,23 @@ def _cumulate(df, cols):
         out[c] = out[c].astype(float).cumsum()
     return out
 
+def _lseg_finish(fig, x, total, show_cum, roll, title, left_suffix, right_title, key):
+    """Overlay cumulative and/or rolling-sum lines (right axis) on a monthly bar chart, then render.
+    `total` = the monthly series the overlays are computed from; `roll` = list of window sizes."""
+    tot = pd.Series([float(v) for v in total])
+    _ROLLC = [CYAN, YELLOW, GREEN, BLUE]
+    if show_cum:
+        fig.add_trace(go.Scatter(x=list(x), y=tot.cumsum(), name="Cumulative", yaxis="y2",
+                                 mode="lines", line=dict(color=TEXT1, width=2.4)))
+    for i, w in enumerate(sorted(int(r) for r in roll)):
+        fig.add_trace(go.Scatter(x=list(x), y=tot.rolling(w).sum(), name=f"Rolling {w}m", yaxis="y2",
+                                 mode="lines", line=dict(color=_ROLLC[i % len(_ROLLC)], width=2)))
+    base_layout(fig, title, left_suffix, h=440)
+    if show_cum or roll:
+        fig.update_layout(yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                                      title=right_title, rangemode="tozero"))
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
 def panel_lseg():
     """PRIVATE, password-gated LSEG tab. Licensed data — never shown in the shared free app."""
     import lseg_data as L
@@ -4252,12 +4269,15 @@ def panel_lseg():
                      unsafe_allow_html=True)
         if lc2.button("🔒 Lock", key="lseg_lock"):
             st.session_state["lseg_ok"]=False; st.rerun()
-        m1,m2,m3=st.columns([2,1,1])
+        m1,m2=st.columns([2,1])
         market=m1.radio("Market",["Bonds","Convertibles","Equity IPOs"],key="lseg_mkt",horizontal=True)
         months=m2.select_slider("Months back",[6,12,18,24,36,48,60],value=12,key="lseg_mo")
-        mode=m3.radio("View",["Monthly","Cumulative"],key="lseg_mode",horizontal=True)
-        cum=(mode=="Cumulative")
-        ysuffix=" ($bn, cumulative)" if cum else " ($bn/month)"
+        o1,o2,o3=st.columns([1,1,2])
+        show_bars=o1.checkbox("Monthly bars", value=True, key="lseg_bars")
+        show_cum=o2.checkbox("Cumulative (right axis)", value=False, key="lseg_cum")
+        roll=o3.multiselect("Rolling sum, trailing months (right axis)", [3,6,12,24],
+                            default=[], key="lseg_roll",
+                            help="Trailing N-month sum. Needs at least N months loaded — raise 'Months back' to see longer windows.")
 
         # ── BONDS ──────────────────────────────────────────────────
         if market=="Bonds":
@@ -4274,13 +4294,15 @@ def panel_lseg():
                       "Government & Agency":["Government","Agency"],
                       "All":["Corp IG","Corp HY","Corp NR","Government","Agency","Other"]}[seg]
             colors={"Corp IG":BLUE,"Corp HY":RED,"Corp NR":TEXT3,"Government":GREEN,"Agency":YELLOW,"Other":PURPLE}
-            pdf=_cumulate(df,seg_cols) if cum else df
             fig=go.Figure()
-            for c in seg_cols:
-                fig.add_trace(go.Bar(x=pdf["month"],y=pdf[c],name=c,marker_color=colors.get(c,ACCENT)))
-            fig.update_layout(barmode="stack")
-            base_layout(fig,f"{seg} bond issuance — deals ≥ ${minm}m{ysuffix}","",h=420)
-            st.plotly_chart(fig, use_container_width=True, key="lseg_chart")
+            if show_bars:
+                for c in seg_cols:
+                    fig.add_trace(go.Bar(x=df["month"],y=df[c],name=c,marker_color=colors.get(c,ACCENT)))
+                fig.update_layout(barmode="stack")
+            total=df[seg_cols].astype(float).sum(axis=1)
+            _lseg_finish(fig, df["month"], total, show_cum, roll,
+                         f"{seg} bond issuance — deals ≥ ${minm}m ($bn/month)",
+                         " ($bn/month)", "$bn (cumulative / rolling)", "lseg_chart")
             hh=["Bucket","Latest $bn","Prev $bn","Avg $bn","Total $bn"]
             h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
             for c in seg_cols:
@@ -4306,11 +4328,12 @@ def panel_lseg():
                     st.error(f"LSEG fetch failed: {type(e).__name__}: {e}"); return
             if not rows: st.warning("No convertible data returned."); return
             df=pd.DataFrame(rows)
-            pdf=_cumulate(df,["Convertibles"]) if cum else df
             fig=go.Figure()
-            fig.add_trace(go.Bar(x=pdf["month"],y=pdf["Convertibles"],name="Convertibles",marker_color=PURPLE))
-            base_layout(fig,f"Convertible & exchangeable issuance — deals ≥ ${minm}m{ysuffix}","",h=420)
-            st.plotly_chart(fig, use_container_width=True, key="lseg_cvchart")
+            if show_bars:
+                fig.add_trace(go.Bar(x=df["month"],y=df["Convertibles"],name="Convertibles",marker_color=PURPLE))
+            _lseg_finish(fig, df["month"], df["Convertibles"].astype(float), show_cum, roll,
+                         f"Convertible & exchangeable issuance — deals ≥ ${minm}m ($bn/month)",
+                         " ($bn/month)", "$bn (cumulative / rolling)", "lseg_cvchart")
             s=df["Convertibles"].astype(float); cnt=df["count"].astype(float)
             hh=["Metric","Latest","Prev","Avg","Total"]
             h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
@@ -4325,22 +4348,23 @@ def panel_lseg():
 
         # ── EQUITY IPOs ────────────────────────────────────────────
         else:
-            region=st.radio("Region (listing)",["Global","United States","Europe"],key="lseg_ipreg",horizontal=True)
+            e1,e2=st.columns(2)
+            region=e1.radio("Region (listing)",["Global","United States","Europe"],key="lseg_ipreg",horizontal=True)
+            metric=e2.radio("Metric",["Market cap $bn","Deal count"],key="lseg_ipmetric",horizontal=True)
             with st.spinner("Loading LSEG IPOs…"):
                 try: rows=_lseg_ipos(months, region, 0)
                 except Exception as e:
                     st.error(f"LSEG fetch failed: {type(e).__name__}: {e}"); return
             if not rows: st.warning("No IPO data returned."); return
             df=pd.DataFrame(rows)
-            pdf=_cumulate(df,["IPO mktcap","IPO count"]) if cum else df
+            mcol,mlbl,msuf=("IPO mktcap","IPO mkt cap $bn"," ($bn/month)") if metric=="Market cap $bn" \
+                           else ("IPO count","IPO count"," (count/month)")
             fig=go.Figure()
-            fig.add_trace(go.Bar(x=pdf["month"],y=pdf["IPO mktcap"],name="IPO mkt cap $bn",marker_color=ACCENT))
-            fig.add_trace(go.Scatter(x=pdf["month"],y=pdf["IPO count"],name="IPO count",yaxis="y2",
-                                     mode="lines+markers",line=dict(color=CYAN,width=2)))
-            base_layout(fig,f"{region} IPOs — market cap at issue{ysuffix} · count on right","",h=420)
-            fig.update_layout(yaxis2=dict(overlaying="y",side="right",showgrid=False,
-                                          title="count",color=CYAN,rangemode="tozero"))
-            st.plotly_chart(fig, use_container_width=True, key="lseg_ipchart")
+            if show_bars:
+                fig.add_trace(go.Bar(x=df["month"],y=df[mcol],name=mlbl,marker_color=ACCENT))
+            rsuf=("$bn (cumulative / rolling)" if metric=="Market cap $bn" else "count (cumulative / rolling)")
+            _lseg_finish(fig, df["month"], df[mcol].astype(float), show_cum, roll,
+                         f"{region} IPOs — {mlbl}"+msuf, msuf, rsuf, "lseg_ipchart")
             mc=df["IPO mktcap"].astype(float); cnt=df["IPO count"].astype(float)
             hh=["Metric","Latest","Prev","Avg","Total"]
             h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
