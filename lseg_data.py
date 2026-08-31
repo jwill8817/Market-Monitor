@@ -193,15 +193,102 @@ def fetch_issuance_month(y, m, min_usd=100_000_000, currency=None):
     return out
 
 
-def fetch_issuance_history(months_back=12, min_usd=100_000_000, currency=None):
-    """Monthly issuance for the last `months_back` months → list of month dicts (oldest first)."""
+def _month_seq(months_back):
+    """List of (year, month) tuples for the last `months_back` months, oldest first."""
     today = datetime.date.today()
     y, m = today.year, today.month
     seq = []
-    for _ in range(months_back):
+    for _ in range(int(months_back)):
         seq.append((y, m))
         m -= 1
         if m == 0:
             m = 12; y -= 1
     seq.reverse()
-    return [fetch_issuance_month(y, m, min_usd=min_usd, currency=currency) for (y, m) in seq]
+    return seq
+
+
+def fetch_issuance_history(months_back=12, min_usd=100_000_000, currency=None):
+    """Monthly issuance for the last `months_back` months → list of month dicts (oldest first)."""
+    return [fetch_issuance_month(y, m, min_usd=min_usd, currency=currency)
+            for (y, m) in _month_seq(months_back)]
+
+
+# ── Convertible / exchangeable bond issuance (equity-linked) ──
+# "Convertible into Listed Securities" is the classic convertible bond; the other two are
+# tiny variants. CoCos (Contingent Convertible) and Reverse Convertibles are deliberately
+# EXCLUDED — they are bank-capital / structured products, not ECM convertibles.
+_CONV_CATS = ("Convertible into Listed Securities",
+              "Convertible into Non-Listed Securities",
+              "Synthetic Exchangeable")
+
+
+def fetch_convertibles_month(y, m, min_usd=50_000_000, currency=None):
+    """One month of convertible/exchangeable bond issuance (equity-linked), $bn.
+    Returns {'month','Convertibles','count','capped'}."""
+    open_session()
+    import pandas as pd
+    from lseg.data import discovery
+    lo, hi = _month_bounds(y, m)
+    cats = " or ".join(f"RCSConvertibleLeaf eq '{c}'" for c in _CONV_CATS)
+    filt = (f"IssueDate ge {lo} and IssueDate le {hi} and FaceIssuedUSD ge {int(min_usd)} "
+            f"and IsActive eq true and ({cats})")
+    if currency:
+        filt += f" and Currency eq '{currency}'"
+    df = discovery.search(view=discovery.Views.GOV_CORP_INSTRUMENTS, filter=filt,
+                          select="IssueDate,FaceIssuedUSD,Currency", top=_MONTH_CAP)
+    out = {"month": f"{y:04d}-{m:02d}", "Convertibles": 0.0, "count": 0, "capped": False}
+    if df is None or df.empty:
+        return out
+    out["count"] = len(df)
+    out["capped"] = len(df) >= _MONTH_CAP
+    usd = pd.to_numeric(df["FaceIssuedUSD"], errors="coerce").fillna(0.0).sum() / 1e9
+    out["Convertibles"] = round(float(usd), 2)
+    return out
+
+
+def fetch_convertibles_history(months_back=12, min_usd=50_000_000, currency=None):
+    return [fetch_convertibles_month(y, m, min_usd=min_usd, currency=currency)
+            for (y, m) in _month_seq(months_back)]
+
+
+# ── Equity IPO issuance (by listing date) ──
+# From EQUITY_QUOTES.IPODate. Size = market cap at issue (MktCapIssueUsd) — a proxy for deal
+# scale (LSEG's ECM "amount raised" / follow-on data is not in the entitled search views).
+_IPO_REGION_FILTER = {
+    "Global": None,
+    "United States": "ExchangeCountry eq 'USA'",
+    "Europe": ("(RCSExchangeCountryLeaf eq 'United Kingdom' or RCSExchangeCountryLeaf eq 'Germany' "
+               "or RCSExchangeCountryLeaf eq 'France' or RCSExchangeCountryLeaf eq 'Netherlands' "
+               "or RCSExchangeCountryLeaf eq 'Italy' or RCSExchangeCountryLeaf eq 'Spain' "
+               "or RCSExchangeCountryLeaf eq 'Sweden' or RCSExchangeCountryLeaf eq 'Switzerland')"),
+}
+
+
+def fetch_ipos_month(y, m, region="Global", min_mktcap_usd=0):
+    """One month of IPOs (by IPODate). Returns {'month','IPO count','IPO mktcap','capped'}
+    where IPO mktcap is aggregate market-cap-at-issue in $bn."""
+    open_session()
+    import pandas as pd
+    from lseg.data import discovery
+    lo, hi = _month_bounds(y, m)
+    filt = f"IPODate ge {lo} and IPODate le {hi}"
+    reg = _IPO_REGION_FILTER.get(region)
+    if reg:
+        filt += f" and {reg}"
+    if min_mktcap_usd:
+        filt += f" and MktCapIssueUsd ge {int(min_mktcap_usd)}"
+    df = discovery.search(view=discovery.Views.EQUITY_QUOTES, filter=filt,
+                          select="IPODate,MktCapIssueUsd,ExchangeCountry", top=_MONTH_CAP)
+    out = {"month": f"{y:04d}-{m:02d}", "IPO count": 0, "IPO mktcap": 0.0, "capped": False}
+    if df is None or df.empty:
+        return out
+    out["IPO count"] = len(df)
+    out["capped"] = len(df) >= _MONTH_CAP
+    mc = pd.to_numeric(df["MktCapIssueUsd"], errors="coerce").fillna(0.0).sum() / 1e9
+    out["IPO mktcap"] = round(float(mc), 2)
+    return out
+
+
+def fetch_ipos_history(months_back=12, region="Global", min_mktcap_usd=0):
+    return [fetch_ipos_month(y, m, region=region, min_mktcap_usd=min_mktcap_usd)
+            for (y, m) in _month_seq(months_back)]

@@ -4207,6 +4207,23 @@ def _lseg_issuance(months, min_usd):
     import lseg_data as L
     return L.fetch_issuance_history(months_back=int(months), min_usd=int(min_usd))
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _lseg_convertibles(months, min_usd):
+    import lseg_data as L
+    return L.fetch_convertibles_history(months_back=int(months), min_usd=int(min_usd))
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _lseg_ipos(months, region, min_mktcap_usd):
+    import lseg_data as L
+    return L.fetch_ipos_history(months_back=int(months), region=region, min_mktcap_usd=int(min_mktcap_usd))
+
+def _cumulate(df, cols):
+    """Return a copy of df with the given numeric columns replaced by their running sum."""
+    out = df.copy()
+    for c in cols:
+        out[c] = out[c].astype(float).cumsum()
+    return out
+
 def panel_lseg():
     """PRIVATE, password-gated LSEG tab. Licensed data — never shown in the shared free app."""
     import lseg_data as L
@@ -4231,48 +4248,112 @@ def panel_lseg():
         # ── unlocked ──
         lc1,lc2=st.columns([6,1])
         lc1.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
-                     'New bond issuance (LSEG) — monthly, USD, deals above a size threshold</span>',
+                     'Primary issuance monitor (LSEG) — monthly or cumulative, USD</span>',
                      unsafe_allow_html=True)
         if lc2.button("🔒 Lock", key="lseg_lock"):
             st.session_state["lseg_ok"]=False; st.rerun()
-        c1,c2,c3=st.columns(3)
-        seg=c1.radio("Segment",["Corporate","Government & Agency","All"],key="lseg_seg")
-        months=c2.select_slider("Months back",[6,12,18,24,36],value=12,key="lseg_mo")
-        minm=c3.select_slider("Min deal size ($m)",[100,250,500,1000],value=100,key="lseg_min")
-        with st.spinner("Loading LSEG issuance…"):
-            try:
-                rows=_lseg_issuance(months, int(minm)*1_000_000)
-            except Exception as e:
-                st.error(f"LSEG fetch failed: {type(e).__name__}: {e}"); return
-        if not rows:
-            st.warning("No issuance data returned."); return
-        df=pd.DataFrame(rows)
-        seg_cols={"Corporate":["Corp IG","Corp HY","Corp NR"],
-                  "Government & Agency":["Government","Agency"],
-                  "All":["Corp IG","Corp HY","Corp NR","Government","Agency","Other"]}[seg]
-        colors={"Corp IG":BLUE,"Corp HY":RED,"Corp NR":TEXT3,"Government":GREEN,"Agency":YELLOW,"Other":PURPLE}
-        fig=go.Figure()
-        for c in seg_cols:
-            fig.add_trace(go.Bar(x=df["month"],y=df[c],name=c,marker_color=colors.get(c,ACCENT)))
-        fig.update_layout(barmode="stack")
-        base_layout(fig,f"{seg} bond issuance — deals ≥ ${minm}m ($bn/month)","",h=420)
-        st.plotly_chart(fig, use_container_width=True, key="lseg_chart")
-        # summary table: latest month + prior + avg per bucket
-        hh=["Bucket","Latest $bn","Prev $bn","Avg $bn","Max $bn"]
-        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
-        for c in seg_cols:
-            s=df[c].astype(float)
-            h+=(f"<tr><td style='text-align:left'>{c}</td><td>{s.iloc[-1]:,.1f}</td>"
-                f"<td>{(s.iloc[-2] if len(s)>1 else 0):,.1f}</td><td>{s.mean():,.1f}</td><td>{s.max():,.1f}</td></tr>")
-        st.markdown(h+"</table></div>", unsafe_allow_html=True)
-        st.caption(f"Source: **LSEG** (Refinitiv). New bond issuance (FaceIssuedUSD) for deals ≥ **${minm}m**, "
-                   "by month. Corporate split by latest rating into **IG / HY / NR** (NR = unrated: MTNs/private). "
-                   "**Government** = sovereign; **Agency** = agencies/supranationals. Private, licensed data.")
-        capped=[r["month"] for r in rows if r.get("capped")]
-        if capped:
-            st.caption("⚠ Incomplete (row-capped) months — raise the size threshold: " + ", ".join(capped))
-        dl(df[["month"]+ [c for c in ["Corp IG","Corp HY","Corp NR","Government","Agency","Other"]]],
-           "Export issuance", "JAWS_lseg_issuance.xlsx", "lseg_dl")
+        m1,m2,m3=st.columns([2,1,1])
+        market=m1.radio("Market",["Bonds","Convertibles","Equity IPOs"],key="lseg_mkt",horizontal=True)
+        months=m2.select_slider("Months back",[6,12,18,24,36,48,60],value=12,key="lseg_mo")
+        mode=m3.radio("View",["Monthly","Cumulative"],key="lseg_mode",horizontal=True)
+        cum=(mode=="Cumulative")
+        ysuffix=" ($bn, cumulative)" if cum else " ($bn/month)"
+
+        # ── BONDS ──────────────────────────────────────────────────
+        if market=="Bonds":
+            b1,b2=st.columns(2)
+            seg=b1.radio("Segment",["Corporate","Government & Agency","All"],key="lseg_seg",horizontal=True)
+            minm=b2.select_slider("Min deal size ($m)",[100,250,500,1000],value=100,key="lseg_min")
+            with st.spinner("Loading LSEG bond issuance…"):
+                try: rows=_lseg_issuance(months, int(minm)*1_000_000)
+                except Exception as e:
+                    st.error(f"LSEG fetch failed: {type(e).__name__}: {e}"); return
+            if not rows: st.warning("No issuance data returned."); return
+            df=pd.DataFrame(rows)
+            seg_cols={"Corporate":["Corp IG","Corp HY","Corp NR"],
+                      "Government & Agency":["Government","Agency"],
+                      "All":["Corp IG","Corp HY","Corp NR","Government","Agency","Other"]}[seg]
+            colors={"Corp IG":BLUE,"Corp HY":RED,"Corp NR":TEXT3,"Government":GREEN,"Agency":YELLOW,"Other":PURPLE}
+            pdf=_cumulate(df,seg_cols) if cum else df
+            fig=go.Figure()
+            for c in seg_cols:
+                fig.add_trace(go.Bar(x=pdf["month"],y=pdf[c],name=c,marker_color=colors.get(c,ACCENT)))
+            fig.update_layout(barmode="stack")
+            base_layout(fig,f"{seg} bond issuance — deals ≥ ${minm}m{ysuffix}","",h=420)
+            st.plotly_chart(fig, use_container_width=True, key="lseg_chart")
+            hh=["Bucket","Latest $bn","Prev $bn","Avg $bn","Total $bn"]
+            h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+            for c in seg_cols:
+                s=df[c].astype(float)
+                h+=(f"<tr><td style='text-align:left'>{c}</td><td>{s.iloc[-1]:,.1f}</td>"
+                    f"<td>{(s.iloc[-2] if len(s)>1 else 0):,.1f}</td><td>{s.mean():,.1f}</td><td>{s.sum():,.1f}</td></tr>")
+            st.markdown(h+"</table></div>", unsafe_allow_html=True)
+            st.caption(f"Source: **LSEG**. New bond issuance (FaceIssuedUSD) for deals ≥ **${minm}m**. "
+                       "Corporate split by latest rating **IG / HY / NR** (NR = unrated: MTNs/private). "
+                       "**Government** = sovereign; **Agency** = agencies/supranationals. Private, licensed data.")
+            capped=[r["month"] for r in rows if r.get("capped")]
+            if capped:
+                st.caption("⚠ Row-capped months (raise the threshold): "+", ".join(capped))
+            dl(df[["month"]+["Corp IG","Corp HY","Corp NR","Government","Agency","Other"]],
+               "Export bond issuance","JAWS_lseg_bond_issuance.xlsx","lseg_dl")
+
+        # ── CONVERTIBLES ───────────────────────────────────────────
+        elif market=="Convertibles":
+            minm=st.select_slider("Min deal size ($m)",[25,50,100,250,500],value=50,key="lseg_cvmin")
+            with st.spinner("Loading LSEG convertible issuance…"):
+                try: rows=_lseg_convertibles(months, int(minm)*1_000_000)
+                except Exception as e:
+                    st.error(f"LSEG fetch failed: {type(e).__name__}: {e}"); return
+            if not rows: st.warning("No convertible data returned."); return
+            df=pd.DataFrame(rows)
+            pdf=_cumulate(df,["Convertibles"]) if cum else df
+            fig=go.Figure()
+            fig.add_trace(go.Bar(x=pdf["month"],y=pdf["Convertibles"],name="Convertibles",marker_color=PURPLE))
+            base_layout(fig,f"Convertible & exchangeable issuance — deals ≥ ${minm}m{ysuffix}","",h=420)
+            st.plotly_chart(fig, use_container_width=True, key="lseg_cvchart")
+            s=df["Convertibles"].astype(float); cnt=df["count"].astype(float)
+            hh=["Metric","Latest","Prev","Avg","Total"]
+            h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+            h+=(f"<tr><td style='text-align:left'>Issuance $bn</td><td>{s.iloc[-1]:,.1f}</td>"
+                f"<td>{(s.iloc[-2] if len(s)>1 else 0):,.1f}</td><td>{s.mean():,.1f}</td><td>{s.sum():,.1f}</td></tr>")
+            h+=(f"<tr><td style='text-align:left'>Deal count</td><td>{cnt.iloc[-1]:,.0f}</td>"
+                f"<td>{(cnt.iloc[-2] if len(cnt)>1 else 0):,.0f}</td><td>{cnt.mean():,.0f}</td><td>{cnt.sum():,.0f}</td></tr>")
+            st.markdown(h+"</table></div>", unsafe_allow_html=True)
+            st.caption(f"Source: **LSEG**. Convertible & exchangeable bond issuance (FaceIssuedUSD), deals ≥ **${minm}m**. "
+                       "Excludes CoCos (bank AT1) and reverse convertibles. Private, licensed data.")
+            dl(df[["month","Convertibles","count"]],"Export convertibles","JAWS_lseg_convertibles.xlsx","lseg_cvdl")
+
+        # ── EQUITY IPOs ────────────────────────────────────────────
+        else:
+            region=st.radio("Region (listing)",["Global","United States","Europe"],key="lseg_ipreg",horizontal=True)
+            with st.spinner("Loading LSEG IPOs…"):
+                try: rows=_lseg_ipos(months, region, 0)
+                except Exception as e:
+                    st.error(f"LSEG fetch failed: {type(e).__name__}: {e}"); return
+            if not rows: st.warning("No IPO data returned."); return
+            df=pd.DataFrame(rows)
+            pdf=_cumulate(df,["IPO mktcap","IPO count"]) if cum else df
+            fig=go.Figure()
+            fig.add_trace(go.Bar(x=pdf["month"],y=pdf["IPO mktcap"],name="IPO mkt cap $bn",marker_color=ACCENT))
+            fig.add_trace(go.Scatter(x=pdf["month"],y=pdf["IPO count"],name="IPO count",yaxis="y2",
+                                     mode="lines+markers",line=dict(color=CYAN,width=2)))
+            base_layout(fig,f"{region} IPOs — market cap at issue{ysuffix} · count on right","",h=420)
+            fig.update_layout(yaxis2=dict(overlaying="y",side="right",showgrid=False,
+                                          title="count",color=CYAN,rangemode="tozero"))
+            st.plotly_chart(fig, use_container_width=True, key="lseg_ipchart")
+            mc=df["IPO mktcap"].astype(float); cnt=df["IPO count"].astype(float)
+            hh=["Metric","Latest","Prev","Avg","Total"]
+            h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+            h+=(f"<tr><td style='text-align:left'>Mkt cap $bn</td><td>{mc.iloc[-1]:,.1f}</td>"
+                f"<td>{(mc.iloc[-2] if len(mc)>1 else 0):,.1f}</td><td>{mc.mean():,.1f}</td><td>{mc.sum():,.1f}</td></tr>")
+            h+=(f"<tr><td style='text-align:left'>IPO count</td><td>{cnt.iloc[-1]:,.0f}</td>"
+                f"<td>{(cnt.iloc[-2] if len(cnt)>1 else 0):,.0f}</td><td>{cnt.mean():,.0f}</td><td>{cnt.sum():,.0f}</td></tr>")
+            st.markdown(h+"</table></div>", unsafe_allow_html=True)
+            st.caption("Source: **LSEG**. IPOs by **IPODate**; size = **market cap at issue** (MktCapIssueUsd), a proxy "
+                       "for deal scale. The **most recent 1–2 months are incomplete** and get revised as listings are "
+                       "populated. **Secondaries / follow-ons are not available** in the entitled search views "
+                       "(they require LSEG's ECM New-Issues deal database). Private, licensed data.")
+            dl(df[["month","IPO count","IPO mktcap"]],"Export IPOs","JAWS_lseg_ipos.xlsx","lseg_ipdl")
 
 def panel_exporter():
     import re as _re
