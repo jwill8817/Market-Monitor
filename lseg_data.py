@@ -88,29 +88,30 @@ def open_session():
         missing = [k for k in ("LSEG_APP_KEY", "LSEG_USER", "LSEG_PASSWORD") if not c.get(k)]
         if missing:
             raise RuntimeError("LSEG credentials missing: " + ", ".join(missing))
+        # signon_control=True sends takeExclusiveSignOnControl=true to the RDP token
+        # endpoint. Without it the login is rejected (HTTP 400) whenever another session
+        # (e.g. a local Refinitiv Workspace) already holds the sign-on — which is why the
+        # cloud login failed while a desktop-shared session masked it locally.
         s = platform.Definition(
             app_key=c["LSEG_APP_KEY"],
             grant=ld.session.platform.GrantPassword(username=c["LSEG_USER"], password=c["LSEG_PASSWORD"]),
+            signon_control=True,
         ).get_session()
-        ld.session.set_default(s)
         try:
-            ld.open_session()
+            s.open()
         except Exception as ex:
             raise RuntimeError(
                 f"LSEG session failed to open ({type(ex).__name__}: {ex}). "
-                "Most likely the LSEG_PASSWORD / LSEG_USER / LSEG_APP_KEY in Streamlit "
-                "secrets is wrong or mismatched.")
-        # ld.open_session() opens the *default* session (a different object than `s`);
-        # verify that one reached Opened, else the credentials were rejected.
-        dflt = ld.session.get_default()
-        state = str(getattr(getattr(dflt, "open_state", None), "name", getattr(dflt, "open_state", "")))
+                "Check LSEG_PASSWORD / LSEG_USER / LSEG_APP_KEY in Streamlit secrets.")
+        state = str(getattr(getattr(s, "open_state", None), "name", getattr(s, "open_state", "")))
         if "Open" not in state:
             raise RuntimeError(
                 f"LSEG session did not reach Opened state (state={state}). "
-                "The LSEG credentials in Streamlit secrets were likely rejected — "
-                "re-check LSEG_PASSWORD / LSEG_USER / LSEG_APP_KEY (exact value, no quotes issues, no trailing spaces).")
-        _session = dflt
-        return dflt
+                "The LSEG credentials were rejected — re-check LSEG_PASSWORD / LSEG_USER / "
+                "LSEG_APP_KEY (exact value, no quotes issues, no trailing spaces).")
+        ld.session.set_default(s)
+        _session = s
+        return s
 
 
 # ── Credit-rating → Investment-Grade / High-Yield bucket ──
