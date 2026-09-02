@@ -146,6 +146,33 @@ INDEX_RICS = {
 }
 
 
+def search_lseg_instruments(term, top=12):
+    """Free-text name/ticker search against LSEG → [(label, RIC), ...] for the forward-valuation
+    picker, so you can find an instrument by name instead of memorizing RICs. Best-effort:
+    returns [] on any failure (no session, not entitled, empty) so the UI stays usable."""
+    if not term or not str(term).strip():
+        return []
+    try:
+        open_session()
+        from lseg.data import discovery
+        df = discovery.search(query=str(term).strip(), top=int(top),
+                              select="RIC,DocumentTitle")
+    except Exception:
+        return []
+    if df is None or getattr(df, "empty", True):
+        return []
+    out, seen = [], set()
+    cols = {str(c).lower(): c for c in df.columns}
+    rc = cols.get("ric"); tc = cols.get("documenttitle")
+    for _, row in df.iterrows():
+        ric = str(row.get(rc) if rc else "").strip()
+        if not ric or ric in seen:
+            continue
+        title = str(row.get(tc) if tc else ric).strip() or ric
+        out.append((f"{title}  [{ric}]", ric)); seen.add(ric)
+    return out
+
+
 def fetch_forward_valuation(rics, fields=None):
     """Snapshot forward-valuation for one or more RICs via LSEG get_data.
 

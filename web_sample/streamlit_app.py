@@ -4357,6 +4357,13 @@ def _lseg_fwd_val(rics_tuple, fields_tuple):
     import lseg_data as L
     return L.fetch_forward_valuation(list(rics_tuple), list(fields_tuple))
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _lseg_search(term):
+    """Type-ahead name/ticker → RIC search for the LSEG forward-valuation picker."""
+    import lseg_data as L
+    try: return L.search_lseg_instruments(term)
+    except Exception: return []
+
 def _cumulate(df, cols):
     """Return a copy of df with the given numeric columns replaced by their running sum."""
     out = df.copy()
@@ -4524,13 +4531,27 @@ def panel_lseg():
         st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
                     'Forward valuation (LSEG / IBES consensus) — forward P/E, forward EPS &amp; '
                     'growth for indices or single names</span>', unsafe_allow_html=True)
+        _fvkey="lseg_fv_picked"
+        if _fvkey not in st.session_state: st.session_state[_fvkey]={}
         _ric_names=list(L.INDEX_RICS.keys())
+        # Search first — you shouldn't need to know RICs by heart.
+        if _HAS_SEARCHBOX:
+            sel=st_searchbox(_lseg_search, placeholder="🔎 Search any company or index by name (e.g. Apple, S&P 500)…",
+                             key="lseg_fv_sb")
+            if sel: st.session_state[_fvkey][sel]=sel
         fv1,fv2=st.columns([2,2])
-        picks=fv1.multiselect("Indices", _ric_names, default=["S&P 500"], key="lseg_fv_idx")
-        extra=fv2.text_input("Extra RICs (comma-sep, e.g. AAPL.O, MSFT.O, .STOXX)", key="lseg_fv_extra",
-                             help="Single-name RICs like AAPL.O / MSFT.O are the most broadly entitled — "
-                                  "a good first test if index-level estimates aren't in your plan.")
-        rics=[L.INDEX_RICS[p] for p in picks]+[r.strip() for r in extra.split(",") if r.strip()]
+        picks=fv1.multiselect("Common indices", _ric_names, default=["S&P 500"], key="lseg_fv_idx")
+        extra=fv2.text_input("…or paste RICs (comma-sep, e.g. AAPL.O, .STOXX)", key="lseg_fv_extra",
+                             help="Only needed if you already know the RIC. Otherwise use the search box above — "
+                                  "single names like AAPL.O are the most broadly entitled for a first test.")
+        # Show what search added, with a clear button.
+        if st.session_state[_fvkey]:
+            pc1,pc2=st.columns([5,1])
+            pc1.caption("Added by search: "+", ".join(st.session_state[_fvkey].values()))
+            if pc2.button("Clear", key="lseg_fv_clear"): st.session_state[_fvkey]={}; st.rerun()
+        rics=[L.INDEX_RICS[p] for p in picks]+list(st.session_state[_fvkey].values()) \
+             +[r.strip() for r in extra.split(",") if r.strip()]
+        rics=list(dict.fromkeys(rics))            # dedupe, preserve order
         with st.expander("⚙️ Advanced — estimate fields (edit if your entitlement uses different codes)"):
             fld_txt=st.text_area("Fields (one per line)", value="\n".join(L.DEFAULT_FWD_FIELDS),
                                  height=170, key="lseg_fv_fields")
