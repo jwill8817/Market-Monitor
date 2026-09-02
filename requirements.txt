@@ -3,7 +3,7 @@ pandas
 numpy
 scikit-learn
 plotly==6.8.0
-yfinance
+yfinance==1.4.1
 python-dateutil
 python-dotenv
 requests

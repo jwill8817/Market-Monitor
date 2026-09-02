@@ -33,15 +33,25 @@ def price_history(symbol, start=None, period="max", adjusted=True):
     else uses yfinance. Optional `start` (date/str) trims the series.
     adjusted=True → dividend+split adjusted close (TOTAL RETURN basis, default).
     adjusted=False → actual unadjusted market price."""
-    import pandas as pd
+    import pandas as pd, time as _time
     if symbol in _CBOE_MAP:
         s = _cboe_history(_CBOE_MAP[symbol])   # index levels — no adjustment concept
     else:
-        if start is not None:
-            h = yf.Ticker(symbol).history(start=str(start), auto_adjust=adjusted)
-        else:
-            h = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=adjusted)
-        if h.empty:
+        # Retry with backoff: Yahoo intermittently rate-limits (esp. from shared cloud
+        # IPs) and returns an empty frame — a couple of retries recover most of these.
+        h = None
+        for _attempt in range(3):
+            try:
+                if start is not None:
+                    h = yf.Ticker(symbol).history(start=str(start), auto_adjust=adjusted)
+                else:
+                    h = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=adjusted)
+            except Exception:
+                h = None
+            if h is not None and not h.empty:
+                break
+            _time.sleep(1.0 * (_attempt + 1))
+        if h is None or h.empty:
             return pd.Series(dtype=float)
         if h.index.tz is not None:
             h.index = h.index.tz_localize(None)
@@ -49,6 +59,62 @@ def price_history(symbol, start=None, period="max", adjusted=True):
     if start is not None:
         s = s[s.index >= pd.Timestamp(start)]
     return s.dropna()
+
+
+def price_histories(symbols, start=None, adjusted=True):
+    """Batch-fetch tz-naive daily Close Series for many symbols in ONE Yahoo request
+    (yf.download) instead of one request per symbol. This is the key defence against
+    Yahoo rate-limiting on shared cloud IPs, which otherwise blanks the return tables.
+    CBOE-only symbols are fetched individually. Falls back to per-symbol price_history
+    for anything the batch call misses. Returns {symbol: Series}."""
+    import pandas as pd, time as _time
+    out = {}
+    uniq = list(dict.fromkeys(symbols))               # de-dupe, preserve order
+    cboe = [s for s in uniq if s in _CBOE_MAP]
+    yh   = [s for s in uniq if s not in _CBOE_MAP]
+    for sym in cboe:
+        try:
+            out[sym] = _cboe_history(_CBOE_MAP[sym])
+        except Exception:
+            out[sym] = pd.Series(dtype=float)
+    if yh:
+        df = None
+        for _attempt in range(3):
+            try:
+                kw = dict(interval="1d", auto_adjust=adjusted, group_by="ticker",
+                          threads=True, progress=False)
+                if start is not None:
+                    df = yf.download(yh, start=str(start), **kw)
+                else:
+                    df = yf.download(yh, period="max", **kw)
+            except Exception:
+                df = None
+            if df is not None and not df.empty:
+                break
+            _time.sleep(1.5 * (_attempt + 1))
+        for sym in yh:
+            ser = pd.Series(dtype=float)
+            try:
+                if df is not None and not df.empty:
+                    if len(yh) == 1:
+                        col = df["Close"] if "Close" in df.columns else None
+                    else:
+                        col = df[sym]["Close"] if sym in df.columns.get_level_values(0) else None
+                    if col is not None:
+                        ser = col.dropna()
+                        if getattr(ser.index, "tz", None) is not None:
+                            ser.index = ser.index.tz_localize(None)
+            except Exception:
+                ser = pd.Series(dtype=float)
+            if ser.empty:                              # batch missed it — try individually
+                ser = price_history(sym, start=start, adjusted=adjusted)
+            out[sym] = ser
+    if start is not None:
+        for sym in list(out):
+            if not out[sym].empty:
+                out[sym] = out[sym][out[sym].index >= pd.Timestamp(start)]
+    return out
+
 
 INDICES = {
     "S&P 500":    "^GSPC",
@@ -345,11 +411,14 @@ def fetch_calendar_returns(ticker_dict, n_years=6, absolute=False):
             return None
         return round(b - a, 4) if absolute else _pct(a, b)
 
+    _hist = price_histories(list(ticker_dict.values()), start=start)
     out = {}
     for name, ticker in ticker_dict.items():
         try:
-            close = price_history(ticker, start=start)
-            if close.empty:
+            close = _hist.get(ticker)
+            if close is None:
+                close = price_history(ticker, start=start)
+            if close is None or close.empty:
                 out[name] = {"price": None}
                 continue
             current = float(close.iloc[-1])
@@ -420,12 +489,16 @@ def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=Fals
     if custom_start:
         _ten_y = datetime.date.today() - relativedelta(years=10)
         _cs_str = min(custom_start, _ten_y).isoformat()
+    # Returns tables only need 10y; pin the window so the (now max-default) history
+    # doesn't pull full history for every instrument.
+    _tbl_start = _cs_str or (datetime.date.today() - relativedelta(years=10)).isoformat()
+    # Batch-fetch ALL tickers in one request (avoids per-symbol Yahoo rate-limiting).
+    _hist = price_histories(list(ticker_dict.values()), start=_tbl_start)
     for name, ticker in ticker_dict.items():
         try:
-            # Returns tables only need 10y; pin the window so the (now max-default)
-            # price_history doesn't pull full history for every quadrant instrument.
-            _tbl_start = _cs_str or (datetime.date.today() - relativedelta(years=10)).isoformat()
-            close = price_history(ticker, start=_tbl_start)
+            close = _hist.get(ticker)
+            if close is None:
+                close = price_history(ticker, start=_tbl_start)
             if close.empty:
                 results[name] = {"price": None, "change_1d": None, "returns": {}}
                 continue
