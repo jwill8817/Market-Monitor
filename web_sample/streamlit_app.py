@@ -935,7 +935,11 @@ VAL_INDEX_ETFS={"S&P 500 (SPY)":"SPY","Nasdaq 100 (QQQ)":"QQQ","Russell 2000 (IW
 MULTPL={"Trailing P/E":"https://www.multpl.com/s-p-500-pe-ratio/table/by-month",
     "Shiller CAPE":"https://www.multpl.com/shiller-pe/table/by-month",
     "Price / Book":"https://www.multpl.com/s-p-500-price-to-book/table/by-quarter",
-    "Price / Sales":"https://www.multpl.com/s-p-500-price-to-sales/table/by-quarter"}
+    "Price / Sales":"https://www.multpl.com/s-p-500-price-to-sales/table/by-quarter",
+    "Earnings Yield":"https://www.multpl.com/s-p-500-earnings-yield/table/by-month",
+    "Dividend Yield":"https://www.multpl.com/s-p-500-dividend-yield/table/by-month"}
+# Metrics where a HIGH reading means CHEAP (yields), so the expensive/cheap label + colour flip.
+_VAL_INVERTED={"Earnings Yield","Dividend Yield"}
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def yf_multiples(sym):
@@ -3139,6 +3143,49 @@ def panel_news(k):
                                         if it.get("ts") else "")} for it in capped])
     dl(news_df,"Export headlines","JAWS_news.xlsx",k+"_dl")
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _erp_history():
+    """Aligned month-end earnings yield (S&P 500, multpl) and US 10Y (FRED DGS10), plus their
+    spread — the 'Fed model' equity risk-premium proxy. Returns [(date, ey%, y10%, erp%)], oldest
+    first (empty on any fetch failure)."""
+    try:
+        ey=multpl_series(MULTPL["Earnings Yield"])
+        import fi_spreads as fs
+        d10,v10=fs._fred_fetch_all("DGS10")
+    except Exception:
+        return []
+    if not ey or not d10: return []
+    eys=pd.Series({pd.Timestamp(d):float(v) for d,v in ey}).resample("ME").last()
+    y10=pd.Series(pd.to_numeric(v10,errors="coerce"),
+                  index=pd.to_datetime(d10)).dropna().resample("ME").last()
+    df=pd.concat([eys.rename("ey"),y10.rename("y10")],axis=1).dropna()
+    if df.empty: return []
+    df["erp"]=df["ey"]-df["y10"]
+    return [(d.date(),float(r.ey),float(r.y10),float(r.erp)) for d,r in df.iterrows()]
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _cape_fwd_return(years_ahead=10):
+    """Shiller CAPE vs the S&P 500's SUBSEQUENT annualized price return over the next
+    `years_ahead` years. Returns (points, current_cape) with points = [(cape, fwd_ann_return%)].
+    Price-only (ex-dividends), month-end sampled."""
+    try:
+        cape=multpl_series(MULTPL["Shiller CAPE"])
+        px=md_history("^GSPC")
+    except Exception:
+        return [], None
+    if not cape or px is None or len(px)==0: return [], None
+    cs=pd.Series({pd.Timestamp(d):float(v) for d,v in cape}).resample("ME").last().dropna()
+    pm=px.resample("ME").last().dropna()
+    if cs.empty or pm.empty: return [], None
+    n=int(years_ahead*12); last=pm.index[-1]; pts=[]
+    for dt,cv in cs.items():
+        fut=dt+pd.DateOffset(months=n)
+        if fut>last: break
+        p0=pm.asof(dt); p1=pm.asof(fut)
+        if pd.notna(p0) and pd.notna(p1) and p0>0:
+            pts.append((float(cv), (float(p1)/float(p0))**(12.0/n)-1.0))
+    return [(c, r*100.0) for c,r in pts], (float(cs.iloc[-1]) if len(cs) else None)
+
 def panel_valuation(k):
     # ── Current multiples cross-section ──
     ek=k+"_stk"
@@ -3199,7 +3246,10 @@ def panel_valuation(k):
     mean=statistics.mean(vs); std=statistics.pstdev(vs) if n>1 else 0
     pct=round(sum(1 for v in vs if v<=cur)/n*100)
     z=round((cur-mean)/std,2) if std else None
-    pc = RED if pct>=80 else (GREEN if pct<=20 else YELLOW)
+    _inv=metric in _VAL_INVERTED                       # yields: HIGH = cheap, so flip rich/cheap
+    rich = pct<=20 if _inv else pct>=80                # "expensive" reading?
+    cheap= pct>=80 if _inv else pct<=20
+    pc = RED if rich else (GREEN if cheap else YELLOW)
     m1,m2,m3=st.columns(3)
     m1.metric("Current", f"{cur:.1f}")
     m2.markdown(f'<div style="font-family:Consolas"><span style="color:{TEXT2};font-size:12px">Percentile vs history</span><br>'
@@ -3210,9 +3260,94 @@ def panel_valuation(k):
     fig.add_trace(go.Scatter(x=ds,y=vs,mode="lines",line=dict(color=ACCENT,width=1.4)))
     fig.add_hline(y=mean,line=dict(color=TEXT3,dash="dash"),annotation_text=f"avg {mean:.1f}")
     st.plotly_chart(base_layout(fig,f"S&P 500 {metric} — {ds[0].year}–{ds[-1].year} "
-                    f"({'expensive' if pct>=80 else 'cheap' if pct<=20 else 'mid'} vs history)",h=300),
+                    f"({'expensive' if rich else 'cheap' if cheap else 'mid'} vs history)",h=300),
                     use_container_width=True, key=k+"_chart")
+    if _inv:
+        st.caption("This is a **yield**, so the scale is inverted vs a P/E: a **high** reading (high percentile) "
+                   "means stocks are **cheap**, a low reading means expensive.")
     dl(pd.DataFrame({"Date":ds,metric:vs}), "Export history", f"JAWS_SP500_{metric.replace('/','_')}.xlsx", k+"_dl2")
+
+    # ── Equity risk premium (Fed model): earnings yield − 10Y ──
+    st.divider()
+    st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Equity risk premium — S&amp;P 500 earnings yield minus the 10Y Treasury '
+                '(the &ldquo;Fed model&rdquo;): how much extra yield stocks offer over bonds</span>',
+                unsafe_allow_html=True)
+    erp=_erp_history()
+    if not erp:
+        st.info("Equity-risk-premium history unavailable right now (earnings-yield or 10Y source didn't load).")
+    else:
+        _ecol1,_ecol2=st.columns([3,1])
+        ew=_ecol2.selectbox("Window ", ["All","30Y","20Y","10Y"], key=k+"_ew")
+        e=erp
+        if ew!="All":
+            _cut=date.today()-relativedelta(years=int(ew[:-1])); e=[r for r in erp if r[0]>=_cut]
+        if e:
+            edt=[r[0] for r in e]; eey=[r[1] for r in e]; ey10=[r[2] for r in e]; eerp=[r[3] for r in e]
+            import statistics as _stt
+            ecur=eerp[-1]; emean=_stt.mean(eerp); estd=_stt.pstdev(eerp) if len(eerp)>1 else 0
+            epct=round(sum(1 for v in eerp if v<=ecur)/len(eerp)*100)
+            ez=round((ecur-emean)/estd,2) if estd else None
+            # High ERP = stocks cheap vs bonds (green); low/negative = rich vs bonds (red).
+            epc=GREEN if epct>=80 else (RED if epct<=20 else YELLOW)
+            e1,e2,e3=st.columns(3)
+            e1.metric("ERP now", f"{ecur:+.2f}%", help="Earnings yield minus 10Y. Higher = stocks cheaper vs bonds.")
+            e2.markdown(f'<div style="font-family:Consolas"><span style="color:{TEXT2};font-size:12px">Percentile vs history</span><br>'
+                        f'<span style="color:{epc};font-size:22px;font-weight:700">{epct}th</span></div>', unsafe_allow_html=True)
+            e3.markdown(f'<div style="font-family:Consolas"><span style="color:{TEXT2};font-size:12px">Z-score</span><br>'
+                        f'<span style="color:{epc};font-size:22px;font-weight:700">{(f"{ez:+.2f}σ" if ez is not None else "—")}</span></div>', unsafe_allow_html=True)
+            efig=go.Figure()
+            efig.add_trace(go.Scatter(x=edt,y=eey,mode="lines",name="Earnings yield",line=dict(color=GREEN,width=1.2)))
+            efig.add_trace(go.Scatter(x=edt,y=ey10,mode="lines",name="10Y Treasury",line=dict(color=YELLOW,width=1.2)))
+            efig.add_trace(go.Scatter(x=edt,y=eerp,mode="lines",name="ERP (EY−10Y)",line=dict(color=ACCENT,width=1.6)))
+            efig.add_hline(y=0,line=dict(color=TEXT3,dash="dot"))
+            efig.add_hline(y=emean,line=dict(color=TEXT3,dash="dash"),annotation_text=f"ERP avg {emean:.2f}%")
+            st.plotly_chart(base_layout(efig,"Earnings yield vs 10Y — equity risk premium "
+                            f"({'cheap' if epct>=80 else 'rich' if epct<=20 else 'mid'} vs bonds)","%",h=320),
+                            use_container_width=True, key=k+"_erpchart")
+            st.caption("The **Fed model** compares the S&P 500 earnings yield (≈ 1 ÷ trailing P/E) with the 10Y "
+                       "Treasury. A **wide** premium = stocks look cheap vs bonds; **near zero / negative** = "
+                       "expensive vs bonds. It's a rough gauge, not a precise fair-value model — it ignores growth, "
+                       "inflation regimes and credit. Earnings yield: multpl.com; 10Y: FRED (DGS10).")
+            dl(pd.DataFrame({"Date":edt,"EarningsYield%":eey,"UST10Y%":ey10,"ERP%":eerp}),
+               "Export ERP history", "JAWS_SP500_ERP.xlsx", k+"_erpdl")
+
+    # ── Starting valuation vs the next 10 years of returns ──
+    st.divider()
+    st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Does valuation predict returns? — starting Shiller CAPE vs the S&amp;P 500&rsquo;s '
+                'realized annualized price return over the following 10 years</span>', unsafe_allow_html=True)
+    _pts,_curcape=_cape_fwd_return(10)
+    if not _pts:
+        st.info("Not enough overlapping CAPE + price history to build the forward-return scatter right now.")
+    else:
+        import numpy as _np
+        cx=_np.array([p[0] for p in _pts]); cy=_np.array([p[1] for p in _pts])
+        sfig=go.Figure()
+        sfig.add_trace(go.Scatter(x=cx,y=cy,mode="markers",
+            marker=dict(color=BLUE,size=5,opacity=0.55),name="history",
+            hovertemplate="CAPE %{x:.1f} → %{y:.1f}%/yr<extra></extra>"))
+        _implied=None
+        if len(cx)>2 and cx.std()>0:
+            b1,b0=_np.polyfit(cx,cy,1); xr=_np.array([cx.min(),cx.max()])
+            _corr=float(_np.corrcoef(cx,cy)[0,1])
+            sfig.add_trace(go.Scatter(x=xr,y=b0+b1*xr,mode="lines",
+                line=dict(color=ACCENT,width=2),name=f"fit (r={_corr:+.2f})"))
+            if _curcape is not None: _implied=b0+b1*_curcape
+        if _curcape is not None:
+            sfig.add_vline(x=_curcape,line=dict(color=RED,dash="dash"),
+                           annotation_text=f"now {_curcape:.1f}")
+        base_layout(sfig,"Starting CAPE vs next-10Y annualized return","%",h=340)
+        sfig.update_xaxes(title="Shiller CAPE at start"); sfig.update_yaxes(title="Next 10Y ann. return %")
+        st.plotly_chart(sfig, use_container_width=True, key=k+"_capechart")
+        _imp=(f" At today's CAPE of **{_curcape:.1f}**, the historical fit implies roughly "
+              f"**{_implied:+.1f}%/yr** over the next decade." if (_implied is not None and _curcape) else "")
+        st.caption("Each dot = one month: its CAPE then, and what the S&P 500 actually returned per year over the "
+                   "next 10 years (**price only, ex-dividends**). Historically higher starting CAPE → lower "
+                   "subsequent returns."+_imp+" This is a statistical tendency with wide scatter, **not** a forecast — "
+                   "the recent tail is truncated because 10 years haven't elapsed yet.")
+        dl(pd.DataFrame({"StartCAPE":cx,"Next10Y_ann_return%":cy}),
+           "Export CAPE→return points", "JAWS_CAPE_forward_return.xlsx", k+"_capedl")
 
 # ════════════════════════════════════════════════════════════════
 # REGRESSION TOOL
