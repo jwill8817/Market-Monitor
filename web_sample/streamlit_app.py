@@ -4352,6 +4352,11 @@ def _lseg_ipos(months, region, min_mktcap_usd):
     import lseg_data as L
     return L.fetch_ipos_history(months_back=int(months), region=region, min_mktcap_usd=int(min_mktcap_usd))
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _lseg_fwd_val(rics_tuple, fields_tuple):
+    import lseg_data as L
+    return L.fetch_forward_valuation(list(rics_tuple), list(fields_tuple))
+
 def _cumulate(df, cols):
     """Return a copy of df with the given numeric columns replaced by their running sum."""
     out = df.copy()
@@ -4513,6 +4518,44 @@ def panel_lseg():
                        "populated. **Secondaries / follow-ons are not available** in the entitled search views "
                        "(they require LSEG's ECM New-Issues deal database). Private, licensed data.")
             dl(df[["month","IPO count","IPO mktcap"]],"Export IPOs","JAWS_lseg_ipos.xlsx","lseg_ipdl")
+
+        # ── FORWARD VALUATION (IBES consensus estimates) ────────────
+        st.divider()
+        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Forward valuation (LSEG / IBES consensus) — forward P/E, forward EPS &amp; '
+                    'growth for indices or single names</span>', unsafe_allow_html=True)
+        _ric_names=list(L.INDEX_RICS.keys())
+        fv1,fv2=st.columns([2,2])
+        picks=fv1.multiselect("Indices", _ric_names, default=["S&P 500"], key="lseg_fv_idx")
+        extra=fv2.text_input("Extra RICs (comma-sep, e.g. AAPL.O, MSFT.O, .STOXX)", key="lseg_fv_extra",
+                             help="Single-name RICs like AAPL.O / MSFT.O are the most broadly entitled — "
+                                  "a good first test if index-level estimates aren't in your plan.")
+        rics=[L.INDEX_RICS[p] for p in picks]+[r.strip() for r in extra.split(",") if r.strip()]
+        with st.expander("⚙️ Advanced — estimate fields (edit if your entitlement uses different codes)"):
+            fld_txt=st.text_area("Fields (one per line)", value="\n".join(L.DEFAULT_FWD_FIELDS),
+                                 height=170, key="lseg_fv_fields")
+        fields=[l.strip() for l in fld_txt.splitlines() if l.strip()]
+        if st.button("Load forward valuation", key="lseg_fv_go"):
+            if not rics:
+                st.warning("Pick at least one index or add a RIC.")
+            else:
+                with st.spinner("Loading LSEG forward estimates…"):
+                    res=_lseg_fwd_val(tuple(rics), tuple(fields))
+                if res.get("error"):
+                    st.error("LSEG forward-valuation request failed:")
+                    st.code(res["error"])
+                    st.caption("If this mentions a field or entitlement, edit the field list above and retry. "
+                               "Paste this message back to me and I'll lock in the correct field codes.")
+                elif res.get("records"):
+                    fvdf=pd.DataFrame(res["records"])
+                    st.dataframe(fvdf, use_container_width=True)
+                    st.caption("Columns returned: "+", ".join(res.get("columns",[])) +
+                               "  ·  **LSEG / IBES — private, licensed data.** Once we confirm the exact columns "
+                               "your login returns, I'll add forward earnings yield, a forward Fed-model (fwd "
+                               "yield vs 10Y) and history.")
+                    dl(fvdf, "Export forward valuation", "JAWS_lseg_forward_valuation.xlsx", "lseg_fvdl")
+                else:
+                    st.info("No rows returned — check the RIC(s) and your estimates entitlement.")
 
 def panel_exporter():
     import re as _re

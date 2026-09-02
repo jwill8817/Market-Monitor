@@ -114,6 +114,68 @@ def open_session():
         return s
 
 
+# ── Forward valuation / IBES consensus estimates ──────────────────
+# Snapshot of forward-looking valuation for one or more RICs (indices or single names) via
+# LSEG get_data (IBES estimates + price). Requires an ESTIMATES-entitled login. Field codes
+# below are the standard Refinitiv items, but exact availability depends on YOUR entitlement,
+# so fetch_forward_valuation() never raises for a bad/unentitled field — it returns the error
+# text and whatever columns did come back, and the UI lets you edit the field list live. That
+# way we lock in the correct codes from the first real run instead of guessing blind.
+DEFAULT_FWD_FIELDS = [
+    "TR.PriceClose",                    # last price / index level
+    "TR.EPSMeanEstimate(Period=FY1)",   # FY1 consensus EPS
+    "TR.EPSMeanEstimate(Period=FY2)",   # FY2 consensus EPS
+    "TR.FwdPE",                         # 12m-forward P/E (if provided at this level)
+    "TR.PE",                            # trailing P/E (context)
+    "TR.LTGMean",                       # long-term growth consensus (%)
+    "TR.DividendYield",                 # dividend yield (%)
+]
+
+# Common index RICs. Entitlement to index-level estimates varies — single names (e.g. "AAPL.O",
+# "MSFT.O") are the most broadly entitled and a good first test.
+INDEX_RICS = {
+    "S&P 500": ".SPX",
+    "Nasdaq 100": ".NDX",
+    "Dow Jones": ".DJI",
+    "Russell 2000": ".RUT",
+    "STOXX Europe 600": ".STOXX",
+    "Euro STOXX 50": ".STOXX50E",
+    "FTSE 100": ".FTSE",
+    "Nikkei 225": ".N225",
+    "DAX": ".GDAXI",
+}
+
+
+def fetch_forward_valuation(rics, fields=None):
+    """Snapshot forward-valuation for one or more RICs via LSEG get_data.
+
+    Returns {'records': [ {col: val, ...}, ... ], 'columns': [str, ...], 'error': str|None}.
+    Never raises for an entitlement/field problem — the error is returned as text so the caller
+    can display it and adjust the field list. `rics` may be a str or list; `fields` defaults to
+    DEFAULT_FWD_FIELDS."""
+    if isinstance(rics, str):
+        rics = [rics]
+    rics = [r.strip() for r in rics if r and r.strip()]
+    if not rics:
+        return {"records": [], "columns": [], "error": "No RIC supplied."}
+    fields = list(fields) if fields else list(DEFAULT_FWD_FIELDS)
+    try:
+        open_session()
+        import lseg.data as ld
+        df = ld.get_data(universe=rics, fields=fields)
+    except Exception as ex:
+        return {"records": [], "columns": [], "error": f"{type(ex).__name__}: {ex}"}
+    if df is None or getattr(df, "empty", True):
+        return {"records": [], "columns": [],
+                "error": "LSEG returned no rows — check the RIC(s) and that your login is "
+                         "entitled to IBES estimates for this universe."}
+    try:
+        return {"records": df.to_dict("records"),
+                "columns": [str(c) for c in df.columns], "error": None}
+    except Exception as ex:
+        return {"records": [], "columns": [], "error": f"Result parse failed: {ex}"}
+
+
 # ── Credit-rating → Investment-Grade / High-Yield bucket ──
 _MOODY_IG = {"AAA", "AA1", "AA2", "AA3", "A1", "A2", "A3", "BAA1", "BAA2", "BAA3"}
 _SP_IG = {"AAA", "AA", "A", "BBB"}
