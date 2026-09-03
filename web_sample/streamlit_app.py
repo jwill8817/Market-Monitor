@@ -941,12 +941,33 @@ MULTPL={"Trailing P/E":"https://www.multpl.com/s-p-500-pe-ratio/table/by-month",
 # Metrics where a HIGH reading means CHEAP (yields), so the expensive/cheap label + colour flip.
 _VAL_INVERTED={"Earnings Yield","Dividend Yield"}
 
+def _valcache():
+    import tempfile, pickle
+    p=os.path.join(tempfile.gettempdir(),"jaws_val_cache.pkl")
+    try:
+        with open(p,"rb") as f: return p, pickle.load(f)
+    except Exception:
+        return p, {}
+
+def _valcache_save(p, d):
+    import pickle
+    try:
+        with open(p,"wb") as f: pickle.dump(d,f)
+    except Exception: pass
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def yf_multiples(sym):
-    import yfinance as yf
-    tk=yf.Ticker(sym)
-    try: i=tk.info
-    except Exception: i={}
+    import yfinance as yf, time
+    # Yahoo's .info is heavily rate-limited on shared cloud IPs and returns an empty dict
+    # when throttled — which blanks the whole multiples table. Retry, then fall back to the
+    # last good values so cells stay populated.
+    i={}
+    for _attempt in range(3):
+        try: i=yf.Ticker(sym).info or {}
+        except Exception: i={}
+        if any(i.get(x) is not None for x in ("trailingPE","priceToBook","marketCap","priceToSalesTrailing12Months")):
+            break
+        time.sleep(1.0*(_attempt+1))
     mc=i.get("marketCap")
     fwd_ps=None; eps_gr=None
     # Forward metrics we build ourselves from consensus estimates (stocks only)
@@ -959,16 +980,31 @@ def yf_multiples(sym):
         except Exception: pass
     fe=i.get("forwardEps"); te=i.get("trailingEps")
     if fe and te and te>0: eps_gr=(fe/te-1)*100
-    return {"FwdPE":i.get("forwardPE"),"PE":i.get("trailingPE"),"PB":i.get("priceToBook"),
-            "PS":i.get("priceToSalesTrailing12Months"),"FwdPS":fwd_ps,
-            "EVEBITDA":i.get("enterpriseToEbitda"),"PEG":i.get("pegRatio"),
-            "EPSgr":eps_gr,"DivYld":i.get("dividendYield")}
+    res={"FwdPE":i.get("forwardPE"),"PE":i.get("trailingPE"),"PB":i.get("priceToBook"),
+         "PS":i.get("priceToSalesTrailing12Months"),"FwdPS":fwd_ps,
+         "EVEBITDA":i.get("enterpriseToEbitda"),"PEG":i.get("pegRatio"),
+         "EPSgr":eps_gr,"DivYld":i.get("dividendYield")}
+    # Last-good cache: reuse prior values when Yahoo throttles this symbol to empty.
+    _p,_c=_valcache()
+    if any(res.get(x) is not None for x in ("PE","PB","PS","FwdPE","EVEBITDA","DivYld")):
+        _c[sym]=res; _valcache_save(_p,_c)
+    elif sym in _c:
+        return _c[sym]
+    return res
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def multpl_series(url):
-    import urllib.request, re
-    req=urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
-    html=urllib.request.urlopen(req,timeout=20).read().decode("utf-8","replace")
+    import urllib.request, re, time
+    html=""
+    for _attempt in range(3):
+        try:
+            req=urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+            html=urllib.request.urlopen(req,timeout=20).read().decode("utf-8","replace")
+        except Exception:
+            html=""
+        if html:
+            break
+        time.sleep(1.0*(_attempt+1))
     rows=re.findall(r'<td>\s*([A-Z][a-z]{2} \d{1,2}, \d{4})\s*</td>\s*<td>.*?([\d]+\.[\d]+|[\d]+)\s*</td>',
                     html, re.DOTALL)
     out=[]
