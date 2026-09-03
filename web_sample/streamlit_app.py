@@ -980,10 +980,14 @@ def yf_multiples(sym):
         except Exception: pass
     fe=i.get("forwardEps"); te=i.get("trailingEps")
     if fe and te and te>0: eps_gr=(fe/te-1)*100
-    res={"FwdPE":i.get("forwardPE"),"PE":i.get("trailingPE"),"PB":i.get("priceToBook"),
+    _pe=i.get("trailingPE"); _fpe=i.get("forwardPE")
+    # Earnings yield (%) = inverse of P/E — trailing and forward.
+    _ey=(100.0/_pe) if isinstance(_pe,(int,float)) and _pe>0 else None
+    _fey=(100.0/_fpe) if isinstance(_fpe,(int,float)) and _fpe>0 else None
+    res={"FwdPE":_fpe,"PE":_pe,"PB":i.get("priceToBook"),
          "PS":i.get("priceToSalesTrailing12Months"),"FwdPS":fwd_ps,
          "EVEBITDA":i.get("enterpriseToEbitda"),"PEG":i.get("pegRatio"),
-         "EPSgr":eps_gr,"DivYld":i.get("dividendYield")}
+         "EPSgr":eps_gr,"EarnYld":_ey,"FwdEarnYld":_fey,"DivYld":i.get("dividendYield")}
     # Last-good cache: reuse prior values when Yahoo throttles this symbol to empty.
     _p,_c=_valcache()
     if any(res.get(x) is not None for x in ("PE","PB","PS","FwdPE","EVEBITDA","DivYld")):
@@ -3240,7 +3244,7 @@ def panel_valuation(k):
                 res=yf_search(raw)
                 if res: sym,nm=res[0]; st.session_state[ek][f"{nm[:18]} ({sym})"]=sym
     universe={**VAL_INDEX_ETFS, **st.session_state[ek]}
-    hdr=["Name","Fwd P/E","Trail P/E","P/B","P/S","Fwd P/S","EV/EBITDA","PEG","EPS Gr%","Div%"]
+    hdr=["Name","Fwd P/E","Trail P/E","Earn Yld%","Fwd EY%","P/B","P/S","Fwd P/S","EV/EBITDA","PEG","EPS Gr%","Div Yld%"]
     def fnum(v,suf=""): return f'<span style="color:{TEXT3}">—</span>' if not isinstance(v,(int,float)) else f"{v:.1f}{suf}"
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
     exp=[]
@@ -3249,12 +3253,14 @@ def panel_valuation(k):
             m=yf_multiples(sym)
             gr=m['EPSgr']; grc=GREEN if (isinstance(gr,(int,float)) and gr>=0) else (RED if isinstance(gr,(int,float)) else TEXT3)
             h+=("<tr>"f"<td>{name}</td><td>{fnum(m['FwdPE'])}</td><td>{fnum(m['PE'])}</td>"
+                f"<td>{fnum(m['EarnYld'],'%')}</td><td>{fnum(m['FwdEarnYld'],'%')}</td>"
                 f"<td>{fnum(m['PB'])}</td><td>{fnum(m['PS'])}</td><td>{fnum(m['FwdPS'])}</td>"
                 f"<td>{fnum(m['EVEBITDA'])}</td><td>{fnum(m['PEG'])}</td>"
-                f"<td style='color:{grc}'>{fnum(gr,'%')}</td><td>{fnum(m['DivYld'])}</td></tr>")
-            exp.append({"Name":name,"Ticker":sym,"FwdPE":m['FwdPE'],"TrailPE":m['PE'],"PB":m['PB'],
+                f"<td style='color:{grc}'>{fnum(gr,'%')}</td><td>{fnum(m['DivYld'],'%')}</td></tr>")
+            exp.append({"Name":name,"Ticker":sym,"FwdPE":m['FwdPE'],"TrailPE":m['PE'],
+                        "EarnYld%":m['EarnYld'],"FwdEarnYld%":m['FwdEarnYld'],"PB":m['PB'],
                         "PS":m['PS'],"FwdPS":m['FwdPS'],"EV/EBITDA":m['EVEBITDA'],"PEG":m['PEG'],
-                        "EPSgr%":m['EPSgr'],"DivYld":m['DivYld']})
+                        "EPSgr%":m['EPSgr'],"DivYld%":m['DivYld']})
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
     st.caption("Forward P/E, Fwd P/S and EPS growth are built from consensus estimates — "
                "single stocks only. Index ETFs show trailing P/E, P/B, yield (Yahoo doesn't "
