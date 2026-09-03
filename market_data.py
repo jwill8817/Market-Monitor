@@ -61,12 +61,66 @@ def price_history(symbol, start=None, period="max", adjusted=True):
     return s.dropna()
 
 
+# ── Last-good price cache (disk-backed) ────────────────────────────
+# Yahoo intermittently drops a random subset of tickers on shared cloud IPs. We keep the
+# last successfully-fetched series for every ticker on disk and reuse it when a later fetch
+# comes back empty, so a table cell never blanks out once it has been populated.
+import os as _os, tempfile as _tempfile, pickle as _pickle, threading as _threading
+_PXCACHE_PATH = _os.path.join(_tempfile.gettempdir(), "jaws_px_cache.pkl")
+_PXCACHE = None
+_PXLOCK = _threading.Lock()
+
+
+def _pxcache():
+    global _PXCACHE
+    if _PXCACHE is None:
+        try:
+            with open(_PXCACHE_PATH, "rb") as f:
+                _PXCACHE = _pickle.load(f)
+        except Exception:
+            _PXCACHE = {}
+    return _PXCACHE
+
+
+def _pxcache_save():
+    try:
+        with open(_PXCACHE_PATH, "wb") as f:
+            _pickle.dump(_PXCACHE, f)
+    except Exception:
+        pass
+
+
+def _yf_download(tickers, start, adjusted):
+    kw = dict(interval="1d", auto_adjust=adjusted, group_by="ticker", threads=True, progress=False)
+    if start is not None:
+        return yf.download(list(tickers), start=str(start), **kw)
+    return yf.download(list(tickers), period="max", **kw)
+
+
+def _extract_close(df, sym, single):
+    import pandas as pd
+    try:
+        if df is None or df.empty:
+            return pd.Series(dtype=float)
+        if single:
+            col = df["Close"] if "Close" in df.columns else None
+        else:
+            col = df[sym]["Close"] if sym in df.columns.get_level_values(0) else None
+        if col is None:
+            return pd.Series(dtype=float)
+        ser = col.dropna()
+        if getattr(ser.index, "tz", None) is not None:
+            ser.index = ser.index.tz_localize(None)
+        return ser
+    except Exception:
+        return pd.Series(dtype=float)
+
+
 def price_histories(symbols, start=None, adjusted=True):
-    """Batch-fetch tz-naive daily Close Series for many symbols in ONE Yahoo request
-    (yf.download) instead of one request per symbol. This is the key defence against
-    Yahoo rate-limiting on shared cloud IPs, which otherwise blanks the return tables.
-    CBOE-only symbols are fetched individually. Falls back to per-symbol price_history
-    for anything the batch call misses. Returns {symbol: Series}."""
+    """Batch-fetch tz-naive daily Close Series for many symbols. Uses yf.download, then a
+    second retry pass for any tickers Yahoo dropped, then a disk-backed last-good cache so
+    cells never blank once populated. CBOE-only symbols are fetched individually.
+    Returns {symbol: Series}."""
     import pandas as pd, time as _time
     out = {}
     uniq = list(dict.fromkeys(symbols))               # de-dupe, preserve order
@@ -78,41 +132,47 @@ def price_histories(symbols, start=None, adjusted=True):
         except Exception:
             out[sym] = pd.Series(dtype=float)
     if yh:
-        df = None
-        for _attempt in range(3):
-            try:
-                kw = dict(interval="1d", auto_adjust=adjusted, group_by="ticker",
-                          threads=True, progress=False)
-                if start is not None:
-                    df = yf.download(yh, start=str(start), **kw)
-                else:
-                    df = yf.download(yh, period="max", **kw)
-            except Exception:
-                df = None
-            if df is not None and not df.empty:
-                break
-            _time.sleep(1.5 * (_attempt + 1))
+        # Pass 1: batch download the whole set.
+        try:    df = _yf_download(yh, start, adjusted)
+        except Exception: df = None
+        single = (len(yh) == 1)
         for sym in yh:
-            ser = pd.Series(dtype=float)
-            try:
-                if df is not None and not df.empty:
-                    if len(yh) == 1:
-                        col = df["Close"] if "Close" in df.columns else None
-                    else:
-                        col = df[sym]["Close"] if sym in df.columns.get_level_values(0) else None
-                    if col is not None:
-                        ser = col.dropna()
-                        if getattr(ser.index, "tz", None) is not None:
-                            ser.index = ser.index.tz_localize(None)
-            except Exception:
-                ser = pd.Series(dtype=float)
-            if ser.empty:                              # batch missed it — try individually
-                ser = price_history(sym, start=start, adjusted=adjusted)
-            out[sym] = ser
+            out[sym] = _extract_close(df, sym, single)
+        # Pass 2: re-batch only the tickers that came back empty (after a short pause).
+        missing = [s for s in yh if out[s].empty]
+        if missing:
+            _time.sleep(2.0)
+            try:    df2 = _yf_download(missing, start, adjusted)
+            except Exception: df2 = None
+            single2 = (len(missing) == 1)
+            for sym in missing:
+                ser = _extract_close(df2, sym, single2)
+                if ser.empty:                          # Pass 3: individual (has its own retry)
+                    ser = price_history(sym, start=start, adjusted=adjusted)
+                out[sym] = ser
+    # Trim to start window.
     if start is not None:
         for sym in list(out):
             if not out[sym].empty:
                 out[sym] = out[sym][out[sym].index >= pd.Timestamp(start)]
+    # Merge with the last-good cache: save fresh successes, fall back for any still-empty.
+    with _PXLOCK:
+        cache = _pxcache()
+        changed = False
+        for sym in uniq:
+            ser = out.get(sym)
+            if ser is not None and not ser.empty:
+                prev = cache.get(sym)
+                if prev is not None and not prev.empty:
+                    ser = ser.combine_first(prev).sort_index()   # fresh wins; keep old history
+                cache[sym] = ser
+                changed = True
+            else:                                      # reuse last good (trim to window)
+                cached = cache.get(sym)
+                if cached is not None and not cached.empty:
+                    out[sym] = cached if start is None else cached[cached.index >= pd.Timestamp(start)]
+        if changed:
+            _pxcache_save()
     return out
 
 
