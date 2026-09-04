@@ -378,7 +378,19 @@ def _series_from_wide(raw, kind):
             px=ser
         else:
             r=ser/100.0 if kind=="Returns %" else ser
-            px=(1.0+r).cumprod()*100.0
+            lvl=(1.0+r).cumprod()*100.0
+            # Seed an explicit base-100 anchor one period BEFORE the first return so the
+            # first return is part of the index and of the last/first total return. Without
+            # it, cumprod() plants the 100 base at a phantom point (no 100 row exists), so
+            # last/first-1 and every pct_change tool silently drop the first return and the
+            # index level no longer ties out to the reported total return.
+            first=lvl.index[0]
+            if first==first+pd.offsets.MonthEnd(0):        # month-end data → clean prior month-end
+                base_dt=first-pd.offsets.MonthEnd(1)
+            else:
+                step=(lvl.index[1]-first) if len(lvl)>=2 else pd.Timedelta(days=30)
+                base_dt=first-step
+            px=pd.concat([pd.Series([100.0], index=[base_dt]), lvl])
         out[sym]=(str(col).strip(), px)
     if not out:
         raise ValueError("No numeric data columns found.")
@@ -417,7 +429,8 @@ def build_upload_template():
             "   ticker/identifier (e.g. MY_FUND, BENCHMARK). Add as many columns as you like.",
             "3. Fill values down each column. They can be PRICES/levels or RETURNS —",
             "   pick the matching option ('Values are…') when you upload.",
-            "4. Returns are auto-compounded to a base-100 index so every tool works.",
+            "4. Returns are auto-compounded to a base-100 index (a 100 anchor is added one",
+            "   period before your first return) so every return is included and every tool works.",
             "5. Save as .xlsx or .csv, then use 'Add to dashboard'.",
             "",
             "Replace the example columns on the 'Data' sheet with your own.",
@@ -1736,8 +1749,10 @@ def panel_custom(k):
             line=dict(color=PALETTE[i%len(PALETTE)],width=1.8)))
     st.plotly_chart(base_layout(fig,"Uploaded series (rebased to 100)","",h=340),
                     use_container_width=True, key=k+"_chart")
-    st.caption("Prices are stored as levels; uploaded returns are compounded to a base-100 index. "
-               "Search any identifier above by name or ticker in other sections to use it.")
+    st.caption("Prices are stored as levels; uploaded returns are compounded to a base-100 index "
+               "seeded one period before the first return, so every return is included and "
+               "Last (index) ties out to Total ret%. Search any identifier above by name or "
+               "ticker in other sections to use it.")
 
 def panel_rolling_returns(k):
     chosen=ticker_picker(k, ["S&P 500"])
