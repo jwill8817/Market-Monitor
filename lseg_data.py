@@ -114,6 +114,40 @@ def open_session():
         return s
 
 
+def reset_session():
+    """Drop the cached session so the next open_session() re-authenticates from scratch."""
+    global _session
+    with _lock:
+        if _session is not None:
+            try:
+                import lseg.data as ld
+                ld.close_session()
+            except Exception:
+                pass
+        _session = None
+
+
+def _is_auth_error(ex):
+    s = str(ex).lower()
+    return any(t in s for t in ("401", "token expired", "token_expired", "invalid token",
+                                "authentication", "not opened", "unauthorized"))
+
+
+def _with_retry(call):
+    """Run a data call, re-opening the session once on an auth/token-expired error.
+    Platform tokens age out (and the refresh thread dies when Streamlit Cloud sleeps the
+    app), so a cached session can 401 — reopen and retry transparently."""
+    open_session()
+    try:
+        return call()
+    except Exception as ex:
+        if _is_auth_error(ex):
+            reset_session()
+            open_session()
+            return call()
+        raise
+
+
 # ── Forward valuation / IBES consensus estimates ──────────────────
 # Snapshot of forward-looking valuation for one or more RICs (indices or single names) via
 # LSEG get_data (IBES estimates + price). Requires an ESTIMATES-entitled login. Field codes
@@ -153,10 +187,9 @@ def search_lseg_instruments(term, top=12):
     if not term or not str(term).strip():
         return []
     try:
-        open_session()
         from lseg.data import discovery
-        df = discovery.search(query=str(term).strip(), top=int(top),
-                              select="RIC,DocumentTitle")
+        df = _with_retry(lambda: discovery.search(query=str(term).strip(), top=int(top),
+                                                  select="RIC,DocumentTitle"))
     except Exception:
         return []
     if df is None or getattr(df, "empty", True):
@@ -187,9 +220,8 @@ def fetch_forward_valuation(rics, fields=None):
         return {"records": [], "columns": [], "error": "No RIC supplied."}
     fields = list(fields) if fields else list(DEFAULT_FWD_FIELDS)
     try:
-        open_session()
         import lseg.data as ld
-        df = ld.get_data(universe=rics, fields=fields)
+        df = _with_retry(lambda: ld.get_data(universe=rics, fields=fields))
     except Exception as ex:
         return {"records": [], "columns": [], "error": f"{type(ex).__name__}: {ex}"}
     if df is None or getattr(df, "empty", True):
@@ -247,7 +279,6 @@ def fetch_issuance_month(y, m, min_usd=100_000_000, currency=None):
     """One month of new bond issuance (deals >= min_usd, default $100m — keeps us under the
     API's 10k row cap and drops commercial-paper/MTN noise). Returns dict in $bn:
        {'month','Corp IG','Corp HY','Corp NR','Government','Agency','Other','count','capped'}."""
-    open_session()
     import pandas as pd
     from lseg.data import discovery
     lo, hi = _month_bounds(y, m)
@@ -255,9 +286,9 @@ def fetch_issuance_month(y, m, min_usd=100_000_000, currency=None):
             f"and IsActive eq true")
     if currency:
         filt += f" and Currency eq '{currency}'"
-    df = discovery.search(view=discovery.Views.GOV_CORP_INSTRUMENTS, filter=filt,
+    df = _with_retry(lambda: discovery.search(view=discovery.Views.GOV_CORP_INSTRUMENTS, filter=filt,
                           select="IssueDate,FaceIssuedUSD,BondRatingLatest,DbType,Currency",
-                          top=_MONTH_CAP)
+                          top=_MONTH_CAP))
     out = {"month": f"{y:04d}-{m:02d}", "Corp IG": 0.0, "Corp HY": 0.0, "Corp NR": 0.0,
            "Government": 0.0, "Agency": 0.0, "Other": 0.0, "count": 0, "capped": False}
     if df is None or df.empty:
@@ -314,7 +345,6 @@ _CONV_CATS = ("Convertible into Listed Securities",
 def fetch_convertibles_month(y, m, min_usd=50_000_000, currency=None):
     """One month of convertible/exchangeable bond issuance (equity-linked), $bn.
     Returns {'month','Convertibles','count','capped'}."""
-    open_session()
     import pandas as pd
     from lseg.data import discovery
     lo, hi = _month_bounds(y, m)
@@ -323,8 +353,8 @@ def fetch_convertibles_month(y, m, min_usd=50_000_000, currency=None):
             f"and IsActive eq true and ({cats})")
     if currency:
         filt += f" and Currency eq '{currency}'"
-    df = discovery.search(view=discovery.Views.GOV_CORP_INSTRUMENTS, filter=filt,
-                          select="IssueDate,FaceIssuedUSD,Currency", top=_MONTH_CAP)
+    df = _with_retry(lambda: discovery.search(view=discovery.Views.GOV_CORP_INSTRUMENTS, filter=filt,
+                          select="IssueDate,FaceIssuedUSD,Currency", top=_MONTH_CAP))
     out = {"month": f"{y:04d}-{m:02d}", "Convertibles": 0.0, "count": 0, "capped": False}
     if df is None or df.empty:
         return out
@@ -356,7 +386,6 @@ _IPO_REGION_FILTER = {
 def fetch_ipos_month(y, m, region="Global", min_mktcap_usd=0):
     """One month of IPOs (by IPODate). Returns {'month','IPO count','IPO mktcap','capped'}
     where IPO mktcap is aggregate market-cap-at-issue in $bn."""
-    open_session()
     import pandas as pd
     from lseg.data import discovery
     lo, hi = _month_bounds(y, m)
@@ -366,8 +395,8 @@ def fetch_ipos_month(y, m, region="Global", min_mktcap_usd=0):
         filt += f" and {reg}"
     if min_mktcap_usd:
         filt += f" and MktCapIssueUsd ge {int(min_mktcap_usd)}"
-    df = discovery.search(view=discovery.Views.EQUITY_QUOTES, filter=filt,
-                          select="IPODate,MktCapIssueUsd,ExchangeCountry", top=_MONTH_CAP)
+    df = _with_retry(lambda: discovery.search(view=discovery.Views.EQUITY_QUOTES, filter=filt,
+                          select="IPODate,MktCapIssueUsd,ExchangeCountry", top=_MONTH_CAP))
     out = {"month": f"{y:04d}-{m:02d}", "IPO count": 0, "IPO mktcap": 0.0, "capped": False}
     if df is None or df.empty:
         return out
