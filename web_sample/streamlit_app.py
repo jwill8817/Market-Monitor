@@ -4384,13 +4384,19 @@ def panel_corr():
                 if rc_avg:
                     rfig.add_hline(y=float(roll.mean()),line=dict(color=BLUE,dash="dot"),
                                    annotation_text=f"avg {float(roll.mean()):.2f}")
+                _ylo,_yhi=-1.0,1.0
                 if rc_sd:
                     _mu=float(roll.mean()); _sd=float(roll.std())
-                    rfig.add_hline(y=_mu+2*_sd,line=dict(color=RED,dash="dash"),annotation_text="+2σ")
-                    rfig.add_hline(y=_mu-2*_sd,line=dict(color=GREEN,dash="dash"),annotation_text="-2σ")
+                    _up,_dn=_mu+2*_sd,_mu-2*_sd
+                    rfig.add_hline(y=_up,line=dict(color=RED,dash="dash"),annotation_text=f"+2σ {_up:.2f}")
+                    rfig.add_hline(y=_dn,line=dict(color=GREEN,dash="dash"),annotation_text=f"-2σ {_dn:.2f}")
+                    # Correlation is bounded [-1,1] but mean±2σ can exceed it — widen the axis
+                    # so the upper/lower bands stay visible instead of being clipped.
+                    _ylo=min(_ylo,_dn); _yhi=max(_yhi,_up)
                 base_layout(rfig,f"Rolling {win}-{'mo' if freq=='Monthly' else 'd'} correlation · "
                             f"{a} vs {b}  (now {roll.iloc[-1]:+.2f})", h=300)
-                rfig.update_yaxes(range=[-1,1])
+                _pad=0.05*(_yhi-_ylo)
+                rfig.update_yaxes(range=[_ylo-_pad,_yhi+_pad])
                 st.plotly_chart(rfig, use_container_width=True, key="corr_roll")
                 rdf=pd.DataFrame({"Date":roll.index,"RollingCorr":roll.values})
                 dl(rdf, "Export rolling corr", "JAWS_rolling_corr.xlsx", "corr_roll_dl")
