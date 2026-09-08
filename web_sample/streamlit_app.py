@@ -4415,6 +4415,11 @@ def _lseg_fwd_val(rics_tuple, fields_tuple):
     import lseg_data as L
     return L.fetch_forward_valuation(list(rics_tuple), list(fields_tuple))
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _lseg_fwd_pe(ric, years):
+    import lseg_data as L
+    return L.fetch_forward_pe_history(ric=ric, years=int(years))
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _lseg_search(term):
     """Type-ahead name/ticker → RIC search for the LSEG forward-valuation picker."""
@@ -4635,6 +4640,50 @@ def panel_lseg():
                     dl(fvdf, "Export forward valuation", "JAWS_lseg_forward_valuation.xlsx", "lseg_fvdl")
                 else:
                     st.info("No rows returned — check the RIC(s) and your estimates entitlement.")
+
+        # ── FORWARD 12-MONTH P/E HISTORY (FactSet-style) ────────────
+        st.divider()
+        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Forward 12-month P/E history — price ÷ blended forward consensus EPS, '
+                    'with 5Y &amp; 10Y average bands (FactSet-style)</span>', unsafe_allow_html=True)
+        fp1,fp2=st.columns([3,1])
+        _idx=fp1.selectbox("Index / name", list(L.INDEX_RICS.keys()), key="lseg_fpe_idx")
+        _fpwin=fp2.selectbox("Window", ["10Y","5Y","All"], key="lseg_fpe_win")
+        _fpric=L.INDEX_RICS[_idx]
+        _fpyears={"10Y":10,"5Y":5,"All":15}[_fpwin]
+        with st.spinner("Loading forward P/E history…"):
+            fpe=_lseg_fwd_pe(_fpric, max(_fpyears,10))
+        if fpe.get("error"):
+            st.error("Forward P/E history failed:"); st.code(fpe["error"])
+        elif fpe.get("dates"):
+            _fd=fpe["dates"]; _fv=fpe["fwd_pe"]
+            if _fpwin!="All":
+                _cut=date.today()-relativedelta(years=_fpyears)
+                _pair=[(d,v) for d,v in zip(_fd,_fv) if d>=_cut]
+                if _pair: _fd,_fv=[p[0] for p in _pair],[p[1] for p in _pair]
+            import statistics as _stt
+            def _tavg(yrs):
+                _c=date.today()-relativedelta(years=yrs); _s=[v for d,v in zip(fpe["dates"],fpe["fwd_pe"]) if d>=_c]
+                return _stt.mean(_s) if _s else None
+            _a5=_tavg(5); _a10=_tavg(10); _cur=_fv[-1]
+            ffig=go.Figure()
+            ffig.add_trace(go.Scatter(x=_fd,y=_fv,mode="lines",name="Forward 12m P/E",line=dict(color=BLUE,width=1.6)))
+            if _a5 is not None:
+                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_a5,_a5],mode="lines",name=f"5Y avg {_a5:.1f}",
+                                          line=dict(color=GREEN,width=1.4,dash="dash")))
+            if _a10 is not None:
+                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_a10,_a10],mode="lines",name=f"10Y avg {_a10:.1f}",
+                                          line=dict(color=YELLOW,width=1.4,dash="dash")))
+            ffig.add_trace(go.Scatter(x=[_fd[-1]],y=[_cur],mode="markers+text",showlegend=False,
+                                      marker=dict(color=BLUE,size=8),text=[f" {_cur:.1f}"],
+                                      textposition="middle right",textfont=dict(color=BLUE,size=12)))
+            st.plotly_chart(base_layout(ffig,f"{_idx} — Forward 12-Month P/E ({_fd[0].year}–{_fd[-1].year})",h=380),
+                            use_container_width=True, key="lseg_fpe_chart")
+            st.caption("Forward P/E = index price ÷ NTM consensus EPS (FY1→FY2 blend rolling across the fiscal "
+                       "year). **LSEG / IBES — private, licensed data.**")
+            dl(pd.DataFrame({"Date":_fd,"FwdPE":_fv}),"Export forward P/E","JAWS_lseg_forward_pe.xlsx","lseg_fpedl")
+        else:
+            st.info("No forward P/E history returned for this index.")
 
 def panel_exporter():
     import re as _re

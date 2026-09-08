@@ -105,6 +105,18 @@ def open_session():
                 "Check LSEG_PASSWORD / LSEG_USER / LSEG_APP_KEY in Streamlit secrets.")
         state = str(getattr(getattr(s, "open_state", None), "name", getattr(s, "open_state", "")))
         if "Open" not in state:
+            # Distinguish a network/DNS problem from an actual credential rejection — the
+            # session silently stays Closed for both, but the fixes are completely different.
+            net = False
+            try:
+                import socket
+                socket.getaddrinfo("api.refinitiv.com", 443)
+            except Exception:
+                net = True
+            if net:
+                raise RuntimeError(
+                    "LSEG session could not open — can't reach api.refinitiv.com (network/DNS "
+                    "problem). This is NOT a credentials issue; check the connection and retry.")
             raise RuntimeError(
                 f"LSEG session did not reach Opened state (state={state}). "
                 "The LSEG credentials were rejected — re-check LSEG_PASSWORD / LSEG_USER / "
@@ -233,6 +245,57 @@ def fetch_forward_valuation(rics, fields=None):
                 "columns": [str(c) for c in df.columns], "error": None}
     except Exception as ex:
         return {"records": [], "columns": [], "error": f"Result parse failed: {ex}"}
+
+
+def fetch_forward_pe_history(ric=".SPX", years=10, interval="weekly"):
+    """Forward 12-month (NTM) P/E history for an index or single name — the FactSet-style
+    'S&P 500 Forward 12-Month P/E' series. Computed as price ÷ blended forward EPS, where the
+    blend rolls from FY1 toward FY2 across the (Dec-end) fiscal year so it always looks ~12
+    months ahead. Returns {'dates':[date,...], 'fwd_pe':[float,...], 'error':str|None}."""
+    import pandas as pd, datetime
+    ric = (ric or "").strip()
+    if not ric:
+        return {"dates": [], "fwd_pe": [], "error": "No RIC supplied."}
+    start = (datetime.date.today() - datetime.timedelta(days=int(years * 365.25 + 45))).isoformat()
+
+    def _hist(field):
+        import lseg.data as ld
+        return _with_retry(lambda: ld.get_history(universe=ric, fields=[field],
+                                                  start=start, interval=interval))
+    try:
+        fy1 = _hist("TR.EPSMeanEstimate(Period=FY1)")
+        fy2 = _hist("TR.EPSMeanEstimate(Period=FY2)")
+        px = _hist("TR.PriceClose")
+    except Exception as ex:
+        return {"dates": [], "fwd_pe": [], "error": f"{type(ex).__name__}: {ex}"}
+    if any(x is None or getattr(x, "empty", True) for x in (fy1, fy2, px)):
+        return {"dates": [], "fwd_pe": [], "error":
+                f"LSEG returned no forward-EPS/price history for {ric} — the index may not be "
+                "entitled for IBES estimates on your login (single names usually are)."}
+
+    def _col(df):
+        s = df.iloc[:, 0]
+        s.index = pd.to_datetime(s.index)
+        return pd.to_numeric(s, errors="coerce").sort_index()
+    try:
+        p = _col(px)
+        d = pd.DataFrame(index=p.index)
+        d["px"] = p
+        d["fy1"] = _col(fy1).reindex(d.index, method="ffill")
+        d["fy2"] = _col(fy2).reindex(d.index, method="ffill")
+        d = d.dropna(subset=["px", "fy1", "fy2"])
+        d = d[(d["fy1"] > 0) & (d["fy2"] > 0)]
+        if d.empty:
+            return {"dates": [], "fwd_pe": [], "error": f"No overlapping EPS+price rows for {ric}."}
+        # NTM blend: weight on FY1 = fraction of the (Dec-end) fiscal year still ahead.
+        wy = 1.0 - (d.index.dayofyear - 1) / 365.0
+        ntm = d["fy1"] * wy + d["fy2"] * (1.0 - wy)
+        fpe = (d["px"] / ntm)
+        fpe = fpe[(fpe > 0) & (fpe < 200)]                # drop nonsensical outliers
+        return {"dates": [i.date() for i in fpe.index],
+                "fwd_pe": [round(float(v), 2) for v in fpe.values], "error": None}
+    except Exception as ex:
+        return {"dates": [], "fwd_pe": [], "error": f"Forward-P/E build failed: {type(ex).__name__}: {ex}"}
 
 
 # ── Credit-rating → Investment-Grade / High-Yield bucket ──
