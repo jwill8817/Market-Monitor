@@ -3275,16 +3275,22 @@ def panel_valuation(k):
     metric=cc1.radio("Metric", list(MULTPL), horizontal=True, key=k+"_m", label_visibility="collapsed")
     win=cc2.selectbox("Window", ["All","30Y","20Y","10Y"], key=k+"_w")
     try:
-        series=multpl_series(MULTPL[metric])
+        full=multpl_series(MULTPL[metric])
     except Exception as e:
         st.info(f"History source unavailable: {e}"); return
-    if not series: st.info("No history available."); return
+    if not full: st.info("No history available."); return
+    import statistics
+    # Trailing 5y / 10y averages computed from the FULL history (FactSet-style bands).
+    def _trailing_avg(yrs):
+        c=date.today()-relativedelta(years=yrs); v=[v for d,v in full if d>=c]
+        return statistics.mean(v) if v else None
+    avg5=_trailing_avg(5); avg10=_trailing_avg(10)
+    series=full
     if win!="All":
         yrs=int(win[:-1]); cutoff=date.today()-relativedelta(years=yrs)
-        series=[(d,v) for d,v in series if d>=cutoff]
+        series=[(d,v) for d,v in full if d>=cutoff]
     ds=[d for d,_ in series]; vs=[v for _,v in series]
     cur=vs[-1]; n=len(vs)
-    import statistics
     mean=statistics.mean(vs); std=statistics.pstdev(vs) if n>1 else 0
     pct=round(sum(1 for v in vs if v<=cur)/n*100)
     z=round((cur-mean)/std,2) if std else None
@@ -3299,10 +3305,20 @@ def panel_valuation(k):
     m3.markdown(f'<div style="font-family:Consolas"><span style="color:{TEXT2};font-size:12px">Z-score</span><br>'
                 f'<span style="color:{pc};font-size:22px;font-weight:700">{(f"{z:+.2f}σ" if z is not None else "—")}</span></div>', unsafe_allow_html=True)
     fig=go.Figure()
-    fig.add_trace(go.Scatter(x=ds,y=vs,mode="lines",line=dict(color=ACCENT,width=1.4)))
-    fig.add_hline(y=mean,line=dict(color=TEXT3,dash="dash"),annotation_text=f"avg {mean:.1f}")
+    fig.add_trace(go.Scatter(x=ds,y=vs,mode="lines",name=metric,line=dict(color=BLUE,width=1.6)))
+    # 5y / 10y trailing-average bands (FactSet style) drawn across the visible range.
+    if avg5 is not None:
+        fig.add_trace(go.Scatter(x=[ds[0],ds[-1]],y=[avg5,avg5],mode="lines",name=f"5Y avg {avg5:.1f}",
+                                 line=dict(color=GREEN,width=1.4,dash="dash")))
+    if avg10 is not None:
+        fig.add_trace(go.Scatter(x=[ds[0],ds[-1]],y=[avg10,avg10],mode="lines",name=f"10Y avg {avg10:.1f}",
+                                 line=dict(color=YELLOW,width=1.4,dash="dash")))
+    # Current value marker + label at the right edge.
+    fig.add_trace(go.Scatter(x=[ds[-1]],y=[cur],mode="markers+text",showlegend=False,
+                             marker=dict(color=BLUE,size=8),text=[f" {cur:.1f}"],textposition="middle right",
+                             textfont=dict(color=BLUE,size=12)))
     st.plotly_chart(base_layout(fig,f"S&P 500 {metric} — {ds[0].year}–{ds[-1].year} "
-                    f"({'expensive' if rich else 'cheap' if cheap else 'mid'} vs history)",h=300),
+                    f"({'expensive' if rich else 'cheap' if cheap else 'mid'} vs history)",h=340),
                     use_container_width=True, key=k+"_chart")
     if _inv:
         st.caption("This is a **yield**, so the scale is inverted vs a P/E: a **high** reading (high percentile) "
