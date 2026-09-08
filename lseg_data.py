@@ -257,11 +257,13 @@ def fetch_forward_pe_history(ric=".SPX", years=10, interval="weekly"):
     if not ric:
         return {"dates": [], "fwd_pe": [], "error": "No RIC supplied."}
     start = (datetime.date.today() - datetime.timedelta(days=int(years * 365.25 + 45))).isoformat()
+    end = datetime.date.today().isoformat()
 
     def _hist(field):
+        # NOTE: get_history needs BOTH start and end — with start only it returns a single row.
         import lseg.data as ld
         return _with_retry(lambda: ld.get_history(universe=ric, fields=[field],
-                                                  start=start, interval=interval))
+                                                  start=start, end=end, interval=interval))
     try:
         fy1 = _hist("TR.EPSMeanEstimate(Period=FY1)")
         fy2 = _hist("TR.EPSMeanEstimate(Period=FY2)")
@@ -276,7 +278,8 @@ def fetch_forward_pe_history(ric=".SPX", years=10, interval="weekly"):
     def _col(df):
         s = df.iloc[:, 0]
         s.index = pd.to_datetime(s.index)
-        return pd.to_numeric(s, errors="coerce").sort_index()
+        s = pd.to_numeric(s, errors="coerce").sort_index()
+        return s[~s.index.duplicated(keep="last")]     # drop duplicate dates (breaks reindex)
     try:
         p = _col(px)
         d = pd.DataFrame(index=p.index)
