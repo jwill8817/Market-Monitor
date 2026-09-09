@@ -4479,11 +4479,18 @@ def panel_lseg():
             st.caption("This tab holds **licensed LSEG data** — visible only to you, behind your personal password.")
             return
         # ── unlocked ──
-        lc1,lc2=st.columns([6,1])
+        lc1,lc2,lc3=st.columns([6,1,1])
         lc1.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
                      'Primary issuance monitor (LSEG) — monthly or cumulative, USD</span>',
                      unsafe_allow_html=True)
-        if lc2.button("🔒 Lock", key="lseg_lock"):
+        if lc2.button("🔄 Reload", key="lseg_reload",
+                      help="Reload lseg_data.py from disk after a code push — picks up new "
+                           "functions/fixes without a full Streamlit Cloud reboot."):
+            import importlib, lseg_data as _lm
+            importlib.reload(_lm)
+            st.cache_data.clear()
+            st.rerun()
+        if lc3.button("🔒 Lock", key="lseg_lock"):
             st.session_state["lseg_ok"]=False; st.rerun()
         m1,m2=st.columns([2,1])
         market=m1.radio("Market",["Bonds","Convertibles","Equity IPOs"],key="lseg_mkt",horizontal=True)
