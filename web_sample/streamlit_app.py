@@ -4658,11 +4658,22 @@ def panel_lseg():
         st.divider()
         st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
                     'Forward 12-month P/E history — price ÷ blended forward consensus EPS, '
-                    'with 5Y &amp; 10Y average bands (FactSet-style)</span>', unsafe_allow_html=True)
-        fp1,fp2=st.columns([3,1])
-        _idx=fp1.selectbox("Index / name", list(L.INDEX_RICS.keys()), key="lseg_fpe_idx")
-        _fpwin=fp2.selectbox("Window", ["1Y","3Y","5Y","7Y","10Y","All","Custom"], index=4, key="lseg_fpe_win")
-        _fpric=L.INDEX_RICS[_idx]
+                    'over a chosen period with average &amp; ±2σ bands (FactSet-style)</span>', unsafe_allow_html=True)
+        # Instrument: only the S&P is entitled for INDEX-level forward estimates on this login;
+        # single names all work, so offer a name search + a RIC box alongside the S&P.
+        _selric=None
+        if _HAS_SEARCHBOX:
+            _selric=st_searchbox(_lseg_search, key="lseg_fpe_sb",
+                                 placeholder="🔎 Single name for forward P/E (e.g. Apple, Microsoft, JPMorgan)…")
+        fpa,fpb,fpc=st.columns([2,2,1])
+        _idx=fpa.selectbox("Index", ["S&P 500"], key="lseg_fpe_idx",
+                           help="Only the S&P 500 is entitled for index-level forward estimates on this login. "
+                                "For anything else, search a company above or type its RIC.")
+        _ricbox=fpb.text_input("…or single-name RIC", key="lseg_fpe_ric", placeholder="AAPL.O")
+        _fpwin=fpc.selectbox("Window", ["1Y","3Y","5Y","7Y","10Y","All","Custom"], index=4, key="lseg_fpe_win")
+        if _selric:            _fpric=_selric;            _label=_selric
+        elif _ricbox.strip():  _fpric=_ricbox.strip();    _label=_ricbox.strip().upper()
+        else:                  _fpric=L.INDEX_RICS["S&P 500"]; _label="S&P 500"
         # Custom start/end pickers.
         _cst=_cen=None
         if _fpwin=="Custom":
@@ -4670,12 +4681,18 @@ def panel_lseg():
             _cst=d1.date_input("Start", value=date.today()-relativedelta(years=5), key="lseg_fpe_cs")
             _cen=d2.date_input("End", value=date.today(), key="lseg_fpe_ce")
         b1,b2=st.columns(2)
-        _show_avg=b1.checkbox("5Y / 10Y average lines", value=True, key="lseg_fpe_avg")
-        _show_sd=b2.checkbox("±2σ band (over shown period)", value=False, key="lseg_fpe_sd")
+        _show_avg=b1.checkbox("Average line (shown period)", value=True, key="lseg_fpe_avg")
+        _show_sd=b2.checkbox("±2σ band (shown period)", value=False, key="lseg_fpe_sd")
         with st.spinner("Loading forward P/E history…"):
             fpe=_lseg_fwd_pe(_fpric, 20)                 # fetch long history once; slice locally
-        if fpe.get("error"):
-            st.error("Forward P/E history failed:"); st.code(fpe["error"])
+        if fpe.get("error") and not fpe.get("dates"):
+            _emsg=fpe["error"]
+            if "no forward" in _emsg.lower() or "entitled" in _emsg.lower():
+                st.info(f"No forward-estimate history for **{_label}** on this login. Index-level estimates "
+                        "are only entitled for the **S&P 500** here — for other exposure, search a single "
+                        "company name or enter its RIC (e.g. AAPL.O).")
+            else:
+                st.error("Forward P/E history failed:"); st.code(_emsg)
         elif fpe.get("dates"):
             _all=list(zip(fpe["dates"], fpe["fwd_pe"]))
             # Determine the display date range.
@@ -4688,41 +4705,32 @@ def panel_lseg():
             _pair=[(d,v) for d,v in _all if _lo<=d<=_hi] or _all
             _fd=[p[0] for p in _pair]; _fv=[p[1] for p in _pair]
             import statistics as _stt
-            def _tavg(yrs):
-                _c=date.today()-relativedelta(years=yrs); _s=[v for d,v in _all if d>=_c]
-                return _stt.mean(_s) if _s else None
             _cur=_fv[-1]
             ffig=go.Figure()
             ffig.add_trace(go.Scatter(x=_fd,y=_fv,mode="lines",name="Forward 12m P/E",line=dict(color=BLUE,width=1.6)))
-            # ±2σ band computed over the SHOWN period.
-            if _show_sd and len(_fv)>2:
-                _mu=_stt.mean(_fv); _sd=_stt.pstdev(_fv); _up=_mu+2*_sd; _dn=_mu-2*_sd
-                ffig.add_hrect(y0=_dn,y1=_up,fillcolor=ACCENT,opacity=0.07,line_width=0)
-                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_mu,_mu],mode="lines",name=f"mean {_mu:.1f}",
-                                          line=dict(color=TEXT2,width=1.2,dash="dot")))
-                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_up,_up],mode="lines",name=f"+2σ {_up:.1f}",
-                                          line=dict(color=RED,width=1.3,dash="dash")))
-                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_dn,_dn],mode="lines",name=f"-2σ {_dn:.1f}",
-                                          line=dict(color=GREEN,width=1.3,dash="dash")))
-            if _show_avg:
-                _a5=_tavg(5); _a10=_tavg(10)
-                if _a5 is not None:
-                    ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_a5,_a5],mode="lines",name=f"5Y avg {_a5:.1f}",
-                                              line=dict(color=GREEN,width=1.4,dash="dash")))
-                if _a10 is not None:
-                    ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_a10,_a10],mode="lines",name=f"10Y avg {_a10:.1f}",
-                                              line=dict(color=YELLOW,width=1.4,dash="dash")))
+            # Average + ±2σ, both computed over the SHOWN period so they track the chosen dates.
+            if (_show_avg or _show_sd) and len(_fv)>2:
+                _mu=_stt.mean(_fv); _sd=_stt.pstdev(_fv)
+                if _show_sd:
+                    _up=_mu+2*_sd; _dn=_mu-2*_sd
+                    ffig.add_hrect(y0=_dn,y1=_up,fillcolor=ACCENT,opacity=0.07,line_width=0)
+                    ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_up,_up],mode="lines",name=f"+2σ {_up:.1f}",
+                                              line=dict(color=RED,width=1.3,dash="dash")))
+                    ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_dn,_dn],mode="lines",name=f"-2σ {_dn:.1f}",
+                                              line=dict(color=GREEN,width=1.3,dash="dash")))
+                if _show_avg:
+                    ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_mu,_mu],mode="lines",name=f"avg {_mu:.1f}",
+                                              line=dict(color=YELLOW,width=1.5,dash="dash")))
             ffig.add_trace(go.Scatter(x=[_fd[-1]],y=[_cur],mode="markers+text",showlegend=False,
                                       marker=dict(color=BLUE,size=8),text=[f" {_cur:.1f}"],
                                       textposition="middle right",textfont=dict(color=BLUE,size=12)))
-            st.plotly_chart(base_layout(ffig,f"{_idx} — Forward 12-Month P/E ({_fd[0].year}–{_fd[-1].year})",h=380),
+            st.plotly_chart(base_layout(ffig,f"{_label} — Forward 12-Month P/E ({_fd[0].year}–{_fd[-1].year})",h=380),
                             use_container_width=True, key="lseg_fpe_chart")
-            _sdc=(" · ±2σ over shown period" if _show_sd else "")
-            st.caption("Forward P/E = index price ÷ NTM consensus EPS (FY1→FY2 blend rolling across the fiscal "
-                       f"year). 5Y/10Y averages are trailing from today{_sdc}. **LSEG / IBES — private, licensed data.**")
+            st.caption(f"Forward P/E = price ÷ NTM consensus EPS (FY1→FY2 blend). Average and ±2σ are computed "
+                       f"over the **shown period** ({_fd[0]:%b %Y}–{_fd[-1]:%b %Y}). **LSEG / IBES — private, licensed data.**")
             dl(pd.DataFrame({"Date":_fd,"FwdPE":_fv}),"Export forward P/E","JAWS_lseg_forward_pe.xlsx","lseg_fpedl")
         else:
-            st.info("No forward P/E history returned for this index.")
+            st.info(f"No forward P/E history returned for **{_label}**.")
 
 def panel_exporter():
     import re as _re
