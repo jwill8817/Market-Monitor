@@ -4661,39 +4661,65 @@ def panel_lseg():
                     'with 5Y &amp; 10Y average bands (FactSet-style)</span>', unsafe_allow_html=True)
         fp1,fp2=st.columns([3,1])
         _idx=fp1.selectbox("Index / name", list(L.INDEX_RICS.keys()), key="lseg_fpe_idx")
-        _fpwin=fp2.selectbox("Window", ["10Y","5Y","All"], key="lseg_fpe_win")
+        _fpwin=fp2.selectbox("Window", ["1Y","3Y","5Y","7Y","10Y","All","Custom"], index=4, key="lseg_fpe_win")
         _fpric=L.INDEX_RICS[_idx]
-        _fpyears={"10Y":10,"5Y":5,"All":15}[_fpwin]
+        # Custom start/end pickers.
+        _cst=_cen=None
+        if _fpwin=="Custom":
+            d1,d2=st.columns(2)
+            _cst=d1.date_input("Start", value=date.today()-relativedelta(years=5), key="lseg_fpe_cs")
+            _cen=d2.date_input("End", value=date.today(), key="lseg_fpe_ce")
+        b1,b2=st.columns(2)
+        _show_avg=b1.checkbox("5Y / 10Y average lines", value=True, key="lseg_fpe_avg")
+        _show_sd=b2.checkbox("±2σ band (over shown period)", value=False, key="lseg_fpe_sd")
         with st.spinner("Loading forward P/E history…"):
-            fpe=_lseg_fwd_pe(_fpric, max(_fpyears,10))
+            fpe=_lseg_fwd_pe(_fpric, 20)                 # fetch long history once; slice locally
         if fpe.get("error"):
             st.error("Forward P/E history failed:"); st.code(fpe["error"])
         elif fpe.get("dates"):
-            _fd=fpe["dates"]; _fv=fpe["fwd_pe"]
-            if _fpwin!="All":
-                _cut=date.today()-relativedelta(years=_fpyears)
-                _pair=[(d,v) for d,v in zip(_fd,_fv) if d>=_cut]
-                if _pair: _fd,_fv=[p[0] for p in _pair],[p[1] for p in _pair]
+            _all=list(zip(fpe["dates"], fpe["fwd_pe"]))
+            # Determine the display date range.
+            if _fpwin=="All":
+                _lo,_hi=_all[0][0], _all[-1][0]
+            elif _fpwin=="Custom":
+                _lo,_hi=(_cst or _all[0][0]),(_cen or date.today())
+            else:
+                _lo=date.today()-relativedelta(years=int(_fpwin[:-1])); _hi=date.today()
+            _pair=[(d,v) for d,v in _all if _lo<=d<=_hi] or _all
+            _fd=[p[0] for p in _pair]; _fv=[p[1] for p in _pair]
             import statistics as _stt
             def _tavg(yrs):
-                _c=date.today()-relativedelta(years=yrs); _s=[v for d,v in zip(fpe["dates"],fpe["fwd_pe"]) if d>=_c]
+                _c=date.today()-relativedelta(years=yrs); _s=[v for d,v in _all if d>=_c]
                 return _stt.mean(_s) if _s else None
-            _a5=_tavg(5); _a10=_tavg(10); _cur=_fv[-1]
+            _cur=_fv[-1]
             ffig=go.Figure()
             ffig.add_trace(go.Scatter(x=_fd,y=_fv,mode="lines",name="Forward 12m P/E",line=dict(color=BLUE,width=1.6)))
-            if _a5 is not None:
-                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_a5,_a5],mode="lines",name=f"5Y avg {_a5:.1f}",
-                                          line=dict(color=GREEN,width=1.4,dash="dash")))
-            if _a10 is not None:
-                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_a10,_a10],mode="lines",name=f"10Y avg {_a10:.1f}",
-                                          line=dict(color=YELLOW,width=1.4,dash="dash")))
+            # ±2σ band computed over the SHOWN period.
+            if _show_sd and len(_fv)>2:
+                _mu=_stt.mean(_fv); _sd=_stt.pstdev(_fv); _up=_mu+2*_sd; _dn=_mu-2*_sd
+                ffig.add_hrect(y0=_dn,y1=_up,fillcolor=ACCENT,opacity=0.07,line_width=0)
+                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_mu,_mu],mode="lines",name=f"mean {_mu:.1f}",
+                                          line=dict(color=TEXT2,width=1.2,dash="dot")))
+                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_up,_up],mode="lines",name=f"+2σ {_up:.1f}",
+                                          line=dict(color=RED,width=1.3,dash="dash")))
+                ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_dn,_dn],mode="lines",name=f"-2σ {_dn:.1f}",
+                                          line=dict(color=GREEN,width=1.3,dash="dash")))
+            if _show_avg:
+                _a5=_tavg(5); _a10=_tavg(10)
+                if _a5 is not None:
+                    ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_a5,_a5],mode="lines",name=f"5Y avg {_a5:.1f}",
+                                              line=dict(color=GREEN,width=1.4,dash="dash")))
+                if _a10 is not None:
+                    ffig.add_trace(go.Scatter(x=[_fd[0],_fd[-1]],y=[_a10,_a10],mode="lines",name=f"10Y avg {_a10:.1f}",
+                                              line=dict(color=YELLOW,width=1.4,dash="dash")))
             ffig.add_trace(go.Scatter(x=[_fd[-1]],y=[_cur],mode="markers+text",showlegend=False,
                                       marker=dict(color=BLUE,size=8),text=[f" {_cur:.1f}"],
                                       textposition="middle right",textfont=dict(color=BLUE,size=12)))
             st.plotly_chart(base_layout(ffig,f"{_idx} — Forward 12-Month P/E ({_fd[0].year}–{_fd[-1].year})",h=380),
                             use_container_width=True, key="lseg_fpe_chart")
+            _sdc=(" · ±2σ over shown period" if _show_sd else "")
             st.caption("Forward P/E = index price ÷ NTM consensus EPS (FY1→FY2 blend rolling across the fiscal "
-                       "year). **LSEG / IBES — private, licensed data.**")
+                       f"year). 5Y/10Y averages are trailing from today{_sdc}. **LSEG / IBES — private, licensed data.**")
             dl(pd.DataFrame({"Date":_fd,"FwdPE":_fv}),"Export forward P/E","JAWS_lseg_forward_pe.xlsx","lseg_fpedl")
         else:
             st.info("No forward P/E history returned for this index.")
