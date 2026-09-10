@@ -301,6 +301,47 @@ def fetch_forward_pe_history(ric=".SPX", years=10, interval="weekly"):
         return {"dates": [], "fwd_pe": [], "error": f"Forward-P/E build failed: {type(ex).__name__}: {ex}"}
 
 
+def fetch_index_forward_valuation(index_ric, chunk=150):
+    """Constituent-built aggregate forward P/E and P/B for an index (for indices with no
+    entitled index-level estimate, e.g. TOPIX). Aggregate = Σ(market cap) ÷ Σ(market cap ÷
+    ratio) across constituents. ~30s for TOPIX (1,600 names) — meant for a once-a-day job.
+    Returns {'index','fwd_pe','pb','n','pe_cov','pb_cov','error'}."""
+    import pandas as pd
+    import lseg.data as ld
+    out = {"index": index_ric, "fwd_pe": None, "pb": None, "n": 0,
+           "pe_cov": None, "pb_cov": None, "error": None}
+    try:
+        cons = _with_retry(lambda: ld.get_data([f"0#{index_ric}"], ["TR.RIC"]))
+        rics = [str(r).strip() for r in cons.iloc[:, 1].dropna().tolist() if str(r).strip()]
+        rics = list(dict.fromkeys(rics))
+        if len(rics) < 2:
+            out["error"] = f"No constituents entitled for {index_ric} (got {len(rics)})."
+            return out
+        frames = []
+        for i in range(0, len(rics), chunk):
+            c = rics[i:i + chunk]
+            frames.append(_with_retry(lambda c=c: ld.get_data(
+                c, ["TR.CompanyMarketCap", "TR.FwdPE", "TR.PriceToBVPerShare"])))
+        df = pd.concat(frames, ignore_index=True)
+        df.columns = ["RIC", "MktCap", "FwdPE", "PB"]
+        for col in ("MktCap", "FwdPE", "PB"):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        tot = float(df["MktCap"].sum(skipna=True)) or 0.0
+        m = df[(df["MktCap"] > 0) & (df["FwdPE"] > 0)]
+        mb = df[(df["MktCap"] > 0) & (df["PB"] > 0)]
+        if len(m):
+            out["fwd_pe"] = round(float(m["MktCap"].sum() / (m["MktCap"] / m["FwdPE"]).sum()), 2)
+            out["pe_cov"] = round(float(m["MktCap"].sum()) / tot * 100, 1) if tot else None
+        if len(mb):
+            out["pb"] = round(float(mb["MktCap"].sum() / (mb["MktCap"] / mb["PB"]).sum()), 3)
+            out["pb_cov"] = round(float(mb["MktCap"].sum()) / tot * 100, 1) if tot else None
+        out["n"] = int(len(df))
+        return out
+    except Exception as ex:
+        out["error"] = f"{type(ex).__name__}: {ex}"
+        return out
+
+
 # ── Credit-rating → Investment-Grade / High-Yield bucket ──
 _MOODY_IG = {"AAA", "AA1", "AA2", "AA3", "A1", "A2", "A3", "BAA1", "BAA2", "BAA3"}
 _SP_IG = {"AAA", "AA", "A", "BBB"}

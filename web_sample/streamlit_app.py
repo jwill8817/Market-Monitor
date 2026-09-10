@@ -4426,6 +4426,20 @@ def _lseg_fwd_pe(ric, years):
     import lseg_data as L
     return L.fetch_forward_pe_history(ric=ric, years=int(years))
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_index_aggs():
+    """Read the daily constituent-aggregate history (written by the GitHub Action)."""
+    import os
+    here=os.path.dirname(os.path.abspath(__file__))
+    for p in ("data/index_aggregates.csv", os.path.join(here,"..","data","index_aggregates.csv"),
+              os.path.join(here,"data","index_aggregates.csv")):
+        try:
+            if os.path.exists(p):
+                return pd.read_csv(p)
+        except Exception:
+            pass
+    return pd.DataFrame()
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _lseg_search(term):
     """Type-ahead name/ticker → RIC search for the LSEG forward-valuation picker."""
@@ -4731,6 +4745,41 @@ def panel_lseg():
             dl(pd.DataFrame({"Date":_fd,"FwdPE":_fv}),"Export forward P/E","JAWS_lseg_forward_pe.xlsx","lseg_fpedl")
         else:
             st.info(f"No forward P/E history returned for **{_label}**.")
+
+        # ── INDEX AGGREGATE VALUATION (constituent-built, daily) ────
+        st.divider()
+        st.markdown(f'<span style="color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Index aggregate valuation — TOPIX &amp; S&amp;P forward P/E and P/B built cap-weighted '
+                    'from constituents (for indices without an entitled index-level estimate). '
+                    'Updated once daily pre-market; history accumulates over time.</span>',
+                    unsafe_allow_html=True)
+        _agg=_load_index_aggs()
+        if _agg.empty:
+            st.info("No aggregate history yet — the daily GitHub Action writes the first values pre-market "
+                    "(TOPIX & S&P). It builds a time series from that point on.")
+        else:
+            ga1,ga2=st.columns(2)
+            _aidx=ga1.selectbox("Index", sorted(_agg["index"].unique()), key="lseg_agg_idx")
+            _amet=ga2.radio("Metric",["Forward P/E","P/B"],horizontal=True,key="lseg_agg_met")
+            _acol="fwd_pe" if _amet=="Forward P/E" else "pb"
+            sub=_agg[_agg["index"]==_aidx].copy()
+            sub["date"]=pd.to_datetime(sub["date"]); sub=sub.sort_values("date")
+            _ad=list(sub["date"]); _av=[float(x) for x in sub[_acol]]
+            afig=go.Figure()
+            afig.add_trace(go.Scatter(x=_ad,y=_av,mode="lines+markers",name=_amet,line=dict(color=BLUE,width=1.6)))
+            if len(_av)>2:
+                import statistics as _s2
+                _amu=_s2.mean(_av); _asd=_s2.pstdev(_av)
+                afig.add_trace(go.Scatter(x=[_ad[0],_ad[-1]],y=[_amu,_amu],mode="lines",name=f"avg {_amu:.1f}",
+                                          line=dict(color=YELLOW,width=1.4,dash="dash")))
+            st.plotly_chart(base_layout(afig,f"{_aidx} — {_amet} (constituent aggregate)",h=340),
+                            use_container_width=True, key="lseg_agg_chart")
+            _lr=sub.iloc[-1]
+            st.caption(f"Latest **{_lr['date'].date()}**: Forward P/E **{_lr['fwd_pe']}**, P/B **{_lr['pb']}** · "
+                       f"{int(_lr['n'])} constituents, {_lr['pe_cov']}% cap coverage. Price is current; book value "
+                       "is each company's latest reported (refreshes at earnings). **LSEG — private, licensed data.**")
+            dl(sub[["date","index","fwd_pe","pb","n","pe_cov","pb_cov"]],
+               "Export aggregate history","JAWS_index_aggregates.xlsx","lseg_aggdl")
 
 def panel_exporter():
     import re as _re
