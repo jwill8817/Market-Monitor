@@ -1570,7 +1570,8 @@ def muni_ust_ratio_series(muni_etf, tsy_fred):
 def panel_muni_ratio(k):
     tenors=st.multiselect("Tenor (muni ETF ÷ Treasury)", list(_MUNI_RATIO.keys()),
                           default=["Core (MUB ~7y)"], key=k+"_t")
-    yrs=st.select_slider("Lookback (years)",[3,5,10,15,20,25],value=10,key=k+"_yr")
+    yrs=st.select_slider("Lookback (years)",[3,5,10,15,20,25],value=5,key=k+"_yr",
+                         help="Defaults to 5y (post-COVID). Widen for the 2020 spike and longer history.")
     b1,b2=st.columns(2)
     avg_for=b1.multiselect("Show average for", tenors, default=tenors, key=k+"_avg")
     sd_for=b2.multiselect("Show ±2σ bands for", tenors, default=tenors, key=k+"_sd")
