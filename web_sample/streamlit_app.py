@@ -717,7 +717,7 @@ def render_news_ticker():
     st.markdown(f"""
     <style>
     .jtick {{ position:relative; overflow:hidden; white-space:nowrap; background:{CARD};
-              border:1px solid {BORDER}; border-radius:8px; padding:7px 0; margin:0 0 10px;
+              border:1px solid {BORDER}; border-radius:8px; padding:7px 0; margin:64px 0 10px;
               padding-left:104px; }}
     .jtick .cap {{ position:absolute; left:0; top:0; bottom:0; width:104px; z-index:3;
                    display:flex; align-items:center; justify-content:center; gap:6px;
