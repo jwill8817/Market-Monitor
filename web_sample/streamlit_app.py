@@ -4956,7 +4956,7 @@ RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility",
              "Risk Premia":"risk_premia","AQR Strategies":"aqr","Crypto":"crypto"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
 TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","Inflation","L/S Factors","Valuation"]
-PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner","News"]
+PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner"]
 
 def _dispatch(sel, k):
     if sel in RETURN_CATS:    panel_returns(RETURN_CATS[sel], sel, k)
@@ -4970,7 +4970,6 @@ def _dispatch(sel, k):
     elif sel=="Chart":        panel_chart(k)
     elif sel=="Realized Vol": panel_rvol(k)
     elif sel=="Scanner":      panel_scanner(k)
-    elif sel=="News":         panel_news(k)
     elif sel=="Watchlist":    panel_watchlist(k)
     elif sel=="Custom Data":  panel_custom(k)
 
@@ -5114,7 +5113,6 @@ _sec("EQFIN","Implied Equity Financing (futures vs SOFR)", panel_eq_financing, "
 _sec("SKEWIX","CBOE SKEW Index (tail-risk over time)", panel_skew_index, "secskewix")
 _sec("PRED","Prediction Markets (implied odds)", panel_prediction, "secpred")
 _sec("M/T","Muni / Treasury Ratio (rich vs cheap)", panel_muni_ratio, "secmt")
-_sec("NEWS","Top Stories", panel_news, "q4")
 _sec("RRET","Rolling Returns", panel_rolling_returns, "secrr")
 _sec("RSHP","Rolling Sharpe Ratio (ex-T-bill)", panel_rolling_sharpe, "secrshp")
 _sec("CHRT","Chart", panel_chart, "secchart")
