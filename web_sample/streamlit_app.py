@@ -749,6 +749,84 @@ def render_news_ticker():
       <div class="jtrack">{stream}{stream}</div></div>
     """, unsafe_allow_html=True)
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _price_ticker_data():
+    import market_data as md
+    # Percent-change instruments (indices, mega-caps, commodities, FX, crypto)
+    pct={"S&P 500":"^GSPC","Nasdaq":"^IXIC","Dow":"^DJI","Russell 2000":"^RUT","VIX":"^VIX",
+         "AAPL":"AAPL","MSFT":"MSFT","NVDA":"NVDA","AMZN":"AMZN","GOOGL":"GOOGL","META":"META",
+         "TSLA":"TSLA","Gold":"GC=F","WTI":"CL=F","EUR/USD":"EURUSD=X","BTC":"BTC-USD"}
+    # Treasury yields (level + daily change in bps)
+    rates={"US 3M":"^IRX","US 5Y":"^FVX","US 10Y":"^TNX","US 30Y":"^TYX"}
+    out=[]
+    try:
+        d=md.fetch_returns(pct)
+        for nm in pct:
+            r=d.get(nm) or {}
+            if r.get("price") is not None:
+                out.append({"name":nm,"price":r.get("price"),"chg":r.get("change_1d"),"unit":"pct"})
+    except Exception: pass
+    try:
+        dr=md.fetch_returns(rates, absolute=True)
+        for nm in rates:
+            r=dr.get(nm) or {}
+            if r.get("price") is not None:
+                out.append({"name":nm,"price":r.get("price"),"chg":r.get("change_1d"),"unit":"bps"})
+    except Exception: pass
+    return out
+
+def render_price_ticker():
+    """Live quote ticker (indices, mega-caps, rates, commodities) below the news tape."""
+    import html as _html
+    try:
+        rows=_price_ticker_data()
+    except Exception:
+        rows=[]
+    if not rows: return
+    def _fp(v):
+        try: v=float(v)
+        except Exception: return "—"
+        if abs(v)>=1000: return f"{v:,.0f}"
+        if abs(v)>=100:  return f"{v:,.1f}"
+        return f"{v:,.2f}"
+    cells=[]
+    for r in rows:
+        nm=_html.escape(r["name"]); chg=r.get("chg")
+        if r["unit"]=="bps":
+            price=f'{_fp(r["price"])}%'
+            cs=(f"{chg*100:+.0f}bp" if isinstance(chg,(int,float)) else "")
+            up=(chg or 0)>=0
+        else:
+            price=_fp(r["price"])
+            cs=(f"{chg:+.2f}%" if isinstance(chg,(int,float)) else "")
+            up=(chg or 0)>=0
+        col=GREEN if up else RED
+        arr="▲" if up else "▼"
+        cells.append(
+            f'<span class="qi"><b>{nm}</b> <span class="qp">{price}</span> '
+            f'<span style="color:{col}">{arr}{_html.escape(cs)}</span></span>'
+            f'<span class="qsep">·</span>')
+    stream="".join(cells)
+    dur=min(240, max(55, len(cells)*6))
+    st.markdown(f"""
+    <style>
+    .jq {{ position:relative; overflow:hidden; white-space:nowrap; background:#0b0f16;
+           border:1px solid {BORDER}; border-radius:8px; padding:6px 0; margin:0 0 12px; padding-left:104px; }}
+    .jq .qcap {{ position:absolute; left:0; top:0; bottom:0; width:104px; z-index:3;
+                 display:flex; align-items:center; justify-content:center; gap:6px;
+                 background:{BLUE}; color:#0d1117; font:800 12px Consolas; letter-spacing:.5px; }}
+    .jqtrack {{ display:inline-block; white-space:nowrap; animation: jscroll2 {dur}s linear infinite; }}
+    .jq:hover .jqtrack {{ animation-play-state:paused; }}
+    .qi {{ font:13px/1 Consolas; color:{TEXT2}; margin:0 4px; }}
+    .qi b {{ color:{TEXT1}; }}
+    .qp {{ color:{TEXT1}; }}
+    .qsep {{ color:{BORDER}; margin:0 12px; }}
+    @keyframes jscroll2 {{ 0%{{transform:translateX(0)}} 100%{{transform:translateX(-50%)}} }}
+    </style>
+    <div class="jq"><div class="qcap">QUOTES</div>
+      <div class="jqtrack">{stream}{stream}</div></div>
+    """, unsafe_allow_html=True)
+
 # Credit curve by rating (latest effective yield from FRED)
 @st.cache_data(ttl=1800, show_spinner=False)
 def credit_curve():
@@ -5011,9 +5089,13 @@ def _now_et():
         return datetime.now(ZoneInfo("America/New_York"))
     except Exception:
         return datetime.utcnow()-timedelta(hours=4)   # crude EDT fallback
-# Scrolling markets-news ticker across the very top.
+# Scrolling markets-news ticker + live price tape across the very top.
 try:
     render_news_ticker()
+except Exception:
+    pass
+try:
+    render_price_ticker()
 except Exception:
     pass
 tb1,tb2,tb3=st.columns([4,1.3,1])
