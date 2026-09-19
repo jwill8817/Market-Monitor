@@ -729,7 +729,7 @@ def render_news_ticker():
     st.markdown(f"""
     <style>
     .jtick {{ position:relative; overflow:hidden; white-space:nowrap; background:{CARD};
-              border:1px solid {BORDER}; border-radius:8px; padding:7px 0; margin:64px 0 10px;
+              border:1px solid {BORDER}; border-radius:8px; padding:7px 0; margin:6px 0 8px;
               padding-left:104px; }}
     .jtick .cap {{ position:absolute; left:0; top:0; bottom:0; width:104px; z-index:3;
                    display:flex; align-items:center; justify-content:center; gap:6px;
@@ -5089,15 +5089,6 @@ def _now_et():
         return datetime.now(ZoneInfo("America/New_York"))
     except Exception:
         return datetime.utcnow()-timedelta(hours=4)   # crude EDT fallback
-# Scrolling markets-news ticker + live price tape across the very top.
-try:
-    render_news_ticker()
-except Exception:
-    pass
-try:
-    render_price_ticker()
-except Exception:
-    pass
 tb1,tb2,tb3=st.columns([4,1.3,1])
 with tb1:
     _ts=_now_et().strftime("%a %b %d, %Y · %I:%M %p ET").replace(" 0"," ").replace("·  ","· ")
@@ -5149,6 +5140,16 @@ if _auto_min>0:
         st_autorefresh(interval=_auto_min*60*1000, key="auto_refresh_tick")
     except Exception:
         pass
+
+# Ticker tapes sit just below the top controls, right above the tables.
+try:
+    render_news_ticker()
+except Exception:
+    pass
+try:
+    render_price_ticker()
+except Exception:
+    pass
 
 # Private LSEG tab as a collapsible button at the very top (like Upload/Export controls).
 try:
