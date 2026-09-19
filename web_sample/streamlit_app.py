@@ -682,6 +682,61 @@ def _fmt_age(ts, now):
     if d<2*86400:return "Yesterday"
     return _dt.datetime.utcfromtimestamp(ts).strftime("%b %d")
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _ticker_news():
+    return markets_news()
+
+def render_news_ticker():
+    """Bloomberg-style scrolling headline ticker across the very top of the page."""
+    import html as _html, time as _t
+    try:
+        items=_ticker_news()
+    except Exception:
+        items=[]
+    if not items:
+        return
+    now=_t.time()
+    items=sorted(items, key=lambda it: (it.get("ts") or 0), reverse=True)[:30]
+    cells=[]
+    for it in items:
+        src=(it.get("source") or "").strip()
+        title=_html.escape((it.get("title") or "").strip())
+        if not title: continue
+        url=_html.escape(it.get("url") or "#", quote=True)
+        col=_src_color(src)
+        age=_fmt_age(it.get("ts"), now)
+        agehtml=f'<span style="color:{TEXT3}">· {age}</span>' if age else ""
+        cells.append(
+            f'<a class="tki" href="{url}" target="_blank" rel="noopener">'
+            f'<span class="tkd" style="background:{col}"></span>'
+            f'<b style="color:{col}">{_html.escape(src)}</b> {title} {agehtml}</a>'
+            f'<span class="tksep">◆</span>')
+    if not cells: return
+    stream="".join(cells)
+    dur=min(300, max(70, len(cells)*7))          # slower for more headlines
+    st.markdown(f"""
+    <style>
+    .jtick {{ position:relative; overflow:hidden; white-space:nowrap; background:{CARD};
+              border:1px solid {BORDER}; border-radius:8px; padding:7px 0; margin:0 0 10px;
+              padding-left:104px; }}
+    .jtick .cap {{ position:absolute; left:0; top:0; bottom:0; width:104px; z-index:3;
+                   display:flex; align-items:center; justify-content:center; gap:6px;
+                   background:{ACCENT}; color:#0d1117; font:800 12px Consolas; letter-spacing:.5px; }}
+    .jtick .cap .blip {{ width:8px; height:8px; border-radius:50%; background:#0d1117;
+                         animation: jblink 1.4s ease-in-out infinite; }}
+    @keyframes jblink {{ 0%,100%{{opacity:1}} 50%{{opacity:.25}} }}
+    .jtrack {{ display:inline-block; white-space:nowrap; animation: jscroll {dur}s linear infinite; }}
+    .jtick:hover .jtrack {{ animation-play-state:paused; }}
+    .tki {{ text-decoration:none; font:13px/1 Consolas; color:{TEXT1}; margin:0 6px; }}
+    .tki:hover {{ text-decoration:underline; }}
+    .tkd {{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:middle; }}
+    .tksep {{ color:{BORDER}; margin:0 12px; font-size:9px; vertical-align:middle; }}
+    @keyframes jscroll {{ 0%{{transform:translateX(0)}} 100%{{transform:translateX(-50%)}} }}
+    </style>
+    <div class="jtick"><div class="cap"><span class="blip"></span>MARKETS</div>
+      <div class="jtrack">{stream}{stream}</div></div>
+    """, unsafe_allow_html=True)
+
 # Credit curve by rating (latest effective yield from FRED)
 @st.cache_data(ttl=1800, show_spinner=False)
 def credit_curve():
@@ -4944,6 +4999,11 @@ def _now_et():
         return datetime.now(ZoneInfo("America/New_York"))
     except Exception:
         return datetime.utcnow()-timedelta(hours=4)   # crude EDT fallback
+# Scrolling markets-news ticker across the very top.
+try:
+    render_news_ticker()
+except Exception:
+    pass
 tb1,tb2,tb3=st.columns([4,1.3,1])
 with tb1:
     _ts=_now_et().strftime("%a %b %d, %Y · %I:%M %p ET").replace(" 0"," ").replace("·  ","· ")
