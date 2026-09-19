@@ -696,6 +696,18 @@ def render_news_ticker():
     if not items:
         return
     now=_t.time()
+    # Source focus (from the selector in the top bar). Falls back to all if a filter is empty.
+    _mode=st.session_state.get("tick_src","All markets")
+    def _keep(it, keys):
+        return any(k in (it.get("source") or "").lower() for k in keys)
+    if _mode=="Bloomberg":
+        _f=[it for it in items if _keep(it,("bloomberg",))]
+        if _f: items=_f
+    elif _mode=="Top wires":
+        _f=[it for it in items if _keep(it,("bloomberg","wall street journal","wsj",
+                                           "financial times","ft","economist","reuters"))]
+        if _f: items=_f
+    _caplbl={"Bloomberg":"BLOOMBERG","Top wires":"TOP WIRES"}.get(_mode,"MARKETS")
     items=sorted(items, key=lambda it: (it.get("ts") or 0), reverse=True)[:30]
     cells=[]
     for it in items:
@@ -733,7 +745,7 @@ def render_news_ticker():
     .tksep {{ color:{BORDER}; margin:0 12px; font-size:9px; vertical-align:middle; }}
     @keyframes jscroll {{ 0%{{transform:translateX(0)}} 100%{{transform:translateX(-50%)}} }}
     </style>
-    <div class="jtick"><div class="cap"><span class="blip"></span>MARKETS</div>
+    <div class="jtick"><div class="cap"><span class="blip"></span>{_caplbl}</div>
       <div class="jtrack">{stream}{stream}</div></div>
     """, unsafe_allow_html=True)
 
@@ -5045,6 +5057,9 @@ with tb3:
     auto_choice=st.selectbox("Auto-refresh", list(_AUTO_OPTS), index=2, key="auto_rf",
                              help="Re-pull data on this interval automatically.") \
                 if _HAS_AUTOREFRESH else "Off"
+    st.selectbox("News ticker", ["All markets","Bloomberg","Top wires"], key="tick_src",
+                 help="Which sources feed the scrolling headline ticker at the top. "
+                      "'Top wires' = Bloomberg, WSJ, FT, Economist, Reuters.")
 _auto_min=_AUTO_OPTS.get(auto_choice,0) if _HAS_AUTOREFRESH else 0
 if _auto_min>0:
     # Rerun on the chosen interval; cache TTLs mean data re-fetches when stale.
