@@ -715,13 +715,12 @@ def render_news_ticker():
         title=_html.escape((it.get("title") or "").strip())
         if not title: continue
         url=_html.escape(it.get("url") or "#", quote=True)
-        col=_src_color(src)
         age=_fmt_age(it.get("ts"), now)
-        agehtml=f'<span style="color:{TEXT3}">· {age}</span>' if age else ""
+        agehtml=f'<span class="tkage">· {age}</span>' if age else ""
         cells.append(
             f'<a class="tki" href="{url}" target="_blank" rel="noopener">'
-            f'<span class="tkd" style="background:{col}"></span>'
-            f'<b style="color:{col}">{_html.escape(src)}</b> {title} {agehtml}</a>'
+            f'<span class="tkd"></span>'
+            f'<b class="tksrc">{_html.escape(src)}</b> <span class="tktitle">{title}</span> {agehtml}</a>'
             f'<span class="tksep">◆</span>')
     if not cells: return
     stream="".join(cells)
@@ -741,10 +740,14 @@ def render_news_ticker():
     @keyframes jblink {{ 0%,100%{{opacity:1}} 50%{{opacity:.25}} }}
     .jtrack {{ display:inline-block; white-space:nowrap; animation: jscroll {dur}s linear infinite; }}
     .jtick:hover .jtrack {{ animation-play-state:paused; }}
-    .tki {{ text-decoration:none; font:13px/1 Consolas; color:{TEXT1}; margin:0 6px; }}
-    .tki:hover {{ text-decoration:underline; }}
-    .tkd {{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:middle; }}
-    .tksep {{ color:{BORDER}; margin:0 12px; font-size:9px; vertical-align:middle; }}
+    .tki {{ text-decoration:none; font:13px/1 Consolas; margin:0 6px; }}
+    .tki:hover .tktitle {{ text-decoration:underline; }}
+    .tkd {{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px;
+            background:{GREEN}; vertical-align:middle; }}
+    .tksrc {{ color:{GREEN}; }}
+    .tktitle {{ color:#ffffff; }}
+    .tkage {{ color:{TEXT3}; }}
+    .tksep {{ color:{RED}; margin:0 12px; font-size:9px; vertical-align:middle; }}
     @keyframes jscroll {{ 0%{{transform:translateX(0)}} 100%{{transform:translateX(-50%)}} }}
     </style>
     <div class="jtick"><div class="cap"><span class="blip"></span>{_caplbl}</div>
