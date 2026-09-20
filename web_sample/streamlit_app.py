@@ -733,7 +733,9 @@ def render_news_ticker():
               padding-left:104px; }}
     .jtick .cap {{ position:absolute; left:0; top:0; bottom:0; width:104px; z-index:3;
                    display:flex; align-items:center; justify-content:center; gap:6px;
-                   background:{ACCENT}; color:#0d1117; font:800 12px Consolas; letter-spacing:.5px; }}
+                   background:linear-gradient(90deg,#ff5a3c,#ff9d5c); color:#1a0800;
+                   font:800 12px Consolas; letter-spacing:.5px;
+                   box-shadow:0 0 14px rgba(247,120,80,.6); text-shadow:0 0 6px rgba(255,255,255,.3); }}
     .jtick .cap .blip {{ width:8px; height:8px; border-radius:50%; background:#0d1117;
                          animation: jblink 1.4s ease-in-out infinite; }}
     @keyframes jblink {{ 0%,100%{{opacity:1}} 50%{{opacity:.25}} }}
@@ -814,7 +816,9 @@ def render_price_ticker():
            border:1px solid {BORDER}; border-radius:8px; padding:6px 0; margin:0 0 12px; padding-left:104px; }}
     .jq .qcap {{ position:absolute; left:0; top:0; bottom:0; width:104px; z-index:3;
                  display:flex; align-items:center; justify-content:center; gap:6px;
-                 background:{BLUE}; color:#0d1117; font:800 12px Consolas; letter-spacing:.5px; }}
+                 background:linear-gradient(90deg,#0a84ff,#4dc4ff); color:#02121f;
+                 font:800 12px Consolas; letter-spacing:.5px;
+                 box-shadow:0 0 14px rgba(45,150,255,.65); text-shadow:0 0 6px rgba(255,255,255,.35); }}
     .jqtrack {{ display:inline-block; white-space:nowrap; animation: jscroll2 {dur}s linear infinite; }}
     .jq:hover .jqtrack {{ animation-play-state:paused; }}
     .qi {{ font:13px/1 Consolas; color:{TEXT2}; margin:0 4px; }}
