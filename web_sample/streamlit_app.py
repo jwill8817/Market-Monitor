@@ -1269,6 +1269,100 @@ def panel_returns(catkey, label, k):
         for n,i in data.items()])
     with c3: dl(df, "Export", f"JAWS_{catkey}.xlsx", k+"_dl")
 
+# ── Treasury curve + steepness (FRED constant-maturity yields) ──
+_RATE_TENORS=[("3M","DGS3MO"),("6M","DGS6MO"),("1Y","DGS1"),("2Y","DGS2"),("3Y","DGS3"),
+              ("5Y","DGS5"),("7Y","DGS7"),("10Y","DGS10"),("20Y","DGS20"),("30Y","DGS30")]
+# Curve steepness spreads market practitioners watch: (label, long id, short id)
+_RATE_SPREADS=[("2s10s","DGS10","DGS2"),("3m10s","DGS10","DGS3MO"),("2s30s","DGS30","DGS2"),
+               ("5s30s","DGS30","DGS5"),("2s5s","DGS5","DGS2"),("3m2y","DGS2","DGS3MO"),
+               ("10s30s","DGS30","DGS10")]
+
+def _rate_changes(s):
+    """Absolute period changes (in bps) for a yield/spread series, using the same to-date
+    anchoring as the return tables. Returns {1D,WTD,MTD,QTD,YTD,1Y,3Y,5Y,10Y}."""
+    out={p:None for p in ["1D","WTD","MTD","QTD","YTD","1Y","3Y","5Y","10Y"]}
+    s=s.dropna().sort_index()
+    if len(s)<1: return out
+    cur=float(s.iloc[-1]); d=s.index[-1]
+    bps=lambda base: None if base is None else round((cur-base)*100,1)
+    if len(s)>1: out["1D"]=bps(float(s.iloc[-2]))
+    before=lambda dt:(float(s[s.index<dt].iloc[-1]) if len(s[s.index<dt]) else None)
+    onafter=lambda dt:(float(s[s.index>=dt].iloc[0]) if len(s[s.index>=dt]) else None)
+    wtd=d-pd.Timedelta(days=int(d.weekday())); mtd=d.replace(day=1)
+    qtd=d.replace(month=((d.month-1)//3)*3+1, day=1); ytd=d.replace(month=1,day=1)
+    out["WTD"]=bps(before(wtd)); out["MTD"]=bps(before(mtd))
+    out["QTD"]=bps(before(qtd)); out["YTD"]=bps(before(ytd))
+    for lbl,yy in [("1Y",1),("3Y",3),("5Y",5),("10Y",10)]:
+        out[lbl]=bps(onafter(d-pd.DateOffset(years=yy)))
+    return out
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _rates_curve_data():
+    import fi_spreads as fs
+    series={}
+    for _,sid in _RATE_TENORS:
+        try:
+            dd,vv=fs._fred_fetch_all(sid)
+            if dd: series[sid]=pd.Series(vv,index=pd.to_datetime(dd)).dropna().sort_index()
+        except Exception: pass
+    trows=[]
+    for lbl,sid in _RATE_TENORS:
+        s=series.get(sid)
+        if s is None or s.empty: continue
+        r=_rate_changes(s); r["name"]=lbl; r["level"]=float(s.iloc[-1]); trows.append(r)
+    srows=[]
+    for lbl,lng,sht in _RATE_SPREADS:
+        a=series.get(lng); b=series.get(sht)
+        if a is None or b is None: continue
+        df=pd.concat({"a":a,"b":b},axis=1).dropna()
+        if df.empty: continue
+        sp=df["a"]-df["b"]
+        r=_rate_changes(sp); r["name"]=lbl; r["level"]=float(sp.iloc[-1]); srows.append(r)
+    asof=max([s.index[-1] for s in series.values()]) if series else None
+    return trows, srows, (asof.date().isoformat() if asof is not None else "")
+
+def panel_rates(k):
+    with st.spinner("Loading Treasury curve (FRED)…"):
+        try: trows,srows,asof=_rates_curve_data()
+        except Exception as e:
+            st.error(f"Rates load failed: {type(e).__name__}: {e}"); return
+    if not trows:
+        st.warning("No Treasury yield data returned."); return
+    _cols=["1D","WTD","MTD","QTD","YTD","1Y","3Y","5Y","10Y"]
+    def _fb(v):
+        if v is None: return f'<span style="color:{TEXT3}">—</span>'
+        c=GREEN if v>=0 else RED
+        return f'<span style="color:{c}">{v:+.1f}</span>'
+    hdr=["Tenor","Yield"]+_cols
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    for r in trows:
+        h+=("<tr>"f"<td style='text-align:left'>{r['name']}</td><td>{r['level']:.2f}%</td>"
+            +"".join(f"<td>{_fb(r.get(p))}</td>" for p in _cols)+"</tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption(f"US Treasury constant-maturity yields (FRED, as of **{asof}**). Yield in %, all change "
+               "columns in **bps**. Green = yield rose, red = yield fell.")
+    st.markdown(f'<div style="margin-top:10px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Curve steepness — long yield minus short yield</div>', unsafe_allow_html=True)
+    hdr2=["Spread","Level (bps)"]+_cols
+    h2='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr2)+"</tr>"
+    for r in srows:
+        lv=r['level']*100; lc=GREEN if lv>=0 else RED
+        h2+=("<tr>"f"<td style='text-align:left'>{r['name']}</td>"
+             f"<td style='color:{lc}'>{lv:+.0f}</td>"
+             +"".join(f"<td>{_fb(r.get(p))}</td>" for p in _cols)+"</tr>")
+    st.markdown(h2+"</table></div>", unsafe_allow_html=True)
+    st.caption("Steepness = long − short yield. **Positive = steep, negative = inverted.** "
+               "**2s10s** and **3m10s** (the Fed's preferred recession gauge) are the headline measures; "
+               "**5s30s** / **10s30s** track the long end, **2s5s** / **3m2y** the front end. Changes in bps.")
+    exp=[]
+    for r in trows:
+        exp.append({"Type":"Yield","Name":r["name"],"Level%":round(r["level"],3),
+                    **{p:r.get(p) for p in _cols}})
+    for r in srows:
+        exp.append({"Type":"Spread","Name":r["name"],"Level_bps":round(r["level"]*100,1),
+                    **{p:r.get(p) for p in _cols}})
+    dl(pd.DataFrame(exp),"Export rates & curve","JAWS_rates_curve.xlsx",k+"_dl")
+
 ANA_HDR=["Name","Unit","Cur","Δ1M","Δ3M","Δ1Y","Δ3Y","Δ5Y","Δ10Y","Min","Max","Avg","Δ Avg","Z","Since"]
 def panel_analytics(loader, label, fname, k):
     with st.spinner("Loading from FRED…"):
@@ -5047,7 +5141,7 @@ PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner"]
 def _dispatch(sel, k):
     if sel in RETURN_CATS:    panel_returns(RETURN_CATS[sel], sel, k)
     elif sel=="FI Spreads":   panel_analytics(spreads_analytics,"Spreads","JAWS_FI_Spreads.xlsx",k)
-    elif sel=="Rates":        panel_analytics(rates_analytics,"Rates","JAWS_Rates.xlsx",k)
+    elif sel=="Rates":        panel_rates(k)
     elif sel=="Funding":      panel_analytics(funding_analytics,"Funding","JAWS_Funding.xlsx",k)
     elif sel=="Inflation":    panel_analytics(inflation_analytics,"Inflation","JAWS_Inflation.xlsx",k)
     elif sel=="L/S Factors":  panel_factors(k)
