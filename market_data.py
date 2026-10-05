@@ -421,6 +421,16 @@ CRYPTO = {
 }
 
 
+# Price indices exclude dividends. For these, compute RETURNS from the matching total-return
+# index (so YTD etc. include dividends) while still DISPLAYING the familiar price-index level.
+# (Dow & FTSE have no reliable TR ticker on Yahoo; DAX/EM are already total-return.)
+TOTAL_RETURN_OVERRIDE = {
+    "^GSPC": "^SP500TR",     # S&P 500
+    "^IXIC": "^XCMP",        # Nasdaq Composite TR
+    "^RUT":  "^RUTTR",       # Russell 2000 TR
+}
+
+
 def _start_dates():
     today = datetime.date.today()
     return {
@@ -471,7 +481,9 @@ def fetch_calendar_returns(ticker_dict, n_years=6, absolute=False):
             return None
         return round(b - a, 4) if absolute else _pct(a, b)
 
-    _hist = price_histories(list(ticker_dict.values()), start=start)
+    _trs = [TOTAL_RETURN_OVERRIDE[t] for t in ticker_dict.values()
+            if (not absolute) and t in TOTAL_RETURN_OVERRIDE]
+    _hist = price_histories(list(ticker_dict.values()) + _trs, start=start)
     out = {}
     for name, ticker in ticker_dict.items():
         try:
@@ -481,6 +493,14 @@ def fetch_calendar_returns(ticker_dict, n_years=6, absolute=False):
             if close is None or close.empty:
                 out[name] = {"price": None}
                 continue
+            price_disp = float(close.iloc[-1])          # display price-index level
+            _rtk = None if absolute else TOTAL_RETURN_OVERRIDE.get(ticker)
+            if _rtk:
+                _rc = _hist.get(_rtk)
+                if _rc is None or getattr(_rc, "empty", True):
+                    _rc = price_history(_rtk, start=start)
+                if _rc is not None and not _rc.empty:
+                    close = _rc
             current = float(close.iloc[-1])
             prev = float(close.iloc[-2]) if len(close) > 1 else current
             me = close.resample("ME").last().dropna()    # month-end closes
@@ -501,7 +521,7 @@ def fetch_calendar_returns(ticker_dict, n_years=6, absolute=False):
                     return _chg(base, float(ser.iloc[i]))
                 return None
 
-            rec = {"price": current, "1D": _chg(prev, current)}
+            rec = {"price": price_disp, "1D": _chg(prev, current)}
             # To-date: current-period end bar (holds the latest price) vs prior period end.
             rec["MTD"] = _chg(float(me.iloc[-2]), current) if len(me) >= 2 else None
             rec["QTD"] = _chg(float(qe.iloc[-2]), current) if len(qe) >= 2 else None
@@ -552,8 +572,11 @@ def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=Fals
     # Returns tables only need 10y; pin the window so the (now max-default) history
     # doesn't pull full history for every instrument.
     _tbl_start = _cs_str or (datetime.date.today() - relativedelta(years=10)).isoformat()
-    # Batch-fetch ALL tickers in one request (avoids per-symbol Yahoo rate-limiting).
-    _hist = price_histories(list(ticker_dict.values()), start=_tbl_start)
+    # Batch-fetch ALL tickers in one request (avoids per-symbol Yahoo rate-limiting),
+    # plus any total-return counterparts used for return math on price indices.
+    _trs = [TOTAL_RETURN_OVERRIDE[t] for t in ticker_dict.values()
+            if (not absolute) and t in TOTAL_RETURN_OVERRIDE]
+    _hist = price_histories(list(ticker_dict.values()) + _trs, start=_tbl_start)
     for name, ticker in ticker_dict.items():
         try:
             close = _hist.get(ticker)
@@ -562,6 +585,15 @@ def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=Fals
             if close.empty:
                 results[name] = {"price": None, "change_1d": None, "returns": {}}
                 continue
+            price_disp = float(close.iloc[-1])          # familiar price-index level for display
+            # Use the total-return index for RETURN math where available (adds back dividends).
+            _rtk = None if absolute else TOTAL_RETURN_OVERRIDE.get(ticker)
+            if _rtk:
+                _rc = _hist.get(_rtk)
+                if _rc is None or getattr(_rc, "empty", True):
+                    _rc = price_history(_rtk, start=_tbl_start)
+                if _rc is not None and not _rc.empty:
+                    close = _rc                          # all period math below runs on TR series
             current = float(close.iloc[-1])
             prev    = float(close.iloc[-2]) if len(close) > 1 else current
 
@@ -624,7 +656,7 @@ def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=Fals
                 else:
                     returns["Custom"] = None
 
-            results[name] = {"price": current, "change_1d": change_1d, "returns": returns}
+            results[name] = {"price": price_disp, "change_1d": change_1d, "returns": returns}
         except Exception:
             results[name] = {"price": None, "change_1d": None, "returns": {}}
     return results
