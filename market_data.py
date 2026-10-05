@@ -429,6 +429,19 @@ TOTAL_RETURN_OVERRIDE = {
     "^IXIC": "^XCMP",        # Nasdaq Composite TR
     "^RUT":  "^RUTTR",       # Russell 2000 TR
 }
+# Price indices that are ALREADY total-return by construction (performance indices).
+_ALREADY_TR = {"^GDAXI"}    # DAX is a total-return/performance index
+
+
+def _return_basis(ticker, absolute):
+    """'TR' (total return), 'PR' (price only), or None (absolute/level series)."""
+    if absolute:
+        return None
+    if ticker in TOTAL_RETURN_OVERRIDE or ticker in _ALREADY_TR:
+        return "TR"
+    if ticker.startswith("^"):
+        return "PR"            # a bare price index with no TR counterpart
+    return "TR"                # ETFs/stocks: dividend-adjusted closes = total return
 
 
 def _start_dates():
@@ -656,7 +669,8 @@ def fetch_returns(ticker_dict, custom_start=None, custom_end=None, absolute=Fals
                 else:
                     returns["Custom"] = None
 
-            results[name] = {"price": price_disp, "change_1d": change_1d, "returns": returns}
+            results[name] = {"price": price_disp, "change_1d": change_1d, "returns": returns,
+                             "basis": _return_basis(ticker, absolute)}
         except Exception:
             results[name] = {"price": None, "change_1d": None, "returns": {}}
     return results

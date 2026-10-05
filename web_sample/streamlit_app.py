@@ -1252,15 +1252,23 @@ def panel_returns(catkey, label, k):
     _items=(_sorted_return_items(data, sortcol, desc)
             if sortcol in _RET_SORT else list(data.items()))
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in RET_HDR)+"</tr>"
+    _has_pr=False
     for name,info in _items:
         r=info.get("returns",{})
-        h+=("<tr>"f"<td>{name}</td><td style='color:{TEXT3}'>{tmap.get(name,'')}</td>"
+        _pr=(info.get("basis")=="PR")
+        _has_pr=_has_pr or _pr
+        _nm=name+(f' <sup style="color:{YELLOW};font-size:9px;">PR</sup>' if _pr else "")
+        h+=("<tr>"f"<td>{_nm}</td><td style='color:{TEXT3}'>{tmap.get(name,'')}</td>"
             f"<td>{f_price(info.get('price'),name)}</td><td>{fc(info.get('change_1d'))}</td>"
             f"<td>{fc(r.get('WTD'))}</td><td>{fc(r.get('MTD'))}</td><td>{fc(r.get('QTD'))}</td>"
             f"<td>{fc(r.get('YTD'))}</td><td>{fc(r.get('1Y'))}</td>"
             f"<td>{fc(r.get('3Y'))}</td><td>{fc(r.get('5Y'))}</td><td>{fc(r.get('10Y'))}</td>"
             f"<td>{fc(r.get('Custom'))}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    if _has_pr:
+        st.caption(f'<span style="color:{YELLOW}">PR</span> = **price return** (excludes dividends — '
+                   "no free total-return index on Yahoo). All other rows are **total return** "
+                   "(dividends reinvested).", unsafe_allow_html=True)
     c1,c2,c3=st.columns([1,1,1])
     c1.date_input("Custom start", value=cs, key=k+"_cs", min_value=date(1900,1,1))
     c2.date_input("Custom end", value=ce, key=k+"_ce", min_value=date(1900,1,1))
