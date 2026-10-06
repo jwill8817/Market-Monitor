@@ -1343,38 +1343,39 @@ def panel_rates(k):
     if not trows:
         st.warning("No Treasury yield data returned."); return
     _cols=["1D","WTD","MTD","QTD","YTD","1Y","3Y","5Y","10Y"]
-    def _fb(v):
+    def _fb(v):                                  # v is in bps; display as percentage points
         if v is None: return f'<span style="color:{TEXT3}">—</span>'
         c=GREEN if v>=0 else RED
-        return f'<span style="color:{c}">{v:+.1f}</span>'
+        return f'<span style="color:{c}">{v/100:+.2f}%</span>'
     hdr=["Tenor","Yield"]+_cols
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
     for r in trows:
         h+=("<tr>"f"<td style='text-align:left'>{r['name']}</td><td>{r['level']:.2f}%</td>"
             +"".join(f"<td>{_fb(r.get(p))}</td>" for p in _cols)+"</tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
-    st.caption(f"US Treasury constant-maturity yields (FRED, as of **{asof}**). Yield in %, all change "
-               "columns in **bps**. Green = yield rose, red = yield fell.")
+    st.caption(f"US Treasury constant-maturity yields (FRED, as of **{asof}**). Yield and all change "
+               "columns in **% (percentage points)** — e.g. +0.40% = a 40 bp move. Green = yield rose, red = fell.")
     st.markdown(f'<div style="margin-top:10px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
                 'Curve steepness — long yield minus short yield</div>', unsafe_allow_html=True)
-    hdr2=["Spread","Level (bps)"]+_cols
+    hdr2=["Spread","Level"]+_cols
     h2='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr2)+"</tr>"
     for r in srows:
-        lv=r['level']*100; lc=GREEN if lv>=0 else RED
+        lv=r['level']; lc=GREEN if lv>=0 else RED
         h2+=("<tr>"f"<td style='text-align:left'>{r['name']}</td>"
-             f"<td style='color:{lc}'>{lv:+.0f}</td>"
+             f"<td style='color:{lc}'>{lv:+.2f}%</td>"
              +"".join(f"<td>{_fb(r.get(p))}</td>" for p in _cols)+"</tr>")
     st.markdown(h2+"</table></div>", unsafe_allow_html=True)
     st.caption("Steepness = long − short yield. **Positive = steep, negative = inverted.** "
                "**2s10s** and **3m10s** (the Fed's preferred recession gauge) are the headline measures; "
-               "**5s30s** / **10s30s** track the long end, **2s5s** / **3m2y** the front end. Changes in bps.")
+               "**5s30s** / **10s30s** track the long end, **2s5s** / **3m2y** the front end. "
+               "Level and changes in **% (percentage points)**.")
     exp=[]
     for r in trows:
         exp.append({"Type":"Yield","Name":r["name"],"Level%":round(r["level"],3),
-                    **{p:r.get(p) for p in _cols}})
+                    **{p:(None if r.get(p) is None else round(r[p]/100,4)) for p in _cols}})
     for r in srows:
-        exp.append({"Type":"Spread","Name":r["name"],"Level_bps":round(r["level"]*100,1),
-                    **{p:r.get(p) for p in _cols}})
+        exp.append({"Type":"Spread","Name":r["name"],"Level%":round(r["level"],4),
+                    **{p:(None if r.get(p) is None else round(r[p]/100,4)) for p in _cols}})
     dl(pd.DataFrame(exp),"Export rates & curve","JAWS_rates_curve.xlsx",k+"_dl")
 
 ANA_HDR=["Name","Unit","Cur","Δ1M","Δ3M","Δ1Y","Δ3Y","Δ5Y","Δ10Y","Min","Max","Avg","Δ Avg","Z","Since"]
