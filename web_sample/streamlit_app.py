@@ -1205,11 +1205,14 @@ def _panel_returns_calendar(catkey, label, k, absolute):
     hdr=(["Name","Tkr","Price","1D","MTD","QTD","YTD","Q1","Q2","Q3","Q4"]+months
          +[str(y) for y in years])
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
+    _has_pr=False
     for name,info in data.items():
         if not info or info.get("price") is None:
             h+=f"<tr><td>{name}</td><td colspan='{len(hdr)-1}' style='color:{TEXT3}'>no data</td></tr>"; continue
+        _pr=(info.get("basis")=="PR"); _has_pr=_has_pr or _pr
+        _nm=name+(f' <sup style="color:{YELLOW};font-size:9px;">PR</sup>' if _pr else "")
         q=info.get("quarters",{}); mo=info.get("months",{}); yr=info.get("years",{})
-        cells=[f"<td>{name}</td>",f"<td style='color:{TEXT3}'>{tmap.get(name,'')}</td>",
+        cells=[f"<td>{_nm}</td>",f"<td style='color:{TEXT3}'>{tmap.get(name,'')}</td>",
                f"<td>{f_price(info.get('price'),name)}</td>",
                f"<td>{fc(info.get('1D'))}</td>",f"<td>{fc(info.get('MTD'))}</td>",
                f"<td>{fc(info.get('QTD'))}</td>",f"<td>{fc(info.get('YTD'))}</td>"]
@@ -1221,6 +1224,9 @@ def _panel_returns_calendar(catkey, label, k, absolute):
     st.caption("**Calendar view.** 1D/MTD/QTD/YTD to date; **Q1–Q4** and **Jan–…** are current-year "
                "calendar quarters/months; year columns are **full calendar-year** returns (Dec→Dec), "
                "labelled by year. Each period measures from the prior period's close.")
+    if _has_pr:
+        st.caption(f'<span style="color:{YELLOW}">PR</span> = **price return** (excludes dividends). '
+                   "All other rows are **total return**.", unsafe_allow_html=True)
     # Export (flat)
     rows=[]
     for name,info in data.items():

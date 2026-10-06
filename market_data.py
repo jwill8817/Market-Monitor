@@ -534,7 +534,8 @@ def fetch_calendar_returns(ticker_dict, n_years=6, absolute=False):
                     return _chg(base, float(ser.iloc[i]))
                 return None
 
-            rec = {"price": price_disp, "1D": _chg(prev, current)}
+            rec = {"price": price_disp, "1D": _chg(prev, current),
+                   "basis": _return_basis(ticker, absolute)}
             # To-date: current-period end bar (holds the latest price) vs prior period end.
             rec["MTD"] = _chg(float(me.iloc[-2]), current) if len(me) >= 2 else None
             rec["QTD"] = _chg(float(qe.iloc[-2]), current) if len(qe) >= 2 else None
