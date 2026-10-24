@@ -5273,6 +5273,82 @@ try:
 except Exception as _e:
     st.error(f"⚠ LSEG: {type(_e).__name__}: {_e}")
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_heatmap(idxkey):
+    import os, json
+    here=os.path.dirname(os.path.abspath(__file__))
+    for p in (f"data/heatmap_{idxkey}.json",
+              os.path.join(here,"..","data",f"heatmap_{idxkey}.json"),
+              os.path.join(here,"data",f"heatmap_{idxkey}.json")):
+        try:
+            if os.path.exists(p):
+                with open(p,encoding="utf-8") as f: return json.load(f)
+        except Exception: pass
+    return None
+
+_HEATMAP_IDX={"S&P 500":"sp500","Nasdaq 100":"nasdaq100","Dow 30":"dow"}
+_HEATMAP_PERIODS=["1D","WTD","MTD","QTD","YTD","1Y"]
+# Symmetric color range (±%) per period so the scale stays readable.
+_HEATMAP_CAP={"1D":4.0,"WTD":6.0,"MTD":10.0,"QTD":15.0,"YTD":40.0,"1Y":60.0}
+
+def panel_heatmap(k):
+    c1,c2=st.columns([2,2])
+    idxlabel=c1.selectbox("Index", list(_HEATMAP_IDX), key=k+"_idx")
+    period=c2.selectbox("Return period", _HEATMAP_PERIODS, key=k+"_per")
+    data=_load_heatmap(_HEATMAP_IDX[idxlabel])
+    if not data or not data.get("names"):
+        st.info(f"No heatmap data for **{idxlabel}** yet — the daily job builds it after the US close "
+                "(S&P 500 is seeded first). Try S&P 500, or check back after the next run."); return
+    recs=[]
+    for n in data["names"]:
+        ret=(n.get("r") or {}).get(period)
+        if n.get("mktcap") and ret is not None:
+            recs.append((n["t"], (n.get("sector") or "—"), float(n["mktcap"]), float(ret), n.get("name","")))
+    if not recs:
+        st.info(f"No **{period}** returns available for {idxlabel} yet."); return
+    sectors=sorted({r[1] for r in recs})
+    sec_cap={s:0.0 for s in sectors}; sec_wr={s:0.0 for s in sectors}
+    for t,s,mc,ret,nm in recs:
+        sec_cap[s]+=mc; sec_wr[s]+=mc*ret
+    for s in sectors:
+        sec_wr[s]=(sec_wr[s]/sec_cap[s]) if sec_cap[s] else 0.0
+    ids=[]; labels=[]; parents=[]; values=[]; colors=[]; custom=[]
+    for s in sectors:
+        ids.append("S::"+s); labels.append(s); parents.append(""); values.append(sec_cap[s])
+        colors.append(sec_wr[s]); custom.append([sec_wr[s], s+" (sector)", ""])
+    for t,s,mc,ret,nm in recs:
+        ids.append("T::"+t); labels.append(f"<b>{t}</b><br>{ret:+.2f}%"); parents.append("S::"+s)
+        values.append(mc); colors.append(ret); custom.append([ret, f"{t} · {nm}", f"${mc/1e9:,.0f}B"])
+    _abs=sorted(abs(r[3]) for r in recs)
+    _p95=_abs[max(0,int(len(_abs)*0.95)-1)] if _abs else 1.0
+    rng=max(1.0, min(_HEATMAP_CAP.get(period,40.0), _p95 or 1.0))
+    fig=go.Figure(go.Treemap(
+        ids=ids, labels=labels, parents=parents, values=values, branchvalues="total",
+        marker=dict(colors=colors, colorscale=[[0,"#c0392b"],[0.5,"#2a2f37"],[1,"#1e8e4e"]],
+                    cmid=0, cmin=-rng, cmax=rng, line=dict(width=1,color=BG)),
+        customdata=custom, texttemplate="%{label}", textposition="middle center",
+        tiling=dict(pad=2),
+        hovertemplate=("<b>%{customdata[1]}</b><br>"+period+" return %{customdata[0]:+.2f}%"
+                       "<br>Mkt cap %{customdata[2]}<extra></extra>"),
+    ))
+    fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=BG,
+                      height=640, margin=dict(l=2,r=2,t=8,b=2),
+                      font=dict(family="Consolas", color="#ffffff", size=11),
+                      coloraxis_showscale=False)
+    st.plotly_chart(fig, use_container_width=True, key=k+"_tm")
+    st.caption(f"**{idxlabel}** — boxes sized by **market cap / index weight**, colored by **{period} return** "
+               f"(green = up, red = down), grouped by **GICS sector**. As of **{data.get('asof','')}** "
+               f"· {data.get('count','?')} names · updated daily after the US close. "
+               "Source: Wikipedia constituents + Yahoo prices (free data).")
+    tot=sum(sec_cap.values()) or 1.0
+    hh=["Sector","Weight %",f"{period} ret %"]
+    hc='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+    for s in sorted(sectors, key=lambda s: sec_wr[s], reverse=True):
+        cc=GREEN if sec_wr[s]>=0 else RED
+        hc+=(f"<tr><td style='text-align:left'>{s}</td><td>{sec_cap[s]/tot*100:.1f}</td>"
+             f"<td style='color:{cc}'>{sec_wr[s]:+.2f}</td></tr>")
+    st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+
 r1=st.columns(2)
 with r1[0]:
     with st.container(border=True): render_slot("q1", TABLE_TABS, "Equity Indices")
@@ -5290,6 +5366,8 @@ def _sec(tag, title, fn, *a):
             st.error(f"⚠ {title}: {type(e).__name__}: {e}")
             with st.expander("details"): st.code(_tb.format_exc())
 
+# Market heatmap — right under the two tables, before the sector/composition section.
+_sec("MAP","Market Heatmap (constituents · sized by weight · colored by return)", panel_heatmap, "sechm")
 # Return-distribution explorer sits up top (full-width), above the curves grid.
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
