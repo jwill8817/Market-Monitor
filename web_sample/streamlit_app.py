@@ -5351,7 +5351,7 @@ def _heatmap_fig(ids, labels, parents, values, colors, custom, rng, period, titl
                        "<br>"+title_price+" %{customdata[2]}<extra></extra>"),
     ))
     fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=BG,
-                      height=640, margin=dict(l=2,r=2,t=8,b=2),
+                      height=430, margin=dict(l=2,r=2,t=6,b=2),
                       font=dict(family="Consolas", color="#ffffff", size=11), coloraxis_showscale=False)
     return fig
 
@@ -5390,7 +5390,8 @@ def _render_sector_heatmap(k, period):
         cc=GREEN if r>=0 else RED
         hc+=(f"<tr><td style='text-align:left'>{g}</td><td style='color:{TEXT3}'>{e}</td>"
              f"<td>{w/tot*100:.1f}</td><td style='color:{cc}'>{r:+.2f}</td></tr>")
-    st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+    with st.expander("Breakdown table", expanded=False):
+        st.markdown(hc+"</table></div>", unsafe_allow_html=True)
 
 def _render_geo_heatmap(k, period):
     """Live MSCI World geography: single-country ETFs sized by MSCI World weight, grouped by
@@ -5431,7 +5432,8 @@ def _render_geo_heatmap(k, period):
         cc=GREEN if ret>=0 else RED
         hc+=(f"<tr><td style='text-align:left'>{ctry}</td><td style='color:{TEXT3}'>{etf}</td>"
              f"<td>{w:.1f}</td><td style='color:{cc}'>{ret:+.2f}</td></tr>")
-    st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+    with st.expander("Breakdown table", expanded=False):
+        st.markdown(hc+"</table></div>", unsafe_allow_html=True)
 
 def _render_constituent_heatmap(k, idxkey, idxlabel, period):
     data=_load_heatmap(idxkey)
@@ -5474,7 +5476,8 @@ def _render_constituent_heatmap(k, idxkey, idxlabel, period):
         cc=GREEN if sec_wr[s]>=0 else RED
         hc+=(f"<tr><td style='text-align:left'>{s}</td><td>{sec_cap[s]/tot*100:.1f}</td>"
              f"<td style='color:{cc}'>{sec_wr[s]:+.2f}</td></tr>")
-    st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+    with st.expander("Breakdown table", expanded=False):
+        st.markdown(hc+"</table></div>", unsafe_allow_html=True)
 
 def panel_heatmap(k):
     c0,c1,c2=st.columns([2.4,2,1.6])
