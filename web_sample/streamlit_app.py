@@ -2358,6 +2358,13 @@ def panel_composition(k):
     sectors=comp.get("sectors",{}); ratings=comp.get("ratings",{})
     bondpos=comp.get("bondpos",0.0); holdings=comp.get("holdings",[])
     is_bond=(bondpos>0.5) or (ratings and not sectors)
+    # For S&P 500 trackers, use the SAME GICS weights as the heatmap so the two charts agree
+    # (yfinance's funds_data uses Yahoo's own sector taxonomy, which differs from GICS).
+    _gics_applied=False
+    if sym in ("SPY","IVV","VOO","SPLG") and not is_bond:
+        _gw=_gics_sector_weights("sp500")
+        if _gw:
+            sectors=_gw; _gics_applied=True
     def _nice(s): return s.replace("_"," ").title().replace("Reit","REIT").replace("Us ","US ")
     _PIE=[ACCENT,BLUE,GREEN,YELLOW,PURPLE,CYAN,"#ff6b6b","#ffa94d","#4dd4c0","#b088f9","#f78fb3","#8fd14f"]
     def _draw(pairs, title, key, center=""):
@@ -2402,9 +2409,14 @@ def panel_composition(k):
         if view=="Sector" and sectors:
             df=_draw([(_nice(l),v*100) for l,v in sectors.items()],
                      f"{sym} — GICS sector allocation", k+"_chart", sym)
-            st.caption(f"**Current snapshot** ({date.today().isoformat()}) — GICS sector weights via the tracking "
-                       "ETF (yfinance). Point-in-time history isn't available for free; this is the latest "
-                       "published composition. Weights may not sum to exactly 100% (rounding / uncategorized).")
+            if _gics_applied:
+                st.caption(f"**Current snapshot** ({date.today().isoformat()}) — **GICS** sector weights built from "
+                           "the S&P 500 constituents (same source as the Market Heatmap, so the two agree). "
+                           "Full-cap weighted via Yahoo prices. Free data; point-in-time history isn't available.")
+            else:
+                st.caption(f"**Current snapshot** ({date.today().isoformat()}) — sector weights via the tracking "
+                           "ETF (yfinance's **own** sector taxonomy, which differs slightly from GICS). "
+                           "Point-in-time history isn't available for free; this is the latest published composition.")
             dl(df, "Export composition", f"JAWS_composition_{sym}.xlsx", k+"_dl"); return
         if view=="Geography":
             if not holdings:
@@ -5291,13 +5303,79 @@ _HEATMAP_PERIODS=["1D","WTD","MTD","QTD","YTD","1Y"]
 # Symmetric color range (±%) per period so the scale stays readable.
 _HEATMAP_CAP={"1D":4.0,"WTD":6.0,"MTD":10.0,"QTD":15.0,"YTD":40.0,"1Y":60.0}
 
-def panel_heatmap(k):
-    c1,c2=st.columns([2,2])
-    idxlabel=c1.selectbox("Index", list(_HEATMAP_IDX), key=k+"_idx")
-    period=c2.selectbox("Return period", _HEATMAP_PERIODS, key=k+"_per")
-    data=_load_heatmap(_HEATMAP_IDX[idxlabel])
+@st.cache_data(ttl=600, show_spinner=False)
+def _gics_sector_weights(idxkey):
+    """GICS sector → weight fraction, from the constituent heatmap dataset (full-cap sums).
+    Same taxonomy the heatmap uses, so the heatmap and composition chart agree."""
+    d=_load_heatmap(idxkey)
+    if not d or not d.get("names"): return None
+    sec={}
+    for n in d["names"]:
+        if n.get("mktcap"): sec[n.get("sector") or "—"]=sec.get(n.get("sector") or "—",0.0)+n["mktcap"]
+    tot=sum(sec.values()) or 1.0
+    return {s:v/tot for s,v in sec.items()}
+
+# SPDR sector ETF → GICS sector (SPDR sectors ARE GICS, so they line up with the heatmap).
+_ETF2GICS={"XLK":"Information Technology","XLF":"Financials","XLV":"Health Care",
+           "XLY":"Consumer Discretionary","XLP":"Consumer Staples","XLE":"Energy",
+           "XLI":"Industrials","XLB":"Materials","XLU":"Utilities","XLRE":"Real Estate",
+           "XLC":"Communication Services"}
+
+def _heatmap_fig(ids, labels, parents, values, colors, custom, rng, period, title_price="Mkt cap"):
+    fig=go.Figure(go.Treemap(
+        ids=ids, labels=labels, parents=parents, values=values, branchvalues="total",
+        marker=dict(colors=colors, colorscale=[[0,"#c0392b"],[0.5,"#2a2f37"],[1,"#1e8e4e"]],
+                    cmid=0, cmin=-rng, cmax=rng, line=dict(width=1,color=BG)),
+        customdata=custom, texttemplate="%{label}", textposition="middle center", tiling=dict(pad=2),
+        hovertemplate=("<b>%{customdata[1]}</b><br>"+period+" return %{customdata[0]:+.2f}%"
+                       "<br>"+title_price+" %{customdata[2]}<extra></extra>"),
+    ))
+    fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=BG,
+                      height=640, margin=dict(l=2,r=2,t=8,b=2),
+                      font=dict(family="Consolas", color="#ffffff", size=11), coloraxis_showscale=False)
+    return fig
+
+def _render_sector_heatmap(k, period):
+    """Live, intraday sector heatmap: SPDR sector ETFs sized by GICS weight, colored by return
+    (same data as the US Sectors table). Consistent with the composition chart (both GICS)."""
+    import market_data as md
+    data,_tmap=md_returns("sectors")
+    gw=_gics_sector_weights("sp500") or {}
+    rows=[]
+    for nm,etf in md.SECTORS.items():
+        g=_ETF2GICS.get(etf)
+        if not g: continue
+        info=data.get(nm) or {}
+        ret=info.get("change_1d") if period=="1D" else (info.get("returns") or {}).get(period)
+        w=gw.get(g)
+        if ret is None or not w: continue
+        rows.append((etf,g,float(w),float(ret)))
+    if not rows:
+        st.info("Live sector data isn't available right now (Yahoo)."); return
+    ids=[f"S::{g}" for e,g,w,r in rows]
+    labels=[f"<b>{g}</b><br>{e} · {r:+.2f}%" for e,g,w,r in rows]
+    parents=[""]*len(rows); values=[w for e,g,w,r in rows]; colors=[r for e,g,w,r in rows]
+    custom=[[r, f"{g} ({e})", f"{w*100:.1f}% wt"] for e,g,w,r in rows]
+    _abs=sorted(abs(r[3]) for r in rows); _p95=_abs[max(0,int(len(_abs)*0.9)-1)] if _abs else 1.0
+    rng=max(0.8, min(_HEATMAP_CAP.get(period,40.0), _p95 or 1.0))
+    st.plotly_chart(_heatmap_fig(ids,labels,parents,values,colors,custom,rng,period,"Weight"),
+                    use_container_width=True, key=k+"_tm")
+    st.caption(f"**Live S&P 500 sectors** — SPDR sector ETFs (XLK, XLF, …) sized by **GICS weight**, colored by "
+               f"**{period} return** (intraday, ~15-min delayed — same data as the US Sectors table). "
+               "GICS taxonomy, consistent with the Index Composition chart.")
+    tot=sum(values) or 1.0
+    hh=["Sector","ETF","Weight %",f"{period} ret %"]
+    hc='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+    for e,g,w,r in sorted(rows,key=lambda x:x[3],reverse=True):
+        cc=GREEN if r>=0 else RED
+        hc+=(f"<tr><td style='text-align:left'>{g}</td><td style='color:{TEXT3}'>{e}</td>"
+             f"<td>{w/tot*100:.1f}</td><td style='color:{cc}'>{r:+.2f}</td></tr>")
+    st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+
+def _render_constituent_heatmap(k, idxkey, idxlabel, period):
+    data=_load_heatmap(idxkey)
     if not data or not data.get("names"):
-        st.info(f"No heatmap data for **{idxlabel}** yet — the daily job builds it after the US close "
+        st.info(f"No constituent data for **{idxlabel}** yet — the daily job builds it after the US close "
                 "(S&P 500 is seeded first). Try S&P 500, or check back after the next run."); return
     recs=[]
     for n in data["names"]:
@@ -5322,23 +5400,11 @@ def panel_heatmap(k):
     _abs=sorted(abs(r[3]) for r in recs)
     _p95=_abs[max(0,int(len(_abs)*0.95)-1)] if _abs else 1.0
     rng=max(1.0, min(_HEATMAP_CAP.get(period,40.0), _p95 or 1.0))
-    fig=go.Figure(go.Treemap(
-        ids=ids, labels=labels, parents=parents, values=values, branchvalues="total",
-        marker=dict(colors=colors, colorscale=[[0,"#c0392b"],[0.5,"#2a2f37"],[1,"#1e8e4e"]],
-                    cmid=0, cmin=-rng, cmax=rng, line=dict(width=1,color=BG)),
-        customdata=custom, texttemplate="%{label}", textposition="middle center",
-        tiling=dict(pad=2),
-        hovertemplate=("<b>%{customdata[1]}</b><br>"+period+" return %{customdata[0]:+.2f}%"
-                       "<br>Mkt cap %{customdata[2]}<extra></extra>"),
-    ))
-    fig.update_layout(template="plotly_dark", paper_bgcolor=BG, plot_bgcolor=BG,
-                      height=640, margin=dict(l=2,r=2,t=8,b=2),
-                      font=dict(family="Consolas", color="#ffffff", size=11),
-                      coloraxis_showscale=False)
-    st.plotly_chart(fig, use_container_width=True, key=k+"_tm")
+    st.plotly_chart(_heatmap_fig(ids,labels,parents,values,colors,custom,rng,period),
+                    use_container_width=True, key=k+"_tm")
     st.caption(f"**{idxlabel}** — boxes sized by **market cap / index weight**, colored by **{period} return** "
                f"(green = up, red = down), grouped by **GICS sector**. As of **{data.get('asof','')}** "
-               f"· {data.get('count','?')} names · updated daily after the US close. "
+               f"· {data.get('count','?')} names · updated **daily after the US close** (not intraday). "
                "Source: Wikipedia constituents + Yahoo prices (free data).")
     tot=sum(sec_cap.values()) or 1.0
     hh=["Sector","Weight %",f"{period} ret %"]
@@ -5348,6 +5414,20 @@ def panel_heatmap(k):
         hc+=(f"<tr><td style='text-align:left'>{s}</td><td>{sec_cap[s]/tot*100:.1f}</td>"
              f"<td style='color:{cc}'>{sec_wr[s]:+.2f}</td></tr>")
     st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+
+def panel_heatmap(k):
+    c0,c1,c2=st.columns([2,2,2])
+    mode=c0.radio("View", ["Sectors (live)","Constituents (daily)"], key=k+"_mode",
+                  help="Sectors = intraday SPDR sector ETFs. Constituents = the full stock-level "
+                       "map (updated daily after the close).")
+    period=c2.selectbox("Return period", _HEATMAP_PERIODS, key=k+"_per")
+    if mode=="Sectors (live)":
+        c1.selectbox("Index", ["S&P 500 sectors"], key=k+"_sidx",
+                     help="Live sector view uses the 11 SPDR S&P 500 sector ETFs.")
+        _render_sector_heatmap(k, period)
+    else:
+        idxlabel=c1.selectbox("Index", list(_HEATMAP_IDX), key=k+"_idx")
+        _render_constituent_heatmap(k, _HEATMAP_IDX[idxlabel], idxlabel, period)
 
 r1=st.columns(2)
 with r1[0]:
