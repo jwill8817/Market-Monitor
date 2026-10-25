@@ -1416,22 +1416,33 @@ def panel_analytics(loader, label, fname, k):
                "**Δ Avg** = current − long-run average (red = above average, green = below). **Min / Max / "
                "Avg / Z-score** span each series' full history — back to its **Since** year.")
     valid=[r for r in rows if not r.get("error") and r.get("raw_dates")]
-    c1,c2=st.columns([2,1])
+    c1,c2,c3=st.columns([2,1.3,1])
     pick=c1.selectbox("History", [r["name"] for r in valid], key=k+"_pick", label_visibility="collapsed")
+    rng=c2.select_slider("Range",[1,2,3,5,10,20,99],value=99,
+                         format_func=lambda x:"All" if x==99 else f"{x}Y", key=k+"_rng",
+                         label_visibility="collapsed")
     df=pd.DataFrame([{"Name":r["name"],"Category":r.get("category"),"Current":r.get("current"),
         **{p:r.get("hist",{}).get(p) for p in ["1M","3M","1Y","3Y","5Y","10Y"]},
         "Min":r.get("all_min"),"Max":r.get("all_max"),"Avg":r.get("avg"),
         "Delta_vs_Avg":(None if (r.get("avg") is None or r.get("current") is None) else round(r["current"]-r["avg"],4)),
         "Z":r.get("z_score")} for r in valid])
-    with c2: dl(df, "Export", fname, k+"_dl")
+    with c3: dl(df, "Export", fname, k+"_dl")
     if pick:
         r=next(x for x in valid if x["name"]==pick)
-        fig=go.Figure(); ds,vs=r["raw_dates"],r["raw_values"]
+        ds,vs=list(r["raw_dates"]),list(r["raw_values"])
+        if rng!=99 and ds:
+            cutoff=pd.Timestamp(date.today()-relativedelta(years=int(rng)))
+            _dd=pd.to_datetime(pd.Series(ds))
+            _keep=[i for i in range(len(ds)) if _dd.iloc[i]>=cutoff]
+            if _keep: ds=[ds[i] for i in _keep]; vs=[vs[i] for i in _keep]
+        fig=go.Figure()
         if ds:
             mean=sum(vs)/len(vs)
             fig.add_trace(go.Scatter(x=ds,y=vs,mode="lines",line=dict(color=ACCENT,width=1.6)))
-            fig.add_hline(y=mean,line=dict(color=TEXT3,dash="dash"))
-        st.plotly_chart(base_layout(fig,f"{pick} ({r.get('unit','')})",h=300),
+            fig.add_hline(y=mean,line=dict(color=TEXT3,dash="dash"),
+                          annotation_text=f"avg {mean:.2f}", annotation_position="top left")
+        _rlbl="full history" if rng==99 else f"last {rng}Y"
+        st.plotly_chart(base_layout(fig,f"{pick} ({r.get('unit','')}) · {_rlbl}",h=300),
                         use_container_width=True, key=k+"_chart")
 
 def panel_factors(k):
