@@ -5315,6 +5315,26 @@ def _gics_sector_weights(idxkey):
     tot=sum(sec.values()) or 1.0
     return {s:v/tot for s,v in sec.items()}
 
+# MSCI World (developed markets) geography: (region, country, single-country ETF, approx weight %).
+# Weights are MSCI World country weights (periodically updated); US via SPY proxy. URTH tracks the whole.
+_WORLD_COUNTRIES=[
+    ("Americas","United States","SPY",70.9),("Americas","Canada","EWC",3.1),
+    ("Europe","United Kingdom","EWU",3.7),("Europe","France","EWQ",3.0),
+    ("Europe","Switzerland","EWL",2.6),("Europe","Germany","EWG",2.4),
+    ("Europe","Netherlands","EWN",1.2),("Europe","Sweden","EWD",1.0),
+    ("Europe","Denmark","EDEN",0.9),("Europe","Italy","EWI",0.8),("Europe","Spain","EWP",0.7),
+    ("Europe","Finland","EFNL",0.3),("Europe","Belgium","EWK",0.3),("Europe","Norway","ENOR",0.2),
+    ("Europe","Ireland","EIRL",0.2),("Europe","Austria","EWO",0.1),
+    ("Asia-Pacific","Japan","EWJ",5.8),("Asia-Pacific","Australia","EWA",1.9),
+    ("Asia-Pacific","Hong Kong","EWH",0.7),("Asia-Pacific","Singapore","EWS",0.4),
+    ("Asia-Pacific","New Zealand","ENZL",0.1),("Middle East","Israel","EIS",0.2),
+]
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _geo_returns():
+    import market_data as md
+    return md.fetch_returns({etf: etf for _,_,etf,_ in _WORLD_COUNTRIES})
+
 # SPDR sector ETF → GICS sector (SPDR sectors ARE GICS, so they line up with the heatmap).
 _ETF2GICS={"XLK":"Information Technology","XLF":"Financials","XLV":"Health Care",
            "XLY":"Consumer Discretionary","XLP":"Consumer Staples","XLE":"Energy",
@@ -5372,6 +5392,47 @@ def _render_sector_heatmap(k, period):
              f"<td>{w/tot*100:.1f}</td><td style='color:{cc}'>{r:+.2f}</td></tr>")
     st.markdown(hc+"</table></div>", unsafe_allow_html=True)
 
+def _render_geo_heatmap(k, period):
+    """Live MSCI World geography: single-country ETFs sized by MSCI World weight, grouped by
+    region, colored by selected-period return (intraday)."""
+    data=_geo_returns()
+    recs=[]
+    for region,ctry,etf,w in _WORLD_COUNTRIES:
+        info=data.get(etf) or {}
+        ret=info.get("change_1d") if period=="1D" else (info.get("returns") or {}).get(period)
+        if ret is None: continue
+        recs.append((region,ctry,etf,float(w),float(ret)))
+    if not recs:
+        st.info("Live country data isn't available right now (Yahoo)."); return
+    regions=sorted({r[0] for r in recs})
+    reg_w={s:0.0 for s in regions}; reg_wr={s:0.0 for s in regions}
+    for region,ctry,etf,w,ret in recs:
+        reg_w[region]+=w; reg_wr[region]+=w*ret
+    for s in regions:
+        reg_wr[s]=(reg_wr[s]/reg_w[s]) if reg_w[s] else 0.0
+    ids=[]; labels=[]; parents=[]; values=[]; colors=[]; custom=[]
+    for s in regions:
+        ids.append("R::"+s); labels.append(s); parents.append(""); values.append(reg_w[s])
+        colors.append(reg_wr[s]); custom.append([reg_wr[s], s+" (region)", f"{reg_w[s]:.1f}% wt"])
+    for region,ctry,etf,w,ret in recs:
+        ids.append("C::"+etf); labels.append(f"<b>{ctry}</b><br>{etf} · {ret:+.2f}%"); parents.append("R::"+region)
+        values.append(w); colors.append(ret); custom.append([ret, f"{ctry} ({etf})", f"{w:.1f}% wt"])
+    _abs=sorted(abs(r[4]) for r in recs); _p95=_abs[max(0,int(len(_abs)*0.9)-1)] if _abs else 1.0
+    rng=max(0.8, min(_HEATMAP_CAP.get(period,40.0), _p95 or 1.0))
+    st.plotly_chart(_heatmap_fig(ids,labels,parents,values,colors,custom,rng,period,"Weight"),
+                    use_container_width=True, key=k+"_tm")
+    st.caption(f"**MSCI World geography** — single-country ETFs (EWJ, EWU, …; US via SPY) sized by **MSCI World "
+               f"weight**, grouped by region, colored by **{period} return** (intraday, ~15-min delayed). "
+               "URTH tracks the whole index; country weights are MSCI World's (periodically updated).")
+    tot=sum(reg_w.values()) or 1.0
+    hh=["Country","ETF","World wt %",f"{period} ret %"]
+    hc='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+    for region,ctry,etf,w,ret in sorted(recs,key=lambda x:x[3],reverse=True):
+        cc=GREEN if ret>=0 else RED
+        hc+=(f"<tr><td style='text-align:left'>{ctry}</td><td style='color:{TEXT3}'>{etf}</td>"
+             f"<td>{w:.1f}</td><td style='color:{cc}'>{ret:+.2f}</td></tr>")
+    st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+
 def _render_constituent_heatmap(k, idxkey, idxlabel, period):
     data=_load_heatmap(idxkey)
     if not data or not data.get("names"):
@@ -5416,15 +5477,19 @@ def _render_constituent_heatmap(k, idxkey, idxlabel, period):
     st.markdown(hc+"</table></div>", unsafe_allow_html=True)
 
 def panel_heatmap(k):
-    c0,c1,c2=st.columns([2,2,2])
-    mode=c0.radio("View", ["Sectors (live)","Constituents (daily)"], key=k+"_mode",
-                  help="Sectors = intraday SPDR sector ETFs. Constituents = the full stock-level "
-                       "map (updated daily after the close).")
+    c0,c1,c2=st.columns([2.4,2,1.6])
+    mode=c0.radio("View", ["Sectors (live)","Geography (live)","Constituents (daily)"], key=k+"_mode",
+                  help="Sectors = intraday SPDR sector ETFs. Geography = MSCI World country ETFs (live). "
+                       "Constituents = the full stock-level map (updated daily after the close).")
     period=c2.selectbox("Return period", _HEATMAP_PERIODS, key=k+"_per")
     if mode=="Sectors (live)":
-        c1.selectbox("Index", ["S&P 500 sectors"], key=k+"_sidx",
+        c1.selectbox("Scope", ["S&P 500 sectors"], key=k+"_sidx",
                      help="Live sector view uses the 11 SPDR S&P 500 sector ETFs.")
         _render_sector_heatmap(k, period)
+    elif mode=="Geography (live)":
+        c1.selectbox("Scope", ["MSCI World (URTH)"], key=k+"_gidx",
+                     help="Developed-market country ETFs that make up MSCI World.")
+        _render_geo_heatmap(k, period)
     else:
         idxlabel=c1.selectbox("Index", list(_HEATMAP_IDX), key=k+"_idx")
         _render_constituent_heatmap(k, _HEATMAP_IDX[idxlabel], idxlabel, period)
