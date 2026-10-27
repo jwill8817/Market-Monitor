@@ -291,24 +291,25 @@ function buildLevel(lvl) {
   boss=null; cameraX=0;
 
   if (lvl === 2)  { buildAlloLevel();       return; }
-  if (lvl === 3)  { buildPteranoLevel();    return; }
-  if (lvl === 4)  { buildDimorphoLevel();   return; }
-  if (lvl === 5)  { buildBossLevel();       return; }
-  if (lvl === 6)  { buildCeratoLevel();     return; }
-  if (lvl === 7)  { buildIrritatorLevel();  return; }
-  if (lvl === 8)  { buildSuchoLevel();      return; }
-  if (lvl === 9)  { buildBaryonyxLevel();   return; }
-  if (lvl === 10) { buildSeaLevel();        return; }
-  if (lvl === 11) { buildNeovenatorLevel(); return; }
-  if (lvl === 12) { buildCryoLevel();       return; }
-  if (lvl === 13) { buildAlbertoLevel();    return; }
-  if (lvl === 14) { buildKronoLevel();      return; }
-  if (lvl === 15) { buildGiganoLevel();     return; }
-  if (lvl === 16) { buildTarboLevel();      return; }
-  if (lvl === 17) { buildCarnoLevel();      return; }
-  if (lvl === 18) { buildYantuLevel();      return; }
-  if (lvl === 19) { buildMegaloLevel();     return; }
-  if (lvl === 20) { buildTRexLevel();       return; }
+  if (lvl === 3)  { buildSauroLevel();      return; }
+  if (lvl === 4)  { buildPteranoLevel();    return; }
+  if (lvl === 5)  { buildDimorphoLevel();   return; }
+  if (lvl === 6)  { buildBossLevel();       return; }
+  if (lvl === 7)  { buildCeratoLevel();     return; }
+  if (lvl === 8)  { buildIrritatorLevel();  return; }
+  if (lvl === 9)  { buildSuchoLevel();      return; }
+  if (lvl === 10) { buildBaryonyxLevel();   return; }
+  if (lvl === 11) { buildSeaLevel();        return; }
+  if (lvl === 12) { buildNeovenatorLevel(); return; }
+  if (lvl === 13) { buildCryoLevel();       return; }
+  if (lvl === 14) { buildAlbertoLevel();    return; }
+  if (lvl === 15) { buildKronoLevel();      return; }
+  if (lvl === 16) { buildGiganoLevel();     return; }
+  if (lvl === 17) { buildTarboLevel();      return; }
+  if (lvl === 18) { buildCarnoLevel();      return; }
+  if (lvl === 19) { buildYantuLevel();      return; }
+  if (lvl === 20) { buildMegaloLevel();     return; }
+  if (lvl === 21) { buildTRexLevel();       return; }
 
   // Ground
   for (let x=0; x<WORLD_W; x+=80)
@@ -392,6 +393,21 @@ function buildAlloLevel() {
     frame:0, frameTimer:0, state:'intro', stateTimer:180, invincible:0,
     chargeSpeed:8, ARENA_W, type:'allo',
     speechBubble:true, speechText:'Hey, you showed up!?', defeatTimer:0, frustratedBubble:false };
+}
+
+function buildSauroLevel() {
+  const ARENA_W = 1400;
+  for (let x=0; x<ARENA_W; x+=80)
+    platforms.push({x, y:H-60, w:80, h:60, color:'#6d3800'});
+  [{x:100,y:310,w:130},{x:300,y:250,w:115},{x:500,y:295,w:130},
+   {x:700,y:240,w:115},{x:900,y:285,w:130},{x:1100,y:235,w:115},{x:1280,y:265,w:120}]
+    .forEach(p => platforms.push({...p, h:22, color:'#bf6900'}));
+  [{x:120,y:290},{x:320,y:230},{x:520,y:275},{x:720,y:220},{x:920,y:265},{x:1120,y:215}]
+    .forEach(e => eggs.push({x:e.x, y:e.y, w:24, h:30, collected:false, color:'#ffd700', bobOffset:Math.random()*Math.PI*2}));
+  boss = { x:1000, y:H-165, w:140, h:155, hp:6, maxHp:6, vx:-1.9, facing:-1,
+    frame:0, frameTimer:0, state:'intro', stateTimer:185, invincible:0,
+    chargeSpeed:9, ARENA_W, type:'sauro',
+    speechBubble:true, speechText:"I'm BIGGER than Allosaurus!!", defeatTimer:0, frustratedBubble:false };
 }
 
 function buildSeaLevel() {
@@ -787,7 +803,7 @@ function updateBoss(dt) {
     boss.defeatTimer -= dt;
     if (boss.defeatTimer <= 0 && state==='playing') {
       const nextLevel = level + 1;
-      if (nextLevel > 20) {
+      if (nextLevel > 21) {
         state='win';
         showMessage('🏆 ULTIMATE CHAMPION!',
           `Iggy defeated ALL the bosses!\n\nYou are the greatest dinosaur\nadventurer EVER!\n\nScore: ${score} 🥚`, 'Play Again! 🦖');
@@ -796,24 +812,25 @@ function updateBoss(dt) {
         document.getElementById('level').textContent = level;
         state='win';
         const warns = {
-          3:  ['🦅 Into the Storm!',    'The PTERANODON rules the sky!\nJump on its head 5 times!\nTime your jumps when it dives!',              'Fly High! 🦅'],
-          4:  ['🌧️ Rainy Skies!',       'DIMORPHODON swoops through the rain!\nJump on its head 5 times!\nWatch for swooping bites!',             'Take Flight! 🦇'],
-          5:  ['🦕 Spino Showdown!',    'THE SPINOSAURUS is waiting!\nJump on its head 5 times!\nWatch that giant sail!',                          'Fight! 🦕'],
-          6:  ['☠️ Toxic Swamps!',      'The CERATOSAURUS lurks in poison waters!\nJump on its head 5 times!\nAvoid the toxic pools!',             'Dodge It! ☠️'],
-          7:  ['🐊 Lakeside Battle!',   'The IRRITATOR lurks in the reeds!\nJump on its head 5 times!\nWatch for the tail whip!',                  'Splash! 🐊'],
-          8:  ['⛈️ Stormy Lake!',       'SUCHOMIMUS hunts in the storm!\nJump on its head 5 times!\nWatch for the snout slam!',                   'Storm In! ⛈️'],
-          9:  ['🌊 Raging River!',      'BARYONYX guards the river!\nJump on its head 5 times!\nBeware the claw slash!',                           'Cross It! 🌊'],
-          10: ['🌊 Into the Deep!',     'The MOSASAURUS lurks below!\nJump on its head 5 times!\nWatch out for torpedoes!',                        'Dive In! 🌊'],
-          11: ['🌿 Swamp Crossing!',    'The NEOVENATOR patrols the marsh!\nJump on its head 5 times!\nDon\'t get stuck in the mud!',             'Swamp It! 🌿'],
-          12: ['❄️ Frozen Showdown!',   'CRYOLOPHOSAURUS will KICK you like a ball!\nJump on its head 5 times!\nDodge those powerful legs!',      'Duck! ❄️'],
-          13: ['🦇 Into the Cave!',     'ALBERTOSAURUS hunts in the dark!\nJump on its head 5 times!\nWatch for the echo screech!',                'Spelunk! 🦇'],
-          14: ['🌌 Twilight Zone!',     'KRONOSAURUS rules the deep!\nJump on its head 5 times!\nAvoid the crushing bite!',                        'Go Deep! 🌌'],
-          15: ['🏔️ Rocky Cliffs!',      'GIGANOTOSAURUS towers above!\nJump on its head 7 times!\nBeware the stomp shockwave!',                   'Climb! 🏔️'],
-          16: ['🟤 Mud Pit!',           'TARBOSAURUS charges through the mud!\nJump on its head 5 times!\nDon\'t slip in the muck!',               'Charge! 🟤'],
-          17: ['🌋 Volcanic Land!',     'The CARNOTAURUS and its horns!\nJump on its head 5 times!\nIt charges FAST!',                             'Charge! 🌋'],
-          18: ['🏔️ Mountain Summit!',   'YANTUANOSAURUS rules the peaks!\nJump on its head 6 times!\nWatch for the boulder rockslide!',             'Climb! 🏔️'],
-          19: ['🪨 Underground Lair!',  'MEGALOSAURUS lurks in the dark!\nJump on its head 5 times!\nDodge the ground-shaking STOMP!',             'Dig In! 🪨'],
-          20: ['💀 FINAL BOSS!',        'THE T-REX — King of them all!\nJump on its head 7 times!\nBeware the ROAR!',                              'Face It! 🦖'],
+          3:  ['🦕 Bigger & Badder!',   'SAUROPHAGANAX — bigger than Allosaurus!\nJump on its head 6 times!\nWatch for the devastating tail slam!','Bring It! 🦕'],
+          4:  ['🦅 Into the Storm!',    'The PTERANODON rules the sky!\nJump on its head 5 times!\nTime your jumps when it dives!',              'Fly High! 🦅'],
+          5:  ['🌧️ Rainy Skies!',       'DIMORPHODON swoops through the rain!\nJump on its head 5 times!\nWatch for swooping bites!',             'Take Flight! 🦇'],
+          6:  ['🦕 Spino Showdown!',    'THE SPINOSAURUS is waiting!\nJump on its head 5 times!\nWatch that giant sail!',                          'Fight! 🦕'],
+          7:  ['☠️ Toxic Swamps!',      'The CERATOSAURUS lurks in poison waters!\nJump on its head 5 times!\nAvoid the toxic pools!',             'Dodge It! ☠️'],
+          8:  ['🐊 Lakeside Battle!',   'The IRRITATOR lurks in the reeds!\nJump on its head 5 times!\nWatch for the tail whip!',                  'Splash! 🐊'],
+          9:  ['⛈️ Stormy Lake!',       'SUCHOMIMUS hunts in the storm!\nJump on its head 5 times!\nWatch for the snout slam!',                   'Storm In! ⛈️'],
+          10: ['🌊 Raging River!',      'BARYONYX guards the river!\nJump on its head 5 times!\nBeware the claw slash!',                           'Cross It! 🌊'],
+          11: ['🌊 Into the Deep!',     'The MOSASAURUS lurks below!\nJump on its head 5 times!\nWatch out for torpedoes!',                        'Dive In! 🌊'],
+          12: ['🌿 Swamp Crossing!',    'The NEOVENATOR patrols the marsh!\nJump on its head 5 times!\nDon\'t get stuck in the mud!',             'Swamp It! 🌿'],
+          13: ['❄️ Frozen Showdown!',   'CRYOLOPHOSAURUS will KICK you like a ball!\nJump on its head 5 times!\nDodge those powerful legs!',      'Duck! ❄️'],
+          14: ['🦇 Into the Cave!',     'ALBERTOSAURUS hunts in the dark!\nJump on its head 5 times!\nWatch for the echo screech!',                'Spelunk! 🦇'],
+          15: ['🌌 Twilight Zone!',     'KRONOSAURUS rules the deep!\nJump on its head 5 times!\nAvoid the crushing bite!',                        'Go Deep! 🌌'],
+          16: ['🏔️ Rocky Cliffs!',      'GIGANOTOSAURUS towers above!\nJump on its head 7 times!\nBeware the stomp shockwave!',                   'Climb! 🏔️'],
+          17: ['🟤 Mud Pit!',           'TARBOSAURUS charges through the mud!\nJump on its head 5 times!\nDon\'t slip in the muck!',               'Charge! 🟤'],
+          18: ['🌋 Volcanic Land!',     'The CARNOTAURUS and its horns!\nJump on its head 5 times!\nIt charges FAST!',                             'Charge! 🌋'],
+          19: ['🏔️ Mountain Summit!',   'YANTUANOSAURUS rules the peaks!\nJump on its head 6 times!\nWatch for the boulder rockslide!',             'Climb! 🏔️'],
+          20: ['🪨 Underground Lair!',  'MEGALOSAURUS lurks in the dark!\nJump on its head 5 times!\nDodge the ground-shaking STOMP!',             'Dig In! 🪨'],
+          21: ['💀 FINAL BOSS!',        'THE T-REX — King of them all!\nJump on its head 7 times!\nBeware the ROAR!',                              'Face It! 🦖'],
         };
         const w = warns[level];
         showMessage(w[0], w[1], w[2]);
@@ -838,6 +855,25 @@ function updateBoss(dt) {
       spawnParticles(bx, boss.y+20, '#ffe082', 20);
     }
     if (boss.stateTimer <= 0) { boss.state='patrol'; boss.stateTimer=130; }
+  }
+
+  // ── Saurophaganax: tail slam ──
+  if (boss.state === 'tailslam') {
+    if (boss.stateTimer <= 35 && boss.stateTimer > 12 && player.invincible <= 0) {
+      const slamReach = 160;
+      const slamX = bx + (boss.facing > 0 ? -slamReach : boss.w);
+      if (px+player.w > slamX && px < slamX+slamReach && player.y+player.h > boss.y+boss.h*0.6) {
+        player.vy = JUMP_FORCE * 0.6;
+        player.vx = -boss.facing * 7;
+        if (!easyMode) {
+          player.invincible = 60; lives--;
+          document.getElementById('lives').textContent = '🥚'.repeat(Math.max(0,lives));
+          spawnParticles(player.x+player.w/2, player.y+player.h/2, '#ff4444', 14);
+          if (lives <= 0) { state='dead'; showMessage('💀 Oh no!','Iggy got tail-slammed!\n\nPress Play Again to try again!','Play Again! 🦖'); }
+        } else { player.invincible = 60; spawnParticles(player.x+player.w/2, player.y+player.h/2, '#ffd700', 8); }
+      }
+    }
+    if (boss.stateTimer <= 0) { boss.state='patrol'; boss.stateTimer=120; }
   }
 
   // ── Allosaurus: claw swipe ──
@@ -960,6 +996,11 @@ function updateBoss(dt) {
       } else if (boss.type === 'cryo' && roll < 0.45 * aggression) {
         // Kick!
         boss.state='kick'; boss.stateTimer=55; boss.facing = px > bx ? 1 : -1;
+      } else if (boss.type === 'sauro' && roll < 0.5 * aggression) {
+        // Tail slam — massive sweeping tail smash
+        boss.state='tailslam'; boss.stateTimer=60;
+        boss.facing = px > bx ? 1 : -1;
+        setTimeout(()=>{ if(boss) bossShockwaves.push({x:boss.x+boss.w/2, y:boss.y+boss.h, radius:14, speed:8, life:1}); }, 350);
       } else if (boss.type === 'allo' && roll < 0.45 * aggression) {
         // Claw swipe!
         boss.state='claw'; boss.stateTimer=40;
@@ -1688,6 +1729,174 @@ function drawAllosaurus(b) {
     ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#a0522d':'#333'; ctx.lineWidth=2; ctx.stroke();
     ctx.fillStyle=b.frustratedBubble?'#7a3e00':'#222';
     ctx.font=`bold ${b.frustratedBubble?15:14}px Comic Sans MS`;
+    ctx.textAlign='center'; ctx.fillText(bubbleText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
+  }
+
+  ctx.restore();
+}
+
+// ── Draw: Saurophaganax Boss ───────────────────────────────
+function drawSaurophaganax(b) {
+  if (!b || b.hp<=0) return;
+  const sx = b.x - cameraX;
+  if (sx+b.w < -20 || sx > W+20) return;
+  if (b.invincible>0 && b.state!=='defeated' && Math.floor(b.invincible/5)%2===0) return;
+
+  ctx.save();
+  ctx.translate(sx + b.w/2, b.y + b.h*0.55);
+  ctx.scale(b.facing, 1);
+
+  const breathe  = Math.sin(Date.now()/380)*1.8;
+  const legSwing = Math.sin(b.frame*1.5)*10;
+  const tailWag  = Math.sin(b.frame*1.1)*7;
+  const defeated = b.state === 'defeated';
+  const slamming = b.state === 'tailslam';
+  // Tail slams swing wide — ramp from 0 to 1 over 25 frames
+  const slamPhase = slamming ? Math.min(1,(60-b.stateTimer)/25) : 0;
+  const tailBoost = slamming ? slamPhase * 30 : 0;
+
+  ctx.scale(2.4, 2.4); // slightly bigger than Allosaurus's 2.2
+
+  // ── Tail (thick, powerful) ──
+  ctx.beginPath();
+  ctx.moveTo(-20, 18+breathe);
+  ctx.bezierCurveTo(-50+tailWag+tailBoost,24,-78+tailWag*1.6+tailBoost*1.4,26,-100+tailWag*2+tailBoost*1.8,18);
+  ctx.bezierCurveTo(-78,8,-50,8,-20,10);
+  ctx.fillStyle='#5c2e00'; ctx.fill();
+  // Tail spike tip
+  ctx.beginPath();
+  ctx.moveTo(-100+tailWag*2+tailBoost*1.8,18);
+  ctx.lineTo(-114+tailWag*2.2+tailBoost*2,12);
+  ctx.lineTo(-110+tailWag*2.1+tailBoost*1.9,22);
+  ctx.fillStyle='#3a1a00'; ctx.fill();
+
+  // ── Body (larger oval) ──
+  ctx.beginPath(); ctx.ellipse(8,14+breathe,36,22,0,0,Math.PI*2);
+  const bdGrad = ctx.createRadialGradient(0,8+breathe,4,8,14+breathe,36);
+  bdGrad.addColorStop(0,'#c47a35'); bdGrad.addColorStop(0.6,'#8b4513'); bdGrad.addColorStop(1,'#5c2e00');
+  ctx.fillStyle=bdGrad; ctx.fill(); ctx.strokeStyle='#5c2e00'; ctx.lineWidth=2; ctx.stroke();
+  // Pale belly
+  ctx.beginPath(); ctx.ellipse(6,22+breathe,22,13,0.1,0,Math.PI*2);
+  ctx.fillStyle='#f0d0a0'; ctx.fill();
+  // Scale texture stripes
+  ctx.strokeStyle='rgba(40,10,0,0.3)'; ctx.lineWidth=1.8;
+  [-14,-4,6,16,26].forEach(rx=>{
+    ctx.beginPath(); ctx.moveTo(rx,2+breathe); ctx.lineTo(rx-5,32+breathe); ctx.stroke();
+  });
+
+  // ── Neck ──
+  ctx.beginPath(); ctx.moveTo(26,2+breathe);
+  ctx.bezierCurveTo(38,-4,46,-9,54,-16);
+  ctx.bezierCurveTo(48,-6,40,0,30,10+breathe);
+  ctx.fillStyle='#8b4513'; ctx.fill();
+
+  // ── Head (bigger than Allosaurus) ──
+  ctx.beginPath(); ctx.ellipse(60,-20,20,15,-0.1,0,Math.PI*2);
+  ctx.fillStyle='#8b4513'; ctx.fill(); ctx.strokeStyle='#5c2e00'; ctx.lineWidth=2; ctx.stroke();
+  // Snout — long and powerful
+  ctx.beginPath();
+  ctx.moveTo(44,-16); ctx.bezierCurveTo(66,-16,90,-18,106,-17);
+  ctx.bezierCurveTo(106,-11,90,-10,66,-10); ctx.lineTo(44,-10); ctx.closePath();
+  ctx.fillStyle='#a05226'; ctx.fill(); ctx.strokeStyle='#5c2e00'; ctx.lineWidth=1.5; ctx.stroke();
+  // Lower jaw (slight gape)
+  ctx.beginPath();
+  ctx.moveTo(46,-10); ctx.bezierCurveTo(68,-9,90,-9,106,-13);
+  ctx.bezierCurveTo(106,-5,88,-2,66,-2); ctx.lineTo(46,-3); ctx.closePath();
+  ctx.fillStyle='#8b4513'; ctx.fill();
+  // Teeth — more numerous (bigger predator)
+  ctx.fillStyle='#fffff0';
+  for(let i=0;i<6;i++){
+    ctx.beginPath(); ctx.moveTo(50+i*9,-10); ctx.lineTo(52+i*9,-17); ctx.lineTo(55+i*9,-10); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(51+i*9,-3);  ctx.lineTo(53+i*9,4);   ctx.lineTo(56+i*9,-3);  ctx.fill();
+  }
+  // Bony ridge above eye (Saurophaganax had prominent orbital ridges)
+  ctx.beginPath(); ctx.moveTo(44,-30); ctx.bezierCurveTo(56,-36,70,-35,78,-30);
+  ctx.strokeStyle='#3a1a00'; ctx.lineWidth=3.5; ctx.stroke();
+  // Nostril bump
+  ctx.beginPath(); ctx.ellipse(98,-17,3,2,0.3,0,Math.PI*2); ctx.fillStyle='#3a1a00'; ctx.fill();
+  // Eye
+  ctx.beginPath(); ctx.arc(58,-25,7,0,Math.PI*2); ctx.fillStyle='#fff9e6'; ctx.fill();
+  ctx.beginPath(); ctx.arc(58,-25,4.5,0,Math.PI*2); ctx.fillStyle='#cc5500'; ctx.fill();
+  if (defeated) {
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(55,-29); ctx.lineTo(62,-21); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(62,-29); ctx.lineTo(55,-21); ctx.stroke();
+    const st=Date.now()/200;
+    ctx.fillStyle='rgba(255,100,30,0.7)';
+    ctx.beginPath(); ctx.arc(52+Math.sin(st)*2,-42+Math.cos(st)*2,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(62+Math.sin(st+1)*2,-50+Math.cos(st+1)*2,4,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.arc(59,-25,2.5,0,Math.PI*2); ctx.fillStyle='#1a1a1a'; ctx.fill();
+    ctx.beginPath(); ctx.arc(60,-27,1.2,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+  }
+  // Brow line
+  ctx.beginPath();
+  if(defeated){ ctx.moveTo(48,-36); ctx.lineTo(68,-28); }
+  else        { ctx.moveTo(50,-34); ctx.lineTo(68,-40); }
+  ctx.strokeStyle='#3a1a00'; ctx.lineWidth=2.5; ctx.stroke();
+
+  // ── Arms (like Allosaurus but larger) ──
+  ctx.save();
+  ctx.translate(30, 12+breathe);
+  ctx.rotate(slamming ? -0.6 : -0.3);
+  // Upper arm
+  ctx.beginPath(); ctx.ellipse(0,10,8,16,0,0,Math.PI*2);
+  ctx.fillStyle='#8b4513'; ctx.fill(); ctx.strokeStyle='#5c2e00'; ctx.lineWidth=1.5; ctx.stroke();
+  // Forearm
+  ctx.save(); ctx.translate(0,24); ctx.rotate(0.35);
+  ctx.beginPath(); ctx.ellipse(0,7,6,13,0,0,Math.PI*2);
+  ctx.fillStyle='#a05226'; ctx.fill(); ctx.strokeStyle='#5c2e00'; ctx.lineWidth=1.5; ctx.stroke();
+  // Three large claws
+  ctx.fillStyle='#2c1400'; ctx.strokeStyle='#1a0800'; ctx.lineWidth=1;
+  [[-7,12,-0.3],[0,13,0],[7,12,0.3]].forEach(([cx,cy,cr])=>{
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(cr);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-3.5,12); ctx.lineTo(3.5,12); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  });
+  ctx.restore();
+  ctx.restore();
+
+  // ── Legs (heavier, stockier) ──
+  ctx.save(); ctx.translate(-10,30+breathe); ctx.rotate(-legSwing*0.05);
+  drawRoundRect(-7,0,18,26,7,'#5c2e00','#3a1a00');
+  ctx.beginPath(); ctx.ellipse(2,28,14,6,0,0,Math.PI*2); ctx.fillStyle='#5c2e00'; ctx.fill();
+  ctx.fillStyle='#3a1a00';
+  [-9,-2,6,13].forEach(cx=>{ctx.beginPath();ctx.moveTo(cx,26);ctx.lineTo(cx-2,34);ctx.lineTo(cx+5,27);ctx.fill();});
+  ctx.restore();
+  ctx.save(); ctx.translate(12,30+breathe); ctx.rotate(legSwing*0.05);
+  drawRoundRect(-7,0,18,26,7,'#8b4513','#5c2e00');
+  ctx.beginPath(); ctx.ellipse(2,28,14,6,0,0,Math.PI*2); ctx.fillStyle='#8b4513'; ctx.fill();
+  ctx.fillStyle='#5c2e00';
+  [-9,-2,6,13].forEach(cx=>{ctx.beginPath();ctx.moveTo(cx,26);ctx.lineTo(cx-2,34);ctx.lineTo(cx+5,27);ctx.fill();});
+  ctx.restore();
+
+  ctx.restore(); // unscale 2.4x
+
+  // ── Tail slam dust cloud ──
+  if (slamming && slamPhase > 0.5) {
+    ctx.save();
+    ctx.globalAlpha = (1-slamPhase)*0.6;
+    ctx.fillStyle='#d2a679';
+    const dustX = sx + (b.facing < 0 ? b.w + 30 : -50);
+    ctx.beginPath(); ctx.arc(dustX, b.y+b.h-20, 18*slamPhase, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(dustX+20, b.y+b.h-30, 12*slamPhase, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // ── Speech bubble ──
+  const bubbleText = b.speechBubble ? b.speechText : b.frustratedBubble ? 'MY TAIL!! IMPOSSIBLE!!' : null;
+  if (bubbleText) {
+    const bubX = sx + (b.facing > 0 ? b.w + 10 : -230);
+    const bubY = b.y - 68;
+    const bw = 210, bh = 46;
+    drawRoundRect(bubX, bubY, bw, bh, 10, 'white', b.frustratedBubble ? '#8b4513' : '#333');
+    const tailX = b.facing > 0 ? bubX - 1 : bubX + bw + 1;
+    ctx.beginPath();
+    ctx.moveTo(tailX,bubY+bh*0.6); ctx.lineTo(tailX+(b.facing>0?-18:18),bubY+bh*0.8); ctx.lineTo(tailX,bubY+bh*0.9);
+    ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#8b4513':'#333'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=b.frustratedBubble?'#5c2e00':'#222';
+    ctx.font=`bold ${b.frustratedBubble?14:13}px Comic Sans MS`;
     ctx.textAlign='center'; ctx.fillText(bubbleText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
   }
 
@@ -4162,6 +4371,40 @@ function drawBackground() {
   }
 
   if (level === 3) {
+    // ── Saurophaganax: ancient badlands ──
+    const bdGrad = ctx.createLinearGradient(0,0,0,H);
+    bdGrad.addColorStop(0,'#d84315'); bdGrad.addColorStop(0.45,'#bf360c'); bdGrad.addColorStop(1,'#6d2600');
+    ctx.fillStyle=bdGrad; ctx.fillRect(0,0,W,H);
+    // Heat haze shimmer
+    ctx.save(); ctx.globalAlpha=0.12+Math.sin(Date.now()/700)*0.06;
+    ctx.fillStyle='#ffab40'; ctx.fillRect(0,H-120,W,120);
+    ctx.restore();
+    // Dust devils
+    ctx.save(); ctx.globalAlpha=0.18; ctx.strokeStyle='#ffcc80'; ctx.lineWidth=1.5;
+    const dt2=Date.now()/800;
+    [150,450,750].forEach((dx,i)=>{
+      const cx=(dx-(cameraX*0.25)%WORLD_W+WORLD_W)%WORLD_W;
+      if(cx>-60&&cx<W+60){
+        ctx.beginPath(); ctx.arc(cx,H-80+Math.sin(dt2+i)*8,12+i*5,0,Math.PI*2); ctx.stroke();
+      }
+    });
+    ctx.restore();
+    // Mesa silhouettes
+    ctx.fillStyle='rgba(90,30,0,0.55)';
+    [80,260,480,700,920].forEach((mx,i)=>{
+      const mpx=(mx-(cameraX*0.2))%WORLD_W;
+      if(mpx>-160&&mpx<W+160){
+        const mh=60+i%3*30;
+        ctx.fillRect(mpx-50,H-64-mh,100,mh);
+        ctx.fillRect(mpx-70,H-64-mh*0.6,30,mh*0.6);
+        ctx.fillRect(mpx+40,H-64-mh*0.5,40,mh*0.5);
+      }
+    });
+    ctx.fillStyle='#8d4e00'; ctx.fillRect(0,H-64,W,8);
+    return;
+  }
+
+  if (level === 4) {
     // ── Pteranodon: stormy sky ──
     const stGrad = ctx.createLinearGradient(0,0,0,H);
     stGrad.addColorStop(0,'#1a1a2e'); stGrad.addColorStop(0.5,'#2d3561'); stGrad.addColorStop(1,'#37474f');
@@ -4200,7 +4443,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 6) {
+  if (level === 7) {
     // Toxic green sky
     const tGrad = ctx.createLinearGradient(0,0,0,H);
     tGrad.addColorStop(0,'#0d2200'); tGrad.addColorStop(0.5,'#1a4400'); tGrad.addColorStop(1,'#0a1a00');
@@ -4230,7 +4473,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 7) {
+  if (level === 8) {
     // ── Irritator: lake ──
     const lkGrad = ctx.createLinearGradient(0,0,0,H);
     lkGrad.addColorStop(0,'#1a3a4a'); lkGrad.addColorStop(0.6,'#1b5e3e'); lkGrad.addColorStop(1,'#1a3a1a');
@@ -4272,7 +4515,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 10) {
+  if (level === 11) {
     // ── Sea level: underwater ──
     const seaGrad = ctx.createLinearGradient(0,0,0,H);
     seaGrad.addColorStop(0,'#006064'); seaGrad.addColorStop(1,'#004d40');
@@ -4302,7 +4545,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 11) {
+  if (level === 12) {
     // ── Neovenator: swamp ──
     const swGrad = ctx.createLinearGradient(0,0,0,H);
     swGrad.addColorStop(0,'#0d1f0d'); swGrad.addColorStop(0.6,'#1a3a1a'); swGrad.addColorStop(1,'#2d4a1e');
@@ -4350,7 +4593,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 12) {
+  if (level === 13) {
     // Dark icy Antarctic sky
     const iGrad = ctx.createLinearGradient(0,0,0,H);
     iGrad.addColorStop(0,'#071428'); iGrad.addColorStop(0.5,'#0d2040'); iGrad.addColorStop(1,'#0a1830');
@@ -4385,7 +4628,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 13) {
+  if (level === 14) {
     // Dark cave
     ctx.fillStyle='#0a0a14'; ctx.fillRect(0,0,W,H);
     // Glowing crystal clusters
@@ -4418,7 +4661,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 14) {
+  if (level === 15) {
     const tzGrad=ctx.createLinearGradient(0,0,0,H);
     tzGrad.addColorStop(0,'#0d0d2e'); tzGrad.addColorStop(0.5,'#1a0a3e'); tzGrad.addColorStop(1,'#0a0020');
     ctx.fillStyle=tzGrad; ctx.fillRect(0,0,W,H);
@@ -4444,7 +4687,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 15) {
+  if (level === 16) {
     const rcGrad=ctx.createLinearGradient(0,0,0,H);
     rcGrad.addColorStop(0,'#bf360c'); rcGrad.addColorStop(0.4,'#e64a19'); rcGrad.addColorStop(1,'#795548');
     ctx.fillStyle=rcGrad; ctx.fillRect(0,0,W,H);
@@ -4466,7 +4709,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 16) {
+  if (level === 17) {
     const mudGrad=ctx.createLinearGradient(0,0,0,H);
     mudGrad.addColorStop(0,'#1a0f00'); mudGrad.addColorStop(0.5,'#2e1a00'); mudGrad.addColorStop(1,'#3e2200');
     ctx.fillStyle=mudGrad; ctx.fillRect(0,0,W,H);
@@ -4494,7 +4737,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 17) {
+  if (level === 18) {
     // ── Volcanic/Carno level ──
     const vGrad = ctx.createLinearGradient(0,0,0,H);
     vGrad.addColorStop(0,'#3e1a00'); vGrad.addColorStop(0.6,'#bf360c'); vGrad.addColorStop(1,'#e64a19');
@@ -4523,7 +4766,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 18) {
+  if (level === 19) {
     // ── Mountain Summit / Yantuanosaurus ──
     const mtGrad = ctx.createLinearGradient(0,0,0,H);
     mtGrad.addColorStop(0,'#1a2a3e'); mtGrad.addColorStop(0.5,'#2e3f5c'); mtGrad.addColorStop(1,'#3a4a6a');
@@ -4562,7 +4805,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 19) {
+  if (level === 20) {
     // ── Underground Lair / Megalosaurus ──
     const ugGrad = ctx.createLinearGradient(0,0,0,H);
     ugGrad.addColorStop(0,'#0a0a0a'); ugGrad.addColorStop(0.5,'#1a1410'); ugGrad.addColorStop(1,'#2a2010');
@@ -4612,7 +4855,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 20) {
+  if (level === 21) {
     // ── Dark jungle / T-Rex ──
     const jGrad=ctx.createLinearGradient(0,0,0,H);
     jGrad.addColorStop(0,'#1a2e0a'); jGrad.addColorStop(1,'#2e4a1a');
@@ -4641,7 +4884,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 4) {
+  if (level === 5) {
     const rGrad = ctx.createLinearGradient(0,0,0,H);
     rGrad.addColorStop(0,'#1a1a2e'); rGrad.addColorStop(1,'#2d3a2d');
     ctx.fillStyle=rGrad; ctx.fillRect(0,0,W,H);
@@ -4669,7 +4912,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 8) {
+  if (level === 9) {
     const slGrad = ctx.createLinearGradient(0,0,0,H);
     slGrad.addColorStop(0,'#0d1f2d'); slGrad.addColorStop(0.6,'#1a3040'); slGrad.addColorStop(1,'#0d2030');
     ctx.fillStyle=slGrad; ctx.fillRect(0,0,W,H);
@@ -4700,7 +4943,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 9) {
+  if (level === 10) {
     const brGrad = ctx.createLinearGradient(0,0,0,H);
     brGrad.addColorStop(0,'#0d1a0d'); brGrad.addColorStop(0.5,'#1a2e1a'); brGrad.addColorStop(1,'#0d200d');
     ctx.fillStyle=brGrad; ctx.fillRect(0,0,W,H);
@@ -4756,24 +4999,25 @@ function drawPlatform(p) {
   const themes = {
     1:  { ground:'#5d8a2a', top:'#8bc34a', tuft:'#558b2f' },
     2:  { ground:'#4a3800', top:'#7a6010', tuft:'#3a2c00' },
-    3:  { ground:'#37474f', top:'#546e7a', tuft:'#263238' },
-    4:  { ground:'#2d3a2d', top:'#546e7a', tuft:'#1a2a1a' },
-    5:  { ground:'#4e342e', top:'#6d4c41', tuft:'#3e2723' },
-    6:  { ground:'#1a3a00', top:'#4a7a00', tuft:'#0d2200' },
-    7:  { ground:'#1a3a1a', top:'#388e3c', tuft:'#1b5e20' },
-    8:  { ground:'#1a2e3a', top:'#37474f', tuft:'#0d1f2d' },
-    9:  { ground:'#1a2a1e', top:'#4caf50', tuft:'#0d1a10' },
-    10: { ground:'#004d40', top:'#ff6f00', tuft:'#e65100' },
-    11: { ground:'#2d4a1e', top:'#4a7c3f', tuft:'#1a3a10' },
-    12: { ground:'#1a2a3a', top:'#78bfd8', tuft:'#0d1a2a' },
-    13: { ground:'#1a1a2e', top:'#4a148c', tuft:'#0d0d1e' },
-    14: { ground:'#0d0d2e', top:'#1565c0', tuft:'#050520' },
-    15: { ground:'#3e2723', top:'#795548', tuft:'#2e1a12' },
-    16: { ground:'#3e2200', top:'#5d4037', tuft:'#2e1800' },
-    17: { ground:'#3e2723', top:'#bf360c', tuft:'#8d1b00' },
-    18: { ground:'#546e7a', top:'#b0bec5', tuft:'#37474f' },
-    19: { ground:'#1a1a1a', top:'#424242', tuft:'#0d0d0d' },
-    20: { ground:'#1b5e20', top:'#2e7d32', tuft:'#1a3a1a' },
+    3:  { ground:'#8d4e00', top:'#bf6900', tuft:'#6d3800' },  // badlands: warm burnt orange
+    4:  { ground:'#37474f', top:'#546e7a', tuft:'#263238' },
+    5:  { ground:'#2d3a2d', top:'#546e7a', tuft:'#1a2a1a' },
+    6:  { ground:'#4e342e', top:'#6d4c41', tuft:'#3e2723' },
+    7:  { ground:'#1a3a00', top:'#4a7a00', tuft:'#0d2200' },
+    8:  { ground:'#1a3a1a', top:'#388e3c', tuft:'#1b5e20' },
+    9:  { ground:'#1a2e3a', top:'#37474f', tuft:'#0d1f2d' },
+    10: { ground:'#1a2a1e', top:'#4caf50', tuft:'#0d1a10' },
+    11: { ground:'#004d40', top:'#ff6f00', tuft:'#e65100' },
+    12: { ground:'#2d4a1e', top:'#4a7c3f', tuft:'#1a3a10' },
+    13: { ground:'#1a2a3a', top:'#78bfd8', tuft:'#0d1a2a' },
+    14: { ground:'#1a1a2e', top:'#4a148c', tuft:'#0d0d1e' },
+    15: { ground:'#0d0d2e', top:'#1565c0', tuft:'#050520' },
+    16: { ground:'#3e2723', top:'#795548', tuft:'#2e1a12' },
+    17: { ground:'#3e2200', top:'#5d4037', tuft:'#2e1800' },
+    18: { ground:'#3e2723', top:'#bf360c', tuft:'#8d1b00' },
+    19: { ground:'#546e7a', top:'#b0bec5', tuft:'#37474f' },
+    20: { ground:'#1a1a1a', top:'#424242', tuft:'#0d0d0d' },
+    21: { ground:'#1b5e20', top:'#2e7d32', tuft:'#1a3a1a' },
   };
   const th = themes[level] || themes[1];
   if (p.h>30) {
@@ -4825,12 +5069,13 @@ function drawBossHUD() {
     ctx.globalAlpha=1;
   }
   const bossNames = {
-    2:'🦴 ALLOSAURUS',       3:'🦅 PTERANODON',        4:'🌧️ DIMORPHODON',
-    5:'🦕 SPINOSAURUS',      6:'☠️ CERATOSAURUS',      7:'🐊 IRRITATOR',
-    8:'⛈️ SUCHOMIMUS',       9:'🌊 BARYONYX',          10:'🌊 MOSASAURUS',
-    11:'🌿 NEOVENATOR',      12:'❄️ CRYOLOPHOSAURUS',  13:'🦇 ALBERTOSAURUS',
-    14:'🌌 KRONOSAURUS',     15:'🏔️ GIGANOTOSAURUS',   16:'🟤 TARBOSAURUS',
-    17:'🌋 CARNOTAURUS',     18:'🏔️ YANTUANOSAURUS',      19:'🪨 MEGALOSAURUS',        20:'🦖 T-REX — FINAL BOSS'
+    2:'🦴 ALLOSAURUS',       3:'🦕 SAUROPHAGANAX',     4:'🦅 PTERANODON',
+    5:'🌧️ DIMORPHODON',      6:'🦕 SPINOSAURUS',       7:'☠️ CERATOSAURUS',
+    8:'🐊 IRRITATOR',        9:'⛈️ SUCHOMIMUS',        10:'🌊 BARYONYX',
+    11:'🌊 MOSASAURUS',      12:'🌿 NEOVENATOR',        13:'❄️ CRYOLOPHOSAURUS',
+    14:'🦇 ALBERTOSAURUS',   15:'🌌 KRONOSAURUS',       16:'🏔️ GIGANOTOSAURUS',
+    17:'🟤 TARBOSAURUS',     18:'🌋 CARNOTAURUS',       19:'🏔️ YANTUANOSAURUS',
+    20:'🪨 MEGALOSAURUS',    21:'🦖 T-REX — FINAL BOSS'
   };
   ctx.fillStyle='#fff'; ctx.font='bold 13px Comic Sans MS';
   ctx.textAlign='center'; ctx.fillText(bossNames[level]||'BOSS', W/2, by+bh-5);
@@ -4890,24 +5135,25 @@ function draw() {
   enemies.forEach(drawEnemy);
   if (boss) {
     if      (level===2)  drawAllosaurus(boss);
-    else if (level===3)  drawPteranodon(boss);
-    else if (level===4)  drawDimorphodon(boss);
-    else if (level===5)  drawSpinoBoss(boss);
-    else if (level===6)  drawCeratosaurus(boss);
-    else if (level===7)  drawIrritator(boss);
-    else if (level===8)  drawSuchomimus(boss);
-    else if (level===9)  drawBaryonyx(boss);
-    else if (level===10) drawMosasaurus(boss);
-    else if (level===11) drawNeovenator(boss);
-    else if (level===12) drawCryolophosaurus(boss);
-    else if (level===13) drawAlbertosaurus(boss);
-    else if (level===14) drawKronosaurus(boss);
-    else if (level===15) drawGiganotosaurus(boss);
-    else if (level===16) drawTarbosaurus(boss);
-    else if (level===17) drawCarnotaurus(boss);
-    else if (level===18) drawYantuanosaurus(boss);
-    else if (level===19) drawMegalosaurus(boss);
-    else if (level===20) drawTRex(boss);
+    else if (level===3)  drawSaurophaganax(boss);
+    else if (level===4)  drawPteranodon(boss);
+    else if (level===5)  drawDimorphodon(boss);
+    else if (level===6)  drawSpinoBoss(boss);
+    else if (level===7)  drawCeratosaurus(boss);
+    else if (level===8)  drawIrritator(boss);
+    else if (level===9)  drawSuchomimus(boss);
+    else if (level===10) drawBaryonyx(boss);
+    else if (level===11) drawMosasaurus(boss);
+    else if (level===12) drawNeovenator(boss);
+    else if (level===13) drawCryolophosaurus(boss);
+    else if (level===14) drawAlbertosaurus(boss);
+    else if (level===15) drawKronosaurus(boss);
+    else if (level===16) drawGiganotosaurus(boss);
+    else if (level===17) drawTarbosaurus(boss);
+    else if (level===18) drawCarnotaurus(boss);
+    else if (level===19) drawYantuanosaurus(boss);
+    else if (level===20) drawMegalosaurus(boss);
+    else if (level===21) drawTRex(boss);
   }
   bossProjectiles.forEach(drawBossProjectile);
   // Shockwaves (T-Rex roar)
@@ -5021,25 +5267,26 @@ document.getElementById('easy-btn').addEventListener('click', ()=>{
 
 // ── Level Select ───────────────────────────────────────────
 const LEVEL_NAMES = {
-  1:'🥚 Egg Run', 2:'🦴 Allosaurus', 3:'🦅 Pteranodon', 4:'🌧️ Dimorphodon',
-  5:'🦕 Spinosaurus', 6:'☠️ Ceratosaurus', 7:'🐊 Irritator', 8:'⛈️ Suchomimus',
-  9:'🌊 Baryonyx', 10:'🌊 Mosasaurus', 11:'🌿 Neovenator', 12:'❄️ Cryolophosaurus',
-  13:'🦇 Albertosaurus', 14:'🌌 Kronosaurus', 15:'🏔️ Giganotosaurus',
-  16:'🟤 Tarbosaurus', 17:'🌋 Carnotaurus', 18:'🏔️ Yantuanosaurus', 19:'🪨 Megalosaurus', 20:'💀 T-Rex FINAL'
+  1:'🥚 Egg Run', 2:'🦴 Allosaurus', 3:'🦕 Saurophaganax', 4:'🦅 Pteranodon',
+  5:'🌧️ Dimorphodon', 6:'🦕 Spinosaurus', 7:'☠️ Ceratosaurus', 8:'🐊 Irritator',
+  9:'⛈️ Suchomimus', 10:'🌊 Baryonyx', 11:'🌊 Mosasaurus', 12:'🌿 Neovenator',
+  13:'❄️ Cryolophosaurus', 14:'🦇 Albertosaurus', 15:'🌌 Kronosaurus',
+  16:'🏔️ Giganotosaurus', 17:'🟤 Tarbosaurus', 18:'🌋 Carnotaurus',
+  19:'🏔️ Yantuanosaurus', 20:'🪨 Megalosaurus', 21:'💀 T-Rex FINAL'
 };
 const LEVEL_SUBS = {
-  1:'Sunny Meadow', 2:'Prehistoric Forest', 3:'Stormy Sky', 4:'Rainy Sky',
-  5:'Land', 6:'Toxic Swamp', 7:'Lake', 8:'Stormy Lake',
-  9:'Stormy River', 10:'Sea', 11:'Swamp', 12:'Antarctic Ice',
-  13:'Dark Cave', 14:'Twilight Zone', 15:'Rocky Cliffs',
-  16:'Mud Pit', 17:'Volcanic Land', 18:'Mountain Summit', 19:'Underground Lair', 20:'Dark Jungle'
+  1:'Sunny Meadow', 2:'Prehistoric Forest', 3:'Ancient Badlands', 4:'Stormy Sky',
+  5:'Rainy Sky', 6:'Land', 7:'Toxic Swamp', 8:'Lake',
+  9:'Stormy Lake', 10:'Stormy River', 11:'Sea', 12:'Swamp',
+  13:'Antarctic Ice', 14:'Dark Cave', 15:'Twilight Zone', 16:'Rocky Cliffs',
+  17:'Mud Pit', 18:'Volcanic Land', 19:'Mountain Summit', 20:'Underground Lair', 21:'Dark Jungle'
 };
 
 function openLevelSelect() {
   document.getElementById('message').style.display='none';
   const grid = document.getElementById('lvl-grid');
   grid.innerHTML = '';
-  for (let i=1; i<=20; i++) {
+  for (let i=1; i<=21; i++) {
     const btn = document.createElement('button');
     btn.className = 'lvl-btn';
     btn.innerHTML = `<span class="lvl-num">Level ${i}</span>${LEVEL_NAMES[i]||''}`;
