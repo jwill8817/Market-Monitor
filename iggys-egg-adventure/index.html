@@ -292,24 +292,26 @@ function buildLevel(lvl) {
 
   if (lvl === 2)  { buildAlloLevel();       return; }
   if (lvl === 3)  { buildSauroLevel();      return; }
-  if (lvl === 4)  { buildPteranoLevel();    return; }
-  if (lvl === 5)  { buildDimorphoLevel();   return; }
-  if (lvl === 6)  { buildBossLevel();       return; }
-  if (lvl === 7)  { buildCeratoLevel();     return; }
-  if (lvl === 8)  { buildIrritatorLevel();  return; }
-  if (lvl === 9)  { buildSuchoLevel();      return; }
-  if (lvl === 10) { buildBaryonyxLevel();   return; }
-  if (lvl === 11) { buildSeaLevel();        return; }
-  if (lvl === 12) { buildNeovenatorLevel(); return; }
-  if (lvl === 13) { buildCryoLevel();       return; }
-  if (lvl === 14) { buildAlbertoLevel();    return; }
-  if (lvl === 15) { buildKronoLevel();      return; }
-  if (lvl === 16) { buildGiganoLevel();     return; }
-  if (lvl === 17) { buildTarboLevel();      return; }
-  if (lvl === 18) { buildCarnoLevel();      return; }
-  if (lvl === 19) { buildYantuLevel();      return; }
-  if (lvl === 20) { buildMegaloLevel();     return; }
-  if (lvl === 21) { buildTRexLevel();       return; }
+  if (lvl === 4)  { buildDeltaLevel();      return; }
+  if (lvl === 5)  { buildTorvoLevel();      return; }
+  if (lvl === 6)  { buildPteranoLevel();    return; }
+  if (lvl === 7)  { buildDimorphoLevel();   return; }
+  if (lvl === 8)  { buildBossLevel();       return; }
+  if (lvl === 9)  { buildCeratoLevel();     return; }
+  if (lvl === 10) { buildIrritatorLevel();  return; }
+  if (lvl === 11) { buildSuchoLevel();      return; }
+  if (lvl === 12) { buildBaryonyxLevel();   return; }
+  if (lvl === 13) { buildSeaLevel();        return; }
+  if (lvl === 14) { buildNeovenatorLevel(); return; }
+  if (lvl === 15) { buildCryoLevel();       return; }
+  if (lvl === 16) { buildAlbertoLevel();    return; }
+  if (lvl === 17) { buildKronoLevel();      return; }
+  if (lvl === 18) { buildGiganoLevel();     return; }
+  if (lvl === 19) { buildTarboLevel();      return; }
+  if (lvl === 20) { buildCarnoLevel();      return; }
+  if (lvl === 21) { buildYantuLevel();      return; }
+  if (lvl === 22) { buildMegaloLevel();     return; }
+  if (lvl === 23) { buildTRexLevel();       return; }
 
   // Ground
   for (let x=0; x<WORLD_W; x+=80)
@@ -408,6 +410,36 @@ function buildSauroLevel() {
     frame:0, frameTimer:0, state:'intro', stateTimer:185, invincible:0,
     chargeSpeed:9, ARENA_W, type:'sauro',
     speechBubble:true, speechText:"I'm BIGGER than Allosaurus!!", defeatTimer:0, frustratedBubble:false };
+}
+
+function buildDeltaLevel() {
+  const ARENA_W = 1400;
+  for (let x=0; x<ARENA_W; x+=80)
+    platforms.push({x, y:H-60, w:80, h:60, color:'#a06000'});
+  [{x:100,y:325,w:110},{x:290,y:265,w:95},{x:480,y:310,w:110},
+   {x:675,y:255,w:95},{x:865,y:300,w:110},{x:1060,y:250,w:95},{x:1240,y:280,w:105}]
+    .forEach(p => platforms.push({...p, h:18, color:'#e8a000'}));
+  [{x:120,y:305},{x:310,y:245},{x:500,y:290},{x:695,y:235},{x:885,y:280},{x:1080,y:230}]
+    .forEach(e => eggs.push({x:e.x, y:e.y, w:24, h:30, collected:false, color:'#ffd700', bobOffset:Math.random()*Math.PI*2}));
+  boss = { x:950, y:H-130, w:100, h:120, hp:5, maxHp:5, vx:-2.8, facing:-1,
+    frame:0, frameTimer:0, state:'intro', stateTimer:175, invincible:0,
+    chargeSpeed:11, ARENA_W, type:'delta',
+    speechBubble:true, speechText:"You can't catch me!!", defeatTimer:0, frustratedBubble:false };
+}
+
+function buildTorvoLevel() {
+  const ARENA_W = 1400;
+  for (let x=0; x<ARENA_W; x+=80)
+    platforms.push({x, y:H-60, w:80, h:60, color:'#2a3c00'});
+  [{x:100,y:315,w:120},{x:295,y:255,w:105},{x:490,y:300,w:120},
+   {x:685,y:245,w:105},{x:880,y:295,w:120},{x:1075,y:245,w:105},{x:1255,y:275,w:110}]
+    .forEach(p => platforms.push({...p, h:20, color:'#5a8000'}));
+  [{x:120,y:295},{x:315,y:235},{x:510,y:280},{x:705,y:225},{x:900,y:275},{x:1095,y:225}]
+    .forEach(e => eggs.push({x:e.x, y:e.y, w:24, h:30, collected:false, color:'#ffd700', bobOffset:Math.random()*Math.PI*2}));
+  boss = { x:950, y:H-155, w:130, h:145, hp:5, maxHp:5, vx:-1.9, facing:-1,
+    frame:0, frameTimer:0, state:'intro', stateTimer:185, invincible:0,
+    chargeSpeed:8.5, ARENA_W, type:'torvo',
+    speechBubble:true, speechText:'Do you want me to beat you,\nor can you defeat me?', defeatTimer:0, frustratedBubble:false };
 }
 
 function buildSeaLevel() {
@@ -803,7 +835,7 @@ function updateBoss(dt) {
     boss.defeatTimer -= dt;
     if (boss.defeatTimer <= 0 && state==='playing') {
       const nextLevel = level + 1;
-      if (nextLevel > 21) {
+      if (nextLevel > 23) {
         state='win';
         showMessage('🏆 ULTIMATE CHAMPION!',
           `Iggy defeated ALL the bosses!\n\nYou are the greatest dinosaur\nadventurer EVER!\n\nScore: ${score} 🥚`, 'Play Again! 🦖');
@@ -813,24 +845,26 @@ function updateBoss(dt) {
         state='win';
         const warns = {
           3:  ['🦕 Bigger & Badder!',   'SAUROPHAGANAX — bigger than Allosaurus!\nJump on its head 6 times!\nWatch for the devastating tail slam!','Bring It! 🦕'],
-          4:  ['🦅 Into the Storm!',    'The PTERANODON rules the sky!\nJump on its head 5 times!\nTime your jumps when it dives!',              'Fly High! 🦅'],
-          5:  ['🌧️ Rainy Skies!',       'DIMORPHODON swoops through the rain!\nJump on its head 5 times!\nWatch for swooping bites!',             'Take Flight! 🦇'],
-          6:  ['🦕 Spino Showdown!',    'THE SPINOSAURUS is waiting!\nJump on its head 5 times!\nWatch that giant sail!',                          'Fight! 🦕'],
-          7:  ['☠️ Toxic Swamps!',      'The CERATOSAURUS lurks in poison waters!\nJump on its head 5 times!\nAvoid the toxic pools!',             'Dodge It! ☠️'],
-          8:  ['🐊 Lakeside Battle!',   'The IRRITATOR lurks in the reeds!\nJump on its head 5 times!\nWatch for the tail whip!',                  'Splash! 🐊'],
-          9:  ['⛈️ Stormy Lake!',       'SUCHOMIMUS hunts in the storm!\nJump on its head 5 times!\nWatch for the snout slam!',                   'Storm In! ⛈️'],
-          10: ['🌊 Raging River!',      'BARYONYX guards the river!\nJump on its head 5 times!\nBeware the claw slash!',                           'Cross It! 🌊'],
-          11: ['🌊 Into the Deep!',     'The MOSASAURUS lurks below!\nJump on its head 5 times!\nWatch out for torpedoes!',                        'Dive In! 🌊'],
-          12: ['🌿 Swamp Crossing!',    'The NEOVENATOR patrols the marsh!\nJump on its head 5 times!\nDon\'t get stuck in the mud!',             'Swamp It! 🌿'],
-          13: ['❄️ Frozen Showdown!',   'CRYOLOPHOSAURUS will KICK you like a ball!\nJump on its head 5 times!\nDodge those powerful legs!',      'Duck! ❄️'],
-          14: ['🦇 Into the Cave!',     'ALBERTOSAURUS hunts in the dark!\nJump on its head 5 times!\nWatch for the echo screech!',                'Spelunk! 🦇'],
-          15: ['🌌 Twilight Zone!',     'KRONOSAURUS rules the deep!\nJump on its head 5 times!\nAvoid the crushing bite!',                        'Go Deep! 🌌'],
-          16: ['🏔️ Rocky Cliffs!',      'GIGANOTOSAURUS towers above!\nJump on its head 7 times!\nBeware the stomp shockwave!',                   'Climb! 🏔️'],
-          17: ['🟤 Mud Pit!',           'TARBOSAURUS charges through the mud!\nJump on its head 5 times!\nDon\'t slip in the muck!',               'Charge! 🟤'],
-          18: ['🌋 Volcanic Land!',     'The CARNOTAURUS and its horns!\nJump on its head 5 times!\nIt charges FAST!',                             'Charge! 🌋'],
-          19: ['🏔️ Mountain Summit!',   'YANTUANOSAURUS rules the peaks!\nJump on its head 6 times!\nWatch for the boulder rockslide!',             'Climb! 🏔️'],
-          20: ['🪨 Underground Lair!',  'MEGALOSAURUS lurks in the dark!\nJump on its head 5 times!\nDodge the ground-shaking STOMP!',             'Dig In! 🪨'],
-          21: ['💀 FINAL BOSS!',        'THE T-REX — King of them all!\nJump on its head 7 times!\nBeware the ROAR!',                              'Face It! 🦖'],
+          4:  ['💨 Speed Demon!',       'DELTADROMEUS is blazing fast!\nJump on its head 5 times!\nDodge the lightning-speed charge!',             'Run! 💨'],
+          5:  ['🔴 The Challenger!',    'TORVOSAURUS dares you to fight!\nJump on its head 5 times!\nWatch for the mighty stomp and spit!',        'Accept! 🔴'],
+          6:  ['🦅 Into the Storm!',    'The PTERANODON rules the sky!\nJump on its head 5 times!\nTime your jumps when it dives!',              'Fly High! 🦅'],
+          7:  ['🌧️ Rainy Skies!',       'DIMORPHODON swoops through the rain!\nJump on its head 5 times!\nWatch for swooping bites!',             'Take Flight! 🦇'],
+          8:  ['🦕 Spino Showdown!',    'THE SPINOSAURUS is waiting!\nJump on its head 5 times!\nWatch that giant sail!',                          'Fight! 🦕'],
+          9:  ['☠️ Toxic Swamps!',      'The CERATOSAURUS lurks in poison waters!\nJump on its head 5 times!\nAvoid the toxic pools!',             'Dodge It! ☠️'],
+          10: ['🐊 Lakeside Battle!',   'The IRRITATOR lurks in the reeds!\nJump on its head 5 times!\nWatch for the tail whip!',                  'Splash! 🐊'],
+          11: ['⛈️ Stormy Lake!',       'SUCHOMIMUS hunts in the storm!\nJump on its head 5 times!\nWatch for the snout slam!',                   'Storm In! ⛈️'],
+          12: ['🌊 Raging River!',      'BARYONYX guards the river!\nJump on its head 5 times!\nBeware the claw slash!',                           'Cross It! 🌊'],
+          13: ['🌊 Into the Deep!',     'The MOSASAURUS lurks below!\nJump on its head 5 times!\nWatch out for torpedoes!',                        'Dive In! 🌊'],
+          14: ['🌿 Swamp Crossing!',    'The NEOVENATOR patrols the marsh!\nJump on its head 5 times!\nDon\'t get stuck in the mud!',             'Swamp It! 🌿'],
+          15: ['❄️ Frozen Showdown!',   'CRYOLOPHOSAURUS will KICK you like a ball!\nJump on its head 5 times!\nDodge those powerful legs!',      'Duck! ❄️'],
+          16: ['🦇 Into the Cave!',     'ALBERTOSAURUS hunts in the dark!\nJump on its head 5 times!\nWatch for the echo screech!',                'Spelunk! 🦇'],
+          17: ['🌌 Twilight Zone!',     'KRONOSAURUS rules the deep!\nJump on its head 5 times!\nAvoid the crushing bite!',                        'Go Deep! 🌌'],
+          18: ['🏔️ Rocky Cliffs!',      'GIGANOTOSAURUS towers above!\nJump on its head 7 times!\nBeware the stomp shockwave!',                   'Climb! 🏔️'],
+          19: ['🟤 Mud Pit!',           'TARBOSAURUS charges through the mud!\nJump on its head 5 times!\nDon\'t slip in the muck!',               'Charge! 🟤'],
+          20: ['🌋 Volcanic Land!',     'The CARNOTAURUS and its horns!\nJump on its head 5 times!\nIt charges FAST!',                             'Charge! 🌋'],
+          21: ['🏔️ Mountain Summit!',   'YANTUANOSAURUS rules the peaks!\nJump on its head 6 times!\nWatch for the boulder rockslide!',             'Climb! 🏔️'],
+          22: ['🪨 Underground Lair!',  'MEGALOSAURUS lurks in the dark!\nJump on its head 5 times!\nDodge the ground-shaking STOMP!',             'Dig In! 🪨'],
+          23: ['💀 FINAL BOSS!',        'THE T-REX — King of them all!\nJump on its head 7 times!\nBeware the ROAR!',                              'Face It! 🦖'],
         };
         const w = warns[level];
         showMessage(w[0], w[1], w[2]);
@@ -855,6 +889,32 @@ function updateBoss(dt) {
       spawnParticles(bx, boss.y+20, '#ffe082', 20);
     }
     if (boss.stateTimer <= 0) { boss.state='patrol'; boss.stateTimer=130; }
+  }
+
+  // ── Deltadromeus: lightning dash ──
+  if (boss.state === 'dash') {
+    boss.x += boss.vx * dt;
+    if (boss.x <= WALL_L) { boss.x=WALL_L; boss.vx=0; boss.state='patrol'; boss.stateTimer=80; }
+    if (boss.x >= WALL_R) { boss.x=WALL_R; boss.vx=0; boss.state='patrol'; boss.stateTimer=80; }
+    if (boss.stateTimer <= 0) { boss.vx=boss.vx>0?2.2:-2.2; boss.state='patrol'; boss.stateTimer=90; }
+    // Dash collision with player
+    if (player.invincible <= 0) {
+      if (px+player.w > bx && px < bx+boss.w && player.y+player.h > boss.y && player.y < boss.y+boss.h) {
+        player.vy = JUMP_FORCE * 0.55;
+        player.vx = boss.vx * 0.6;
+        if (!easyMode) {
+          player.invincible = 60; lives--;
+          document.getElementById('lives').textContent = '🥚'.repeat(Math.max(0,lives));
+          spawnParticles(player.x+player.w/2, player.y+player.h/2, '#ff4444', 12);
+          if (lives <= 0) { state='dead'; showMessage('💀 Oh no!','Iggy got dash-slammed!\n\nPress Play Again to try again!','Play Again! 🦖'); }
+        } else { player.invincible = 60; spawnParticles(player.x+player.w/2, player.y+player.h/2, '#ffd700', 8); }
+      }
+    }
+  }
+
+  // ── Torvosaurus: stomp ──
+  if (boss.type === 'torvo' && boss.state === 'stomp') {
+    if (boss.stateTimer <= 0) { boss.state='patrol'; boss.stateTimer=110; }
   }
 
   // ── Saurophaganax: tail slam ──
@@ -996,6 +1056,23 @@ function updateBoss(dt) {
       } else if (boss.type === 'cryo' && roll < 0.45 * aggression) {
         // Kick!
         boss.state='kick'; boss.stateTimer=55; boss.facing = px > bx ? 1 : -1;
+      } else if (boss.type === 'delta' && roll < 0.55 * aggression) {
+        // Lightning dash — blazing-speed charge across the arena
+        boss.state='dash'; boss.stateTimer=30;
+        boss.facing = px > bx ? 1 : -1;
+        boss.vx = boss.facing * 18; // very fast
+      } else if (boss.type === 'torvo' && roll < 0.45 * aggression) {
+        // Stomp + spit combo
+        if (Math.random() < 0.5) {
+          boss.state='stomp'; boss.stateTimer=55;
+          setTimeout(()=>{ if(boss) bossShockwaves.push({x:boss.x+boss.w/2, y:boss.y+boss.h, radius:12, speed:7, life:1}); }, 280);
+        } else {
+          boss.state='toxicspit'; boss.stateTimer=45;
+          bossProjectiles.push({ x:bx+(boss.facing>0?boss.w:0), y:boss.y+boss.h*0.55,
+            vx:boss.facing*5, vy:-0.5, life:1, size:13, color:'#8b0000' });
+          bossProjectiles.push({ x:bx+(boss.facing>0?boss.w:0), y:boss.y+boss.h*0.55,
+            vx:boss.facing*6.5, vy:-1.5, life:1, size:9, color:'#c62828' });
+        }
       } else if (boss.type === 'sauro' && roll < 0.5 * aggression) {
         // Tail slam — massive sweeping tail smash
         boss.state='tailslam'; boss.stateTimer=60;
@@ -1898,6 +1975,310 @@ function drawSaurophaganax(b) {
     ctx.fillStyle=b.frustratedBubble?'#5c2e00':'#222';
     ctx.font=`bold ${b.frustratedBubble?14:13}px Comic Sans MS`;
     ctx.textAlign='center'; ctx.fillText(bubbleText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
+  }
+
+  ctx.restore();
+}
+
+// ── Draw: Deltadromeus Boss ────────────────────────────────
+function drawDeltadromeus(b) {
+  if (!b || b.hp<=0) return;
+  const sx = b.x - cameraX;
+  if (sx+b.w < -20 || sx > W+20) return;
+  if (b.invincible>0 && b.state!=='defeated' && Math.floor(b.invincible/5)%2===0) return;
+
+  ctx.save();
+  ctx.translate(sx + b.w/2, b.y + b.h*0.55);
+  ctx.scale(b.facing, 1);
+
+  const breathe  = Math.sin(Date.now()/340)*1.5;
+  const legSwing = Math.sin(b.frame*2.0)*12; // faster legs — it's speedy
+  const tailWag  = Math.sin(b.frame*1.8)*8;
+  const defeated = b.state === 'defeated';
+  const dashing  = b.state === 'dash';
+
+  ctx.scale(2.0, 2.0); // slightly smaller than Allosaurus
+
+  // Speed blur lines when dashing
+  if (dashing) {
+    ctx.save(); ctx.globalAlpha=0.35; ctx.strokeStyle='#ffd54f'; ctx.lineWidth=2;
+    [-30,-20,-10].forEach(off=>{
+      ctx.beginPath(); ctx.moveTo(off,-5); ctx.lineTo(off-22,-5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(off,10); ctx.lineTo(off-18,10); ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // ── Tail (slender, whip-like) ──
+  ctx.beginPath();
+  ctx.moveTo(-16, 16+breathe);
+  ctx.bezierCurveTo(-40+tailWag,20,-62+tailWag*1.5,20,-80+tailWag*2,14);
+  ctx.bezierCurveTo(-62,6,-40,6,-16,8);
+  ctx.fillStyle='#1a6e3a'; ctx.fill();
+
+  // ── Body (lean, narrow) ──
+  ctx.beginPath(); ctx.ellipse(4,12+breathe,26,16,0,0,Math.PI*2);
+  const dbGrad = ctx.createRadialGradient(-2,6+breathe,3,4,12+breathe,26);
+  dbGrad.addColorStop(0,'#43a865'); dbGrad.addColorStop(0.6,'#2e7d50'); dbGrad.addColorStop(1,'#1a5c36');
+  ctx.fillStyle=dbGrad; ctx.fill(); ctx.strokeStyle='#1a5c36'; ctx.lineWidth=1.5; ctx.stroke();
+  // Pale underbelly
+  ctx.beginPath(); ctx.ellipse(2,18+breathe,16,9,0.1,0,Math.PI*2);
+  ctx.fillStyle='#c8e6d0'; ctx.fill();
+  // Stripe pattern (speed stripes)
+  ctx.strokeStyle='rgba(0,60,20,0.35)'; ctx.lineWidth=1.5;
+  [-8,0,8,16].forEach(rx=>{
+    ctx.beginPath(); ctx.moveTo(rx,2+breathe); ctx.lineTo(rx-3,24+breathe); ctx.stroke();
+  });
+
+  // ── Neck ──
+  ctx.beginPath(); ctx.moveTo(18,2+breathe);
+  ctx.bezierCurveTo(30,-4,36,-9,44,-14);
+  ctx.bezierCurveTo(38,-5,30,2,24,10+breathe);
+  ctx.fillStyle='#2e7d50'; ctx.fill();
+
+  // ── Head (narrow, aerodynamic) ──
+  ctx.beginPath(); ctx.ellipse(50,-18,14,11,-0.1,0,Math.PI*2);
+  ctx.fillStyle='#2e7d50'; ctx.fill(); ctx.strokeStyle='#1a5c36'; ctx.lineWidth=1.5; ctx.stroke();
+  // Long narrow snout
+  ctx.beginPath();
+  ctx.moveTo(38,-14); ctx.bezierCurveTo(54,-14,76,-15,90,-14);
+  ctx.bezierCurveTo(90,-9,76,-8,54,-9); ctx.lineTo(38,-9); ctx.closePath();
+  ctx.fillStyle='#3a8a5c'; ctx.fill(); ctx.strokeStyle='#1a5c36'; ctx.lineWidth=1.2; ctx.stroke();
+  // Lower jaw
+  ctx.beginPath();
+  ctx.moveTo(40,-9); ctx.bezierCurveTo(56,-8,76,-8,90,-11);
+  ctx.bezierCurveTo(90,-4,74,-2,56,-2); ctx.lineTo(40,-3); ctx.closePath();
+  ctx.fillStyle='#2e7d50'; ctx.fill();
+  // Teeth (small, many — it ate smaller prey)
+  ctx.fillStyle='#fffff0';
+  for(let i=0;i<4;i++){
+    ctx.beginPath(); ctx.moveTo(46+i*10,-9); ctx.lineTo(48+i*10,-14); ctx.lineTo(51+i*10,-9); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(47+i*10,-3); ctx.lineTo(49+i*10,2); ctx.lineTo(52+i*10,-3); ctx.fill();
+  }
+  // Eye (large, for tracking fast prey)
+  ctx.beginPath(); ctx.arc(48,-21,6,0,Math.PI*2); ctx.fillStyle='#e8f5e9'; ctx.fill();
+  ctx.beginPath(); ctx.arc(48,-21,4,0,Math.PI*2); ctx.fillStyle='#00c853'; ctx.fill();
+  if (defeated) {
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(45,-24); ctx.lineTo(51,-18); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(51,-24); ctx.lineTo(45,-18); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(49,-21,2,0,Math.PI*2); ctx.fillStyle='#1a1a1a'; ctx.fill();
+    ctx.beginPath(); ctx.arc(50,-23,1,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+  }
+  // Brow
+  ctx.beginPath();
+  if(defeated){ ctx.moveTo(40,-28); ctx.lineTo(58,-22); }
+  else        { ctx.moveTo(42,-27); ctx.lineTo(56,-31); }
+  ctx.strokeStyle='#1a5c36'; ctx.lineWidth=2; ctx.stroke();
+  // Nostril
+  ctx.beginPath(); ctx.ellipse(84,-14,2,1.5,0.3,0,Math.PI*2); ctx.fillStyle='#1a5c36'; ctx.fill();
+
+  // ── Arms (vestigial, tiny) ──
+  ctx.save(); ctx.translate(22, 12+breathe); ctx.rotate(-0.4);
+  ctx.beginPath(); ctx.ellipse(0,5,4,9,0,0,Math.PI*2);
+  ctx.fillStyle='#2e7d50'; ctx.fill(); ctx.strokeStyle='#1a5c36'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='#1a3a20';
+  [[-3,10,0],[0,11,0],[3,10,0]].forEach(([cx,cy,cr])=>{
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(cr);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-2,6); ctx.lineTo(2,6); ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  });
+  ctx.restore();
+
+  // ── Legs (long, powerful runner's legs) ──
+  ctx.save(); ctx.translate(-8,26+breathe); ctx.rotate(-legSwing*0.06);
+  drawRoundRect(-5,0,14,26,5,'#1a5c36','#0d3a20');
+  ctx.beginPath(); ctx.ellipse(2,28,11,5,0,0,Math.PI*2); ctx.fillStyle='#1a5c36'; ctx.fill();
+  ctx.fillStyle='#0d3a20';
+  [-7,-1,4,10].forEach(cx=>{ctx.beginPath();ctx.moveTo(cx,26);ctx.lineTo(cx-2,34);ctx.lineTo(cx+4,27);ctx.fill();});
+  ctx.restore();
+  ctx.save(); ctx.translate(10,26+breathe); ctx.rotate(legSwing*0.06);
+  drawRoundRect(-5,0,14,26,5,'#2e7d50','#1a5c36');
+  ctx.beginPath(); ctx.ellipse(2,28,11,5,0,0,Math.PI*2); ctx.fillStyle='#2e7d50'; ctx.fill();
+  ctx.fillStyle='#1a5c36';
+  [-7,-1,4,10].forEach(cx=>{ctx.beginPath();ctx.moveTo(cx,26);ctx.lineTo(cx-2,34);ctx.lineTo(cx+4,27);ctx.fill();});
+  ctx.restore();
+
+  ctx.restore(); // unscale
+
+  // ── Speech bubble ──
+  const bubbleText = b.speechBubble ? b.speechText : b.frustratedBubble ? "TOO FAST...I'M TOO FAST!!" : null;
+  if (bubbleText) {
+    const bubX = sx + (b.facing > 0 ? b.w + 10 : -210);
+    const bubY = b.y - 60;
+    const bw = 190, bh = 46;
+    drawRoundRect(bubX, bubY, bw, bh, 10, 'white', b.frustratedBubble ? '#2e7d50' : '#333');
+    const tailX = b.facing > 0 ? bubX - 1 : bubX + bw + 1;
+    ctx.beginPath();
+    ctx.moveTo(tailX,bubY+bh*0.6); ctx.lineTo(tailX+(b.facing>0?-18:18),bubY+bh*0.8); ctx.lineTo(tailX,bubY+bh*0.9);
+    ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#2e7d50':'#333'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=b.frustratedBubble?'#1a5c36':'#222';
+    ctx.font='bold 13px Comic Sans MS';
+    ctx.textAlign='center'; ctx.fillText(bubbleText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
+  }
+
+  ctx.restore();
+}
+
+// ── Draw: Torvosaurus Boss ─────────────────────────────────
+function drawTorvosaurus(b) {
+  if (!b || b.hp<=0) return;
+  const sx = b.x - cameraX;
+  if (sx+b.w < -20 || sx > W+20) return;
+  if (b.invincible>0 && b.state!=='defeated' && Math.floor(b.invincible/5)%2===0) return;
+
+  ctx.save();
+  ctx.translate(sx + b.w/2, b.y + b.h*0.55);
+  ctx.scale(b.facing, 1);
+
+  const breathe  = Math.sin(Date.now()/410)*1.8;
+  const legSwing = Math.sin(b.frame*1.5)*9;
+  const tailWag  = Math.sin(b.frame*1.2)*6;
+  const defeated = b.state === 'defeated';
+  const stomping = b.state === 'stomp';
+  const spitting = b.state === 'toxicspit';
+  const stompLift = stomping ? Math.max(0, Math.sin((55-b.stateTimer)*0.12)) * 10 : 0;
+
+  ctx.scale(2.2, 2.2);
+
+  // ── Tail (thick, powerful) ──
+  ctx.beginPath();
+  ctx.moveTo(-18, 18+breathe);
+  ctx.bezierCurveTo(-46+tailWag,24,-68+tailWag*1.5,26,-86+tailWag*2,20);
+  ctx.bezierCurveTo(-68,10,-46,10,-18,12);
+  ctx.fillStyle='#6a0000'; ctx.fill();
+
+  // ── Body (large, robust — Torvosaurus was a true giant) ──
+  ctx.beginPath(); ctx.ellipse(6,14+breathe,34,20,0,0,Math.PI*2);
+  const tbGrad = ctx.createRadialGradient(0,8+breathe,4,6,14+breathe,34);
+  tbGrad.addColorStop(0,'#c62828'); tbGrad.addColorStop(0.6,'#8b0000'); tbGrad.addColorStop(1,'#4a0000');
+  ctx.fillStyle=tbGrad; ctx.fill(); ctx.strokeStyle='#4a0000'; ctx.lineWidth=2; ctx.stroke();
+  // Scale ridges — dark red-black
+  ctx.strokeStyle='rgba(30,0,0,0.4)'; ctx.lineWidth=1.8;
+  [-12,-2,8,18,28].forEach(rx=>{
+    ctx.beginPath(); ctx.moveTo(rx,2+breathe); ctx.lineTo(rx-4,30+breathe); ctx.stroke();
+  });
+  // Pale-ish belly (still dark — this is a mean dinosaur)
+  ctx.beginPath(); ctx.ellipse(4,22+breathe,22,12,0.1,0,Math.PI*2);
+  ctx.fillStyle='#7b1fa2'; ctx.fill(); // PURPLE belly
+
+  // ── Neck ──
+  ctx.beginPath(); ctx.moveTo(24,2+breathe);
+  ctx.bezierCurveTo(36,-4,44,-8,52,-14);
+  ctx.bezierCurveTo(46,-5,38,2,28,10+breathe);
+  ctx.fillStyle='#8b0000'; ctx.fill();
+
+  // ── Head (large, deep-snouted) ──
+  ctx.beginPath(); ctx.ellipse(58,-20,18,14,-0.1,0,Math.PI*2);
+  ctx.fillStyle='#8b0000'; ctx.fill(); ctx.strokeStyle='#4a0000'; ctx.lineWidth=2; ctx.stroke();
+  // Snout
+  const jawGape = spitting ? 8 : 0;
+  ctx.beginPath();
+  ctx.moveTo(44,-16); ctx.bezierCurveTo(62,-16,84,-17,96,-16);
+  ctx.bezierCurveTo(96,-10,84,-9,62,-9); ctx.lineTo(44,-9); ctx.closePath();
+  ctx.fillStyle='#a00000'; ctx.fill(); ctx.strokeStyle='#4a0000'; ctx.lineWidth=1.5; ctx.stroke();
+  // Lower jaw (opens when spitting)
+  ctx.beginPath();
+  ctx.moveTo(46,-9); ctx.bezierCurveTo(64,-8,84,-8,96,-12-jawGape);
+  ctx.bezierCurveTo(96,-4+jawGape,80,-2+jawGape,62,-2+jawGape); ctx.lineTo(46,-3+jawGape); ctx.closePath();
+  ctx.fillStyle='#8b0000'; ctx.fill();
+  // Teeth (large serrated)
+  ctx.fillStyle='#fffff0';
+  for(let i=0;i<5;i++){
+    ctx.beginPath(); ctx.moveTo(50+i*9,-9); ctx.lineTo(52+i*9,-16); ctx.lineTo(55+i*9,-9); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(51+i*9,-3+jawGape); ctx.lineTo(53+i*9,4+jawGape); ctx.lineTo(56+i*9,-3+jawGape); ctx.fill();
+  }
+  // Heavy brow ridge
+  ctx.beginPath(); ctx.moveTo(44,-30); ctx.bezierCurveTo(56,-36,68,-35,76,-30);
+  ctx.strokeStyle='#2a0000'; ctx.lineWidth=4; ctx.stroke();
+  // Nostril
+  ctx.beginPath(); ctx.ellipse(90,-16,2.5,1.5,0.3,0,Math.PI*2); ctx.fillStyle='#2a0000'; ctx.fill();
+  // Eye (intense amber)
+  ctx.beginPath(); ctx.arc(56,-24,7,0,Math.PI*2); ctx.fillStyle='#fff9e0'; ctx.fill();
+  ctx.beginPath(); ctx.arc(56,-24,4.5,0,Math.PI*2); ctx.fillStyle='#e65100'; ctx.fill();
+  if (defeated) {
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(53,-28); ctx.lineTo(60,-20); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(60,-28); ctx.lineTo(53,-20); ctx.stroke();
+    const st2=Date.now()/200;
+    ctx.fillStyle='rgba(255,100,30,0.7)';
+    ctx.beginPath(); ctx.arc(50+Math.sin(st2)*2,-40+Math.cos(st2)*2,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(60+Math.sin(st2+1)*2,-48+Math.cos(st2+1)*2,4,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.arc(57,-24,2.5,0,Math.PI*2); ctx.fillStyle='#1a1a1a'; ctx.fill();
+    ctx.beginPath(); ctx.arc(58,-26,1.2,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+  }
+  // Angry brow line
+  ctx.beginPath();
+  if(defeated){ ctx.moveTo(46,-34); ctx.lineTo(66,-28); }
+  else        { ctx.moveTo(48,-32); ctx.lineTo(66,-38); }
+  ctx.strokeStyle='#2a0000'; ctx.lineWidth=2.5; ctx.stroke();
+
+  // ── Arms (strong Allosaurus-style) ──
+  ctx.save(); ctx.translate(28, 12+breathe); ctx.rotate(-0.3);
+  ctx.beginPath(); ctx.ellipse(0,9,7,14,0,0,Math.PI*2);
+  ctx.fillStyle='#8b0000'; ctx.fill(); ctx.strokeStyle='#4a0000'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.save(); ctx.translate(0,22); ctx.rotate(0.3);
+  ctx.beginPath(); ctx.ellipse(0,6,5,11,0,0,Math.PI*2);
+  ctx.fillStyle='#a00000'; ctx.fill(); ctx.strokeStyle='#4a0000'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#1a0000'; ctx.strokeStyle='#0d0000'; ctx.lineWidth=1;
+  [[-6,10,-0.3],[0,11,0],[6,10,0.3]].forEach(([cx,cy,cr])=>{
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(cr);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-3,10); ctx.lineTo(3,10); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  });
+  ctx.restore(); ctx.restore();
+
+  // ── Legs (PURPLE — user spec) ──
+  ctx.save(); ctx.translate(-8,28+breathe-stompLift); ctx.rotate(-legSwing*0.05);
+  drawRoundRect(-6,0,16,24,6,'#6a1b9a','#4a0072');
+  ctx.beginPath(); ctx.ellipse(2,26,13,5,0,0,Math.PI*2); ctx.fillStyle='#6a1b9a'; ctx.fill();
+  ctx.fillStyle='#4a0072';
+  [-8,-2,5,11].forEach(cx=>{ctx.beginPath();ctx.moveTo(cx,24);ctx.lineTo(cx-2,32);ctx.lineTo(cx+4,25);ctx.fill();});
+  ctx.restore();
+  ctx.save(); ctx.translate(10,28+breathe-stompLift); ctx.rotate(legSwing*0.05);
+  drawRoundRect(-6,0,16,24,6,'#7b1fa2','#6a1b9a');
+  ctx.beginPath(); ctx.ellipse(2,26,13,5,0,0,Math.PI*2); ctx.fillStyle='#7b1fa2'; ctx.fill();
+  ctx.fillStyle='#6a1b9a';
+  [-8,-2,5,11].forEach(cx=>{ctx.beginPath();ctx.moveTo(cx,24);ctx.lineTo(cx-2,32);ctx.lineTo(cx+4,25);ctx.fill();});
+  ctx.restore();
+
+  // Stomp ground crack
+  if (stomping && b.stateTimer < 30) {
+    ctx.save(); ctx.globalAlpha=Math.min(1,(30-b.stateTimer)/10)*0.7;
+    ctx.strokeStyle='#c62828'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(-20,36+breathe); ctx.lineTo(-50,42+breathe); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-10,36+breathe); ctx.lineTo(-30,44+breathe); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(20,36+breathe);  ctx.lineTo(50,42+breathe); ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.restore(); // unscale
+
+  // ── Speech bubble (wide — long text) ──
+  const torvoText = b.speechBubble ? b.speechText : b.frustratedBubble ? 'IMPOSSIBLE!! I NEVER LOSE!!' : null;
+  if (torvoText) {
+    const bubX = sx + (b.facing > 0 ? b.w + 10 : -265);
+    const bubY = b.y - 72;
+    const bw = 250, bh = b.speechBubble ? 56 : 46;
+    drawRoundRect(bubX, bubY, bw, bh, 10, 'white', b.frustratedBubble ? '#8b0000' : '#333');
+    const tailX = b.facing > 0 ? bubX - 1 : bubX + bw + 1;
+    ctx.beginPath();
+    ctx.moveTo(tailX,bubY+bh*0.6); ctx.lineTo(tailX+(b.facing>0?-18:18),bubY+bh*0.8); ctx.lineTo(tailX,bubY+bh*0.9);
+    ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#8b0000':'#333'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=b.frustratedBubble?'#4a0000':'#222';
+    ctx.font='bold 12px Comic Sans MS';
+    ctx.textAlign='center';
+    if (b.speechBubble && b.speechText.includes('\n')) {
+      const lines = b.speechText.split('\n');
+      lines.forEach((ln,i) => ctx.fillText(ln, bubX+bw/2, bubY+16+i*18));
+    } else {
+      ctx.fillText(torvoText, bubX+bw/2, bubY+bh/2+6);
+    }
+    ctx.textAlign='left';
   }
 
   ctx.restore();
@@ -4405,6 +4786,52 @@ function drawBackground() {
   }
 
   if (level === 4) {
+    // ── Deltadromeus: arid savanna ──
+    const savGrad = ctx.createLinearGradient(0,0,0,H);
+    savGrad.addColorStop(0,'#e65100'); savGrad.addColorStop(0.4,'#bf360c'); savGrad.addColorStop(1,'#8d4e00');
+    ctx.fillStyle=savGrad; ctx.fillRect(0,0,W,H);
+    // Sun haze shimmer on horizon
+    ctx.save(); ctx.globalAlpha=0.15+Math.sin(Date.now()/900)*0.07;
+    ctx.fillStyle='#ffcc02'; ctx.fillRect(0,H-140,W,140);
+    ctx.restore();
+    // Sparse acacia silhouettes
+    ctx.fillStyle='rgba(30,15,0,0.7)';
+    [90,310,550,780,1020].forEach((tx,i)=>{
+      const tpx=(tx-(cameraX*0.18))%WORLD_W;
+      if(tpx>-120&&tpx<W+120){
+        ctx.fillRect(tpx-5,H-64-70-i%2*20,10,70+i%2*20); // trunk
+        ctx.beginPath(); ctx.arc(tpx,H-64-75-i%2*20,30+i%3*10,0,Math.PI*2); ctx.fill(); // canopy
+      }
+    });
+    ctx.fillStyle='#c47a00'; ctx.fillRect(0,H-64,W,8);
+    return;
+  }
+
+  if (level === 5) {
+    // ── Torvosaurus: Jurassic valley ──
+    const jvGrad = ctx.createLinearGradient(0,0,0,H);
+    jvGrad.addColorStop(0,'#1a3a00'); jvGrad.addColorStop(0.5,'#2d5a10'); jvGrad.addColorStop(1,'#1a2e00');
+    ctx.fillStyle=jvGrad; ctx.fillRect(0,0,W,H);
+    // Giant Jurassic ferns
+    ctx.fillStyle='rgba(20,60,5,0.65)';
+    [70,230,420,620,860,1100].forEach((fx,i)=>{
+      const fpx=(fx-(cameraX*0.22))%WORLD_W;
+      if(fpx>-100&&fpx<W+100){
+        const fh=90+i%3*30;
+        ctx.beginPath(); ctx.ellipse(fpx,H-64-fh/2,28+i%2*12,fh/2,0,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(fpx-24,H-64-fh*0.4,18,fh*0.3,-0.5,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(fpx+24,H-64-fh*0.4,18,fh*0.3,0.5,0,Math.PI*2); ctx.fill();
+      }
+    });
+    // Distant volcano silhouette
+    ctx.fillStyle='rgba(10,40,0,0.45)';
+    const vx=600-(cameraX*0.1)%WORLD_W;
+    ctx.beginPath(); ctx.moveTo(vx-160,H-64); ctx.lineTo(vx,H-64-180); ctx.lineTo(vx+160,H-64); ctx.fill();
+    ctx.fillStyle='#3a5200'; ctx.fillRect(0,H-64,W,8);
+    return;
+  }
+
+  if (level === 6) {
     // ── Pteranodon: stormy sky ──
     const stGrad = ctx.createLinearGradient(0,0,0,H);
     stGrad.addColorStop(0,'#1a1a2e'); stGrad.addColorStop(0.5,'#2d3561'); stGrad.addColorStop(1,'#37474f');
@@ -4443,7 +4870,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 7) {
+  if (level === 9) {
     // Toxic green sky
     const tGrad = ctx.createLinearGradient(0,0,0,H);
     tGrad.addColorStop(0,'#0d2200'); tGrad.addColorStop(0.5,'#1a4400'); tGrad.addColorStop(1,'#0a1a00');
@@ -4473,7 +4900,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 8) {
+  if (level === 10) {
     // ── Irritator: lake ──
     const lkGrad = ctx.createLinearGradient(0,0,0,H);
     lkGrad.addColorStop(0,'#1a3a4a'); lkGrad.addColorStop(0.6,'#1b5e3e'); lkGrad.addColorStop(1,'#1a3a1a');
@@ -4515,7 +4942,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 11) {
+  if (level === 13) {
     // ── Sea level: underwater ──
     const seaGrad = ctx.createLinearGradient(0,0,0,H);
     seaGrad.addColorStop(0,'#006064'); seaGrad.addColorStop(1,'#004d40');
@@ -4545,7 +4972,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 12) {
+  if (level === 14) {
     // ── Neovenator: swamp ──
     const swGrad = ctx.createLinearGradient(0,0,0,H);
     swGrad.addColorStop(0,'#0d1f0d'); swGrad.addColorStop(0.6,'#1a3a1a'); swGrad.addColorStop(1,'#2d4a1e');
@@ -4593,7 +5020,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 13) {
+  if (level === 15) {
     // Dark icy Antarctic sky
     const iGrad = ctx.createLinearGradient(0,0,0,H);
     iGrad.addColorStop(0,'#071428'); iGrad.addColorStop(0.5,'#0d2040'); iGrad.addColorStop(1,'#0a1830');
@@ -4628,7 +5055,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 14) {
+  if (level === 16) {
     // Dark cave
     ctx.fillStyle='#0a0a14'; ctx.fillRect(0,0,W,H);
     // Glowing crystal clusters
@@ -4661,7 +5088,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 15) {
+  if (level === 17) {
     const tzGrad=ctx.createLinearGradient(0,0,0,H);
     tzGrad.addColorStop(0,'#0d0d2e'); tzGrad.addColorStop(0.5,'#1a0a3e'); tzGrad.addColorStop(1,'#0a0020');
     ctx.fillStyle=tzGrad; ctx.fillRect(0,0,W,H);
@@ -4687,7 +5114,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 16) {
+  if (level === 18) {
     const rcGrad=ctx.createLinearGradient(0,0,0,H);
     rcGrad.addColorStop(0,'#bf360c'); rcGrad.addColorStop(0.4,'#e64a19'); rcGrad.addColorStop(1,'#795548');
     ctx.fillStyle=rcGrad; ctx.fillRect(0,0,W,H);
@@ -4709,7 +5136,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 17) {
+  if (level === 19) {
     const mudGrad=ctx.createLinearGradient(0,0,0,H);
     mudGrad.addColorStop(0,'#1a0f00'); mudGrad.addColorStop(0.5,'#2e1a00'); mudGrad.addColorStop(1,'#3e2200');
     ctx.fillStyle=mudGrad; ctx.fillRect(0,0,W,H);
@@ -4737,7 +5164,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 18) {
+  if (level === 20) {
     // ── Volcanic/Carno level ──
     const vGrad = ctx.createLinearGradient(0,0,0,H);
     vGrad.addColorStop(0,'#3e1a00'); vGrad.addColorStop(0.6,'#bf360c'); vGrad.addColorStop(1,'#e64a19');
@@ -4766,7 +5193,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 19) {
+  if (level === 21) {
     // ── Mountain Summit / Yantuanosaurus ──
     const mtGrad = ctx.createLinearGradient(0,0,0,H);
     mtGrad.addColorStop(0,'#1a2a3e'); mtGrad.addColorStop(0.5,'#2e3f5c'); mtGrad.addColorStop(1,'#3a4a6a');
@@ -4805,7 +5232,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 20) {
+  if (level === 22) {
     // ── Underground Lair / Megalosaurus ──
     const ugGrad = ctx.createLinearGradient(0,0,0,H);
     ugGrad.addColorStop(0,'#0a0a0a'); ugGrad.addColorStop(0.5,'#1a1410'); ugGrad.addColorStop(1,'#2a2010');
@@ -4855,7 +5282,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 21) {
+  if (level === 23) {
     // ── Dark jungle / T-Rex ──
     const jGrad=ctx.createLinearGradient(0,0,0,H);
     jGrad.addColorStop(0,'#1a2e0a'); jGrad.addColorStop(1,'#2e4a1a');
@@ -4884,7 +5311,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 5) {
+  if (level === 7) {
     const rGrad = ctx.createLinearGradient(0,0,0,H);
     rGrad.addColorStop(0,'#1a1a2e'); rGrad.addColorStop(1,'#2d3a2d');
     ctx.fillStyle=rGrad; ctx.fillRect(0,0,W,H);
@@ -4912,7 +5339,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 9) {
+  if (level === 11) {
     const slGrad = ctx.createLinearGradient(0,0,0,H);
     slGrad.addColorStop(0,'#0d1f2d'); slGrad.addColorStop(0.6,'#1a3040'); slGrad.addColorStop(1,'#0d2030');
     ctx.fillStyle=slGrad; ctx.fillRect(0,0,W,H);
@@ -4943,7 +5370,7 @@ function drawBackground() {
     return;
   }
 
-  if (level === 10) {
+  if (level === 12) {
     const brGrad = ctx.createLinearGradient(0,0,0,H);
     brGrad.addColorStop(0,'#0d1a0d'); brGrad.addColorStop(0.5,'#1a2e1a'); brGrad.addColorStop(1,'#0d200d');
     ctx.fillStyle=brGrad; ctx.fillRect(0,0,W,H);
@@ -4999,25 +5426,27 @@ function drawPlatform(p) {
   const themes = {
     1:  { ground:'#5d8a2a', top:'#8bc34a', tuft:'#558b2f' },
     2:  { ground:'#4a3800', top:'#7a6010', tuft:'#3a2c00' },
-    3:  { ground:'#8d4e00', top:'#bf6900', tuft:'#6d3800' },  // badlands: warm burnt orange
-    4:  { ground:'#37474f', top:'#546e7a', tuft:'#263238' },
-    5:  { ground:'#2d3a2d', top:'#546e7a', tuft:'#1a2a1a' },
-    6:  { ground:'#4e342e', top:'#6d4c41', tuft:'#3e2723' },
-    7:  { ground:'#1a3a00', top:'#4a7a00', tuft:'#0d2200' },
-    8:  { ground:'#1a3a1a', top:'#388e3c', tuft:'#1b5e20' },
-    9:  { ground:'#1a2e3a', top:'#37474f', tuft:'#0d1f2d' },
-    10: { ground:'#1a2a1e', top:'#4caf50', tuft:'#0d1a10' },
-    11: { ground:'#004d40', top:'#ff6f00', tuft:'#e65100' },
-    12: { ground:'#2d4a1e', top:'#4a7c3f', tuft:'#1a3a10' },
-    13: { ground:'#1a2a3a', top:'#78bfd8', tuft:'#0d1a2a' },
-    14: { ground:'#1a1a2e', top:'#4a148c', tuft:'#0d0d1e' },
-    15: { ground:'#0d0d2e', top:'#1565c0', tuft:'#050520' },
-    16: { ground:'#3e2723', top:'#795548', tuft:'#2e1a12' },
-    17: { ground:'#3e2200', top:'#5d4037', tuft:'#2e1800' },
-    18: { ground:'#3e2723', top:'#bf360c', tuft:'#8d1b00' },
-    19: { ground:'#546e7a', top:'#b0bec5', tuft:'#37474f' },
-    20: { ground:'#1a1a1a', top:'#424242', tuft:'#0d0d0d' },
-    21: { ground:'#1b5e20', top:'#2e7d32', tuft:'#1a3a1a' },
+    3:  { ground:'#8d4e00', top:'#bf6900', tuft:'#6d3800' },  // badlands
+    4:  { ground:'#c47a00', top:'#e8a000', tuft:'#a06000' },  // arid savanna
+    5:  { ground:'#3a5200', top:'#5a8000', tuft:'#2a3c00' },  // Jurassic valley
+    6:  { ground:'#37474f', top:'#546e7a', tuft:'#263238' },
+    7:  { ground:'#2d3a2d', top:'#546e7a', tuft:'#1a2a1a' },
+    8:  { ground:'#4e342e', top:'#6d4c41', tuft:'#3e2723' },
+    9:  { ground:'#1a3a00', top:'#4a7a00', tuft:'#0d2200' },
+    10: { ground:'#1a3a1a', top:'#388e3c', tuft:'#1b5e20' },
+    11: { ground:'#1a2e3a', top:'#37474f', tuft:'#0d1f2d' },
+    12: { ground:'#1a2a1e', top:'#4caf50', tuft:'#0d1a10' },
+    13: { ground:'#004d40', top:'#ff6f00', tuft:'#e65100' },
+    14: { ground:'#2d4a1e', top:'#4a7c3f', tuft:'#1a3a10' },
+    15: { ground:'#1a2a3a', top:'#78bfd8', tuft:'#0d1a2a' },
+    16: { ground:'#1a1a2e', top:'#4a148c', tuft:'#0d0d1e' },
+    17: { ground:'#0d0d2e', top:'#1565c0', tuft:'#050520' },
+    18: { ground:'#3e2723', top:'#795548', tuft:'#2e1a12' },
+    19: { ground:'#3e2200', top:'#5d4037', tuft:'#2e1800' },
+    20: { ground:'#3e2723', top:'#bf360c', tuft:'#8d1b00' },
+    21: { ground:'#546e7a', top:'#b0bec5', tuft:'#37474f' },
+    22: { ground:'#1a1a1a', top:'#424242', tuft:'#0d0d0d' },
+    23: { ground:'#1b5e20', top:'#2e7d32', tuft:'#1a3a1a' },
   };
   const th = themes[level] || themes[1];
   if (p.h>30) {
@@ -5069,13 +5498,14 @@ function drawBossHUD() {
     ctx.globalAlpha=1;
   }
   const bossNames = {
-    2:'🦴 ALLOSAURUS',       3:'🦕 SAUROPHAGANAX',     4:'🦅 PTERANODON',
-    5:'🌧️ DIMORPHODON',      6:'🦕 SPINOSAURUS',       7:'☠️ CERATOSAURUS',
-    8:'🐊 IRRITATOR',        9:'⛈️ SUCHOMIMUS',        10:'🌊 BARYONYX',
-    11:'🌊 MOSASAURUS',      12:'🌿 NEOVENATOR',        13:'❄️ CRYOLOPHOSAURUS',
-    14:'🦇 ALBERTOSAURUS',   15:'🌌 KRONOSAURUS',       16:'🏔️ GIGANOTOSAURUS',
-    17:'🟤 TARBOSAURUS',     18:'🌋 CARNOTAURUS',       19:'🏔️ YANTUANOSAURUS',
-    20:'🪨 MEGALOSAURUS',    21:'🦖 T-REX — FINAL BOSS'
+    2:'🦴 ALLOSAURUS',       3:'🦕 SAUROPHAGANAX',     4:'💨 DELTADROMEUS',
+    5:'🔴 TORVOSAURUS',      6:'🦅 PTERANODON',        7:'🌧️ DIMORPHODON',
+    8:'🦕 SPINOSAURUS',      9:'☠️ CERATOSAURUS',      10:'🐊 IRRITATOR',
+    11:'⛈️ SUCHOMIMUS',     12:'🌊 BARYONYX',          13:'🌊 MOSASAURUS',
+    14:'🌿 NEOVENATOR',      15:'❄️ CRYOLOPHOSAURUS',  16:'🦇 ALBERTOSAURUS',
+    17:'🌌 KRONOSAURUS',     18:'🏔️ GIGANOTOSAURUS',   19:'🟤 TARBOSAURUS',
+    20:'🌋 CARNOTAURUS',     21:'🏔️ YANTUANOSAURUS',   22:'🪨 MEGALOSAURUS',
+    23:'🦖 T-REX — FINAL BOSS'
   };
   ctx.fillStyle='#fff'; ctx.font='bold 13px Comic Sans MS';
   ctx.textAlign='center'; ctx.fillText(bossNames[level]||'BOSS', W/2, by+bh-5);
@@ -5136,24 +5566,26 @@ function draw() {
   if (boss) {
     if      (level===2)  drawAllosaurus(boss);
     else if (level===3)  drawSaurophaganax(boss);
-    else if (level===4)  drawPteranodon(boss);
-    else if (level===5)  drawDimorphodon(boss);
-    else if (level===6)  drawSpinoBoss(boss);
-    else if (level===7)  drawCeratosaurus(boss);
-    else if (level===8)  drawIrritator(boss);
-    else if (level===9)  drawSuchomimus(boss);
-    else if (level===10) drawBaryonyx(boss);
-    else if (level===11) drawMosasaurus(boss);
-    else if (level===12) drawNeovenator(boss);
-    else if (level===13) drawCryolophosaurus(boss);
-    else if (level===14) drawAlbertosaurus(boss);
-    else if (level===15) drawKronosaurus(boss);
-    else if (level===16) drawGiganotosaurus(boss);
-    else if (level===17) drawTarbosaurus(boss);
-    else if (level===18) drawCarnotaurus(boss);
-    else if (level===19) drawYantuanosaurus(boss);
-    else if (level===20) drawMegalosaurus(boss);
-    else if (level===21) drawTRex(boss);
+    else if (level===4)  drawDeltadromeus(boss);
+    else if (level===5)  drawTorvosaurus(boss);
+    else if (level===6)  drawPteranodon(boss);
+    else if (level===7)  drawDimorphodon(boss);
+    else if (level===8)  drawSpinoBoss(boss);
+    else if (level===9)  drawCeratosaurus(boss);
+    else if (level===10) drawIrritator(boss);
+    else if (level===11) drawSuchomimus(boss);
+    else if (level===12) drawBaryonyx(boss);
+    else if (level===13) drawMosasaurus(boss);
+    else if (level===14) drawNeovenator(boss);
+    else if (level===15) drawCryolophosaurus(boss);
+    else if (level===16) drawAlbertosaurus(boss);
+    else if (level===17) drawKronosaurus(boss);
+    else if (level===18) drawGiganotosaurus(boss);
+    else if (level===19) drawTarbosaurus(boss);
+    else if (level===20) drawCarnotaurus(boss);
+    else if (level===21) drawYantuanosaurus(boss);
+    else if (level===22) drawMegalosaurus(boss);
+    else if (level===23) drawTRex(boss);
   }
   bossProjectiles.forEach(drawBossProjectile);
   // Shockwaves (T-Rex roar)
@@ -5267,26 +5699,28 @@ document.getElementById('easy-btn').addEventListener('click', ()=>{
 
 // ── Level Select ───────────────────────────────────────────
 const LEVEL_NAMES = {
-  1:'🥚 Egg Run', 2:'🦴 Allosaurus', 3:'🦕 Saurophaganax', 4:'🦅 Pteranodon',
-  5:'🌧️ Dimorphodon', 6:'🦕 Spinosaurus', 7:'☠️ Ceratosaurus', 8:'🐊 Irritator',
-  9:'⛈️ Suchomimus', 10:'🌊 Baryonyx', 11:'🌊 Mosasaurus', 12:'🌿 Neovenator',
-  13:'❄️ Cryolophosaurus', 14:'🦇 Albertosaurus', 15:'🌌 Kronosaurus',
-  16:'🏔️ Giganotosaurus', 17:'🟤 Tarbosaurus', 18:'🌋 Carnotaurus',
-  19:'🏔️ Yantuanosaurus', 20:'🪨 Megalosaurus', 21:'💀 T-Rex FINAL'
+  1:'🥚 Egg Run', 2:'🦴 Allosaurus', 3:'🦕 Saurophaganax', 4:'💨 Deltadromeus',
+  5:'🔴 Torvosaurus', 6:'🦅 Pteranodon', 7:'🌧️ Dimorphodon', 8:'🦕 Spinosaurus',
+  9:'☠️ Ceratosaurus', 10:'🐊 Irritator', 11:'⛈️ Suchomimus', 12:'🌊 Baryonyx',
+  13:'🌊 Mosasaurus', 14:'🌿 Neovenator', 15:'❄️ Cryolophosaurus',
+  16:'🦇 Albertosaurus', 17:'🌌 Kronosaurus', 18:'🏔️ Giganotosaurus',
+  19:'🟤 Tarbosaurus', 20:'🌋 Carnotaurus', 21:'🏔️ Yantuanosaurus',
+  22:'🪨 Megalosaurus', 23:'💀 T-Rex FINAL'
 };
 const LEVEL_SUBS = {
-  1:'Sunny Meadow', 2:'Prehistoric Forest', 3:'Ancient Badlands', 4:'Stormy Sky',
-  5:'Rainy Sky', 6:'Land', 7:'Toxic Swamp', 8:'Lake',
-  9:'Stormy Lake', 10:'Stormy River', 11:'Sea', 12:'Swamp',
-  13:'Antarctic Ice', 14:'Dark Cave', 15:'Twilight Zone', 16:'Rocky Cliffs',
-  17:'Mud Pit', 18:'Volcanic Land', 19:'Mountain Summit', 20:'Underground Lair', 21:'Dark Jungle'
+  1:'Sunny Meadow', 2:'Prehistoric Forest', 3:'Ancient Badlands', 4:'Arid Savanna',
+  5:'Jurassic Valley', 6:'Stormy Sky', 7:'Rainy Sky', 8:'Land',
+  9:'Toxic Swamp', 10:'Lake', 11:'Stormy Lake', 12:'Stormy River',
+  13:'Sea', 14:'Swamp', 15:'Antarctic Ice', 16:'Dark Cave',
+  17:'Twilight Zone', 18:'Rocky Cliffs', 19:'Mud Pit', 20:'Volcanic Land',
+  21:'Mountain Summit', 22:'Underground Lair', 23:'Dark Jungle'
 };
 
 function openLevelSelect() {
   document.getElementById('message').style.display='none';
   const grid = document.getElementById('lvl-grid');
   grid.innerHTML = '';
-  for (let i=1; i<=21; i++) {
+  for (let i=1; i<=23; i++) {
     const btn = document.createElement('button');
     btn.className = 'lvl-btn';
     btn.innerHTML = `<span class="lvl-num">Level ${i}</span>${LEVEL_NAMES[i]||''}`;
