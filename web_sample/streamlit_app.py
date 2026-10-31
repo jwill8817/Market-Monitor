@@ -1021,20 +1021,26 @@ def _cum_return(s):
     base=float(s.iloc[0])
     return (s/base-1.0)*100.0 if base else s*0.0
 
-def _ann_return(s):
-    """Running annualized (CAGR) % since the window start; masked for the first ~quarter
-    where the sample is too short to annualize meaningfully."""
-    base=float(s.iloc[0])
-    if not base: return s*0.0
-    yrs=pd.Series((s.index-s.index[0]).days/365.25, index=s.index)
-    out=((s/base)**(1.0/yrs.where(yrs>0,1e-9))-1.0)*100.0
-    return out.where(yrs>=0.25)
+_ROLL_MONTHS={"1M":1,"3M":3,"6M":6,"1Y":12,"2Y":24,"3Y":36,"5Y":60}
+
+def _rolling_return(s, months):
+    """Trailing-`months` % return at each date. Annualized (CAGR) only for windows ≥ 1Y;
+    shorter windows show the plain period return. NaN where there isn't enough lookback."""
+    base=pd.to_numeric(pd.Series([s.asof(d - pd.DateOffset(months=months)) for d in s.index],
+                                 index=s.index), errors="coerce")
+    ok=base>0
+    if months>=12:
+        yrs=months/12.0
+        r=((s/base)**(1.0/yrs)-1.0)*100.0
+    else:
+        r=(s/base-1.0)*100.0
+    return r.where(ok)
 
 def history_explorer(k, provider, labels, default_sel=None, unit="", title="History",
                      height=360, basis="raw"):
     """Reusable multi-series history chart for a tab's own universe.
     `provider(label)` returns a pandas Series (date-indexed). basis='price' enables a
-    Price/Index ↔ Return (cumulative/annualized) toggle and a price+return dual-axis mode."""
+    Price/Index ↔ Return (cumulative / rolling) toggle and a price+return dual-axis mode."""
     if not labels:
         return
     st.markdown(f'<div style="margin-top:8px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
@@ -1046,20 +1052,30 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
         return
     smode="Price / Index"
     if basis=="price":
-        smode=st.radio("Series", ["Price / Index","Cumulative return %","Annualized return %",
+        smode=st.radio("Series", ["Price / Index","Cumulative return %","Rolling return %",
                                   "Price + Return (dual axis)"], horizontal=True, key=k+"_hxmode")
-    cc=st.columns([1.2,1.4,1.3,1.3])
-    rng=cc[0].select_slider("Range",[1,2,3,5,10,20,99],value=5,
-                            format_func=lambda x:"All" if x==99 else f"{x}Y", key=k+"_hxr")
+    cc=st.columns([1.3,1.1,1.3,1.2,1.2])
+    rsel=cc[0].selectbox("Range",["1Y","2Y","3Y","5Y","10Y","20Y","All","Custom"],index=3,key=k+"_hxr")
+    roll_m=None
+    if smode=="Rolling return %":
+        roll_m=_ROLL_MONTHS[cc[1].selectbox("Rolling",list(_ROLL_MONTHS),index=3,key=k+"_hxroll")]
     _dual=(smode=="Price + Return (dual axis)")
-    right=cc[1].multiselect("Right axis", sel, default=[], key=k+"_hxright", disabled=_dual,
+    right=cc[2].multiselect("Right axis", sel, default=[], key=k+"_hxright", disabled=_dual,
                             help="Plot these on a separate right-hand axis (for very different scales).")
-    avg_for=cc[2].multiselect("Average line", sel, default=[], key=k+"_hxavg")
-    sd_for=cc[3].multiselect("±2σ bands", sel, default=[], key=k+"_hxsd")
-    cutoff=None if rng==99 else pd.Timestamp(date.today()-relativedelta(years=int(rng)))
-    def _xform(s):
-        if smode=="Cumulative return %": return _cum_return(s)
-        if smode=="Annualized return %": return _ann_return(s)
+    avg_for=cc[3].multiselect("Average line", sel, default=[], key=k+"_hxavg")
+    sd_for=cc[4].multiselect("±2σ bands", sel, default=[], key=k+"_hxsd")
+    # Date window — presets or discrete custom start/end.
+    lo=hi=None
+    if rsel=="Custom":
+        d1,d2=st.columns(2)
+        _cs=d1.date_input("Start", value=date.today()-relativedelta(years=5), key=k+"_hxcs", min_value=date(1900,1,1))
+        _ce=d2.date_input("End", value=date.today(), key=k+"_hxce", min_value=date(1900,1,1))
+        lo,hi=pd.Timestamp(_cs),pd.Timestamp(_ce)
+    elif rsel!="All":
+        lo=pd.Timestamp(date.today()-relativedelta(years=int(rsel[:-1]))); hi=pd.Timestamp(date.today())
+    def _window(s):
+        if lo is not None: s=s[s.index>=lo]
+        if hi is not None: s=s[s.index<=hi]
         return s
     fig=go.Figure(); plotted=0
     def _band(x0,x1,yv,col,dash,yax):
@@ -1070,36 +1086,43 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
         except Exception: s=None
         if s is None: continue
         try:
-            s=pd.Series(s).dropna(); s.index=pd.to_datetime(s.index)
+            s=pd.Series(s).dropna(); s.index=pd.to_datetime(s.index); s=s.sort_index()
         except Exception:
             continue
-        if cutoff is not None: s=s[s.index>=cutoff]
         if s.empty: continue
         col=PALETTE[i%len(PALETTE)]
         if _dual:
-            # One instrument: price on left, cumulative return on right.
-            cr=_cum_return(s)
-            fig.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",name=f"{lab} · price",
+            sp=_window(s)
+            if sp.empty: continue
+            cr=_cum_return(sp)
+            fig.add_trace(go.Scatter(x=sp.index,y=sp.values,mode="lines",name=f"{lab} · price",
                                      line=dict(color=col,width=1.6),yaxis="y"))
             fig.add_trace(go.Scatter(x=cr.index,y=cr.values,mode="lines",name=f"{lab} · cum %",
                                      line=dict(color=col,width=1.2,dash="dot"),yaxis="y2"))
             plotted+=1; continue
-        s=_xform(s)
+        if smode=="Cumulative return %":
+            s=_cum_return(_window(s))
+        elif smode=="Rolling return %":
+            s=_window(_rolling_return(s, roll_m))      # rolling on full series, then window
+        else:
+            s=_window(s)
+        s=s.dropna()
+        if s.empty: continue
         yax=("y2" if lab in right else "y")
         fig.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",name=lab,
                                  line=dict(color=col,width=1.6),yaxis=yax))
         if lab in avg_for or lab in sd_for:
-            v=s.dropna()
-            if len(v)>1:
-                mu=float(v.mean()); sd=float(v.std()); x0,x1=v.index[0],v.index[-1]
+            if len(s)>1:
+                mu=float(s.mean()); sd=float(s.std()); x0,x1=s.index[0],s.index[-1]
                 if lab in avg_for: _band(x0,x1,mu,col,"dot",yax)
                 if lab in sd_for:  _band(x0,x1,mu+2*sd,col,"dash",yax); _band(x0,x1,mu-2*sd,col,"dash",yax)
         plotted+=1
     if not plotted:
         st.info("No history for the selected series / range."); return
-    _lu={"Cumulative return %":"%","Annualized return %":"%","Price / Index":unit,
-         "Price + Return (dual axis)":unit}.get(smode, unit)
-    base_layout(fig,title+("" if smode in ("Price / Index","raw") else f" · {smode}"),_lu,h=height)
+    _sub=smode
+    if smode=="Rolling return %": _sub=f"Rolling {[k2 for k2,v in _ROLL_MONTHS.items() if v==roll_m][0]} return %"
+    _lu="%" if smode in ("Cumulative return %","Rolling return %") else unit
+    base_layout(fig,title+("" if smode in ("Price / Index","raw") else f" · {_sub}"),_lu,h=height)
     if _dual:
         fig.update_layout(yaxis2=dict(overlaying="y",side="right",showgrid=False,
                                       title="cumulative return %",rangemode="normal"))
