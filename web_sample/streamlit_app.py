@@ -1016,6 +1016,58 @@ def add_stat_bands(fig, y, color, label, show_avg, show_sd,
             fig.add_hline(y=yv, line=dict(color=color,dash="dash",width=1),
                           annotation_text=f"{label} {tag}", annotation_font_size=9)
 
+def history_explorer(k, provider, labels, default_sel=None, unit="", title="History", height=360):
+    """Reusable multi-series history chart for a tab's own universe.
+    `provider(label)` returns a pandas Series (date-indexed) of the value to plot.
+    Supports: multi-select, date range, optional right-hand axis per series, and
+    per-series average / ±2σ bands (drawn on the series' own axis)."""
+    if not labels:
+        return
+    st.markdown(f'<div style="margin-top:8px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'History explorer — plot one or more; optional right axis, average &amp; ±2σ bands</div>',
+                unsafe_allow_html=True)
+    sel=st.multiselect("Plot series", labels, default=(default_sel if default_sel is not None else labels[:1]),
+                       key=k+"_hx", label_visibility="collapsed")
+    if not sel:
+        return
+    cc=st.columns([1.2,1.4,1.3,1.3])
+    rng=cc[0].select_slider("Range",[1,2,3,5,10,20,99],value=5,
+                            format_func=lambda x:"All" if x==99 else f"{x}Y", key=k+"_hxr")
+    right=cc[1].multiselect("Right axis", sel, default=[], key=k+"_hxright",
+                            help="Plot these on a separate right-hand axis (for very different scales).")
+    avg_for=cc[2].multiselect("Average line", sel, default=[], key=k+"_hxavg")
+    sd_for=cc[3].multiselect("±2σ bands", sel, default=[], key=k+"_hxsd")
+    cutoff=None if rng==99 else pd.Timestamp(date.today()-relativedelta(years=int(rng)))
+    fig=go.Figure(); plotted=0
+    def _band(x0,x1,yv,col,dash,yax):
+        fig.add_trace(go.Scatter(x=[x0,x1],y=[yv,yv],mode="lines",line=dict(color=col,width=1,dash=dash),
+                                 yaxis=yax,showlegend=False,hoverinfo="skip"))
+    for i,lab in enumerate(sel):
+        try: s=provider(lab)
+        except Exception: s=None
+        if s is None: continue
+        try:
+            s=pd.Series(s).dropna(); s.index=pd.to_datetime(s.index)
+        except Exception:
+            continue
+        if cutoff is not None: s=s[s.index>=cutoff]
+        if s.empty: continue
+        col=PALETTE[i%len(PALETTE)]; yax=("y2" if lab in right else "y")
+        fig.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",name=lab,
+                                 line=dict(color=col,width=1.6),yaxis=yax))
+        if lab in avg_for or lab in sd_for:
+            mu=float(s.mean()); sd=float(s.std()); x0,x1=s.index[0],s.index[-1]
+            if lab in avg_for: _band(x0,x1,mu,col,"dot",yax)
+            if lab in sd_for:  _band(x0,x1,mu+2*sd,col,"dash",yax); _band(x0,x1,mu-2*sd,col,"dash",yax)
+        plotted+=1
+    if not plotted:
+        st.info("No history for the selected series / range."); return
+    base_layout(fig,title,unit,h=height)
+    if right:
+        fig.update_layout(yaxis2=dict(overlaying="y",side="right",showgrid=False,
+                                      title="right axis",rangemode="normal"))
+    st.plotly_chart(fig,use_container_width=True,key=k+"_hxchart")
+
 def add_today_marker(fig, series, color=None):
     """Highlight the latest point with a large white dot (colored ring) so 'today' pops."""
     try:
@@ -1282,6 +1334,10 @@ def panel_returns(catkey, label, k):
         **{p:i.get("returns",{}).get(p) for p in ["WTD","MTD","QTD","YTD","1Y","3Y","5Y","10Y","Custom"]}}
         for n,i in data.items()])
     with c3: dl(df, "Export", f"JAWS_{catkey}.xlsx", k+"_dl")
+    # Multi-series history explorer for this tab's instruments (price history).
+    _names=list(data.keys())
+    history_explorer(k+"_hx", lambda lab: md_history(tmap.get(lab, lab)), _names,
+                     default_sel=[_names[0]] if _names else [], unit="", title=f"{label} — price history")
 
 # ── Treasury curve + steepness (FRED constant-maturity yields) ──
 _RATE_TENORS=[("3M","DGS3MO"),("6M","DGS6MO"),("1Y","DGS1"),("2Y","DGS2"),("3Y","DGS3"),
@@ -1416,34 +1472,21 @@ def panel_analytics(loader, label, fname, k):
                "**Δ Avg** = current − long-run average (red = above average, green = below). **Min / Max / "
                "Avg / Z-score** span each series' full history — back to its **Since** year.")
     valid=[r for r in rows if not r.get("error") and r.get("raw_dates")]
-    c1,c2,c3=st.columns([2,1.3,1])
-    pick=c1.selectbox("History", [r["name"] for r in valid], key=k+"_pick", label_visibility="collapsed")
-    rng=c2.select_slider("Range",[1,2,3,5,10,20,99],value=99,
-                         format_func=lambda x:"All" if x==99 else f"{x}Y", key=k+"_rng",
-                         label_visibility="collapsed")
     df=pd.DataFrame([{"Name":r["name"],"Category":r.get("category"),"Current":r.get("current"),
         **{p:r.get("hist",{}).get(p) for p in ["1M","3M","1Y","3Y","5Y","10Y"]},
         "Min":r.get("all_min"),"Max":r.get("all_max"),"Avg":r.get("avg"),
         "Delta_vs_Avg":(None if (r.get("avg") is None or r.get("current") is None) else round(r["current"]-r["avg"],4)),
         "Z":r.get("z_score")} for r in valid])
-    with c3: dl(df, "Export", fname, k+"_dl")
-    if pick:
-        r=next(x for x in valid if x["name"]==pick)
-        ds,vs=list(r["raw_dates"]),list(r["raw_values"])
-        if rng!=99 and ds:
-            cutoff=pd.Timestamp(date.today()-relativedelta(years=int(rng)))
-            _dd=pd.to_datetime(pd.Series(ds))
-            _keep=[i for i in range(len(ds)) if _dd.iloc[i]>=cutoff]
-            if _keep: ds=[ds[i] for i in _keep]; vs=[vs[i] for i in _keep]
-        fig=go.Figure()
-        if ds:
-            mean=sum(vs)/len(vs)
-            fig.add_trace(go.Scatter(x=ds,y=vs,mode="lines",line=dict(color=ACCENT,width=1.6)))
-            fig.add_hline(y=mean,line=dict(color=TEXT3,dash="dash"),
-                          annotation_text=f"avg {mean:.2f}", annotation_position="top left")
-        _rlbl="full history" if rng==99 else f"last {rng}Y"
-        st.plotly_chart(base_layout(fig,f"{pick} ({r.get('unit','')}) · {_rlbl}",h=300),
-                        use_container_width=True, key=k+"_chart")
+    dl(df, "Export", fname, k+"_dl")
+    # Multi-series history explorer for this tab's universe.
+    _by={r["name"]: r for r in valid}
+    _unit=(valid[0].get("unit","") if valid else "")
+    def _prov(lab):
+        r=_by.get(lab)
+        if not r: return None
+        return pd.Series(r["raw_values"], index=pd.to_datetime(pd.Series(r["raw_dates"])))
+    history_explorer(k+"_hx", _prov, [r["name"] for r in valid],
+                     default_sel=[valid[0]["name"]] if valid else [], unit=_unit, title=f"{label} — history")
 
 def panel_factors(k):
     c1,c2=st.columns(2)
@@ -1475,27 +1518,21 @@ def panel_factors(k):
     import factors_data as fd
     allf=[r for s in ("daily","monthly") for r in fdata.get(s,[]) if not r.get("error")]
     names=[r["name"]+(" (D)" if r["is_daily"] else " (M)") for r in allf]
-    c1,c2,c3=st.columns([2,1,1])
-    idx=c1.selectbox("Factor", range(len(names)), format_func=lambda i:names[i],
-                     key=k+"_pick", label_visibility="collapsed")
-    yrs=c2.select_slider("Yrs",[1,3,5,7,10,99],value=5,
-                         format_func=lambda x:"All" if x==99 else f"{x}Y",key=k+"_yr")
     erows=[]
     for s in ("daily","monthly"):
         for r in fdata.get(s,[]):
             if r.get("error"): continue
             erows.append({"Factor":r["name"],"Section":s,**{x:r["windows"].get(x) for x in keys}})
-    with c3: dl(pd.DataFrame(erows), "Export", "JAWS_LS_Factors.xlsx", k+"_dl")
-    r=allf[idx]; start=None if yrs==99 else date.today()-relativedelta(years=yrs)
-    ds,vs=fd.cumulative_series(r["raw_dates"],r["raw_rets"],start)
-    fig=go.Figure()
-    if ds:
-        col=GREEN if vs[-1]>=0 else RED
-        fig.add_trace(go.Scatter(x=ds,y=vs,mode="lines",line=dict(color=col,width=1.6),fill="tozeroy",
-            fillcolor="rgba(63,185,80,0.12)" if vs[-1]>=0 else "rgba(248,81,73,0.12)"))
-        fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-    st.plotly_chart(base_layout(fig,f"{r['name']} — cumulative L/S %","%",h=300),
-                    use_container_width=True, key=k+"_chart")
+    dl(pd.DataFrame(erows), "Export", "JAWS_LS_Factors.xlsx", k+"_dl")
+    # Multi-factor cumulative history explorer.
+    _n2r={names[i2]: rr for i2,rr in enumerate(allf)}
+    def _prov(lab):
+        rr=_n2r.get(lab)
+        if not rr: return None
+        ds2,vs2=fd.cumulative_series(rr["raw_dates"], rr["raw_rets"], None)
+        return pd.Series(vs2, index=pd.to_datetime(pd.Series(ds2)))
+    history_explorer(k+"_hx", _prov, names, default_sel=[names[0]] if names else [],
+                     unit="%", title="L/S factors — cumulative %")
 
 def ticker_picker(k, default_labels):
     """Searchable multi-ticker picker. Returns {label: symbol} for the chosen set.
