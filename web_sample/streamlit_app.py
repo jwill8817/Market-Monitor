@@ -1016,11 +1016,25 @@ def add_stat_bands(fig, y, color, label, show_avg, show_sd,
             fig.add_hline(y=yv, line=dict(color=color,dash="dash",width=1),
                           annotation_text=f"{label} {tag}", annotation_font_size=9)
 
-def history_explorer(k, provider, labels, default_sel=None, unit="", title="History", height=360):
+def _cum_return(s):
+    """Cumulative % return from the first point of the (already-windowed) series."""
+    base=float(s.iloc[0])
+    return (s/base-1.0)*100.0 if base else s*0.0
+
+def _ann_return(s):
+    """Running annualized (CAGR) % since the window start; masked for the first ~quarter
+    where the sample is too short to annualize meaningfully."""
+    base=float(s.iloc[0])
+    if not base: return s*0.0
+    yrs=pd.Series((s.index-s.index[0]).days/365.25, index=s.index)
+    out=((s/base)**(1.0/yrs.where(yrs>0,1e-9))-1.0)*100.0
+    return out.where(yrs>=0.25)
+
+def history_explorer(k, provider, labels, default_sel=None, unit="", title="History",
+                     height=360, basis="raw"):
     """Reusable multi-series history chart for a tab's own universe.
-    `provider(label)` returns a pandas Series (date-indexed) of the value to plot.
-    Supports: multi-select, date range, optional right-hand axis per series, and
-    per-series average / ±2σ bands (drawn on the series' own axis)."""
+    `provider(label)` returns a pandas Series (date-indexed). basis='price' enables a
+    Price/Index ↔ Return (cumulative/annualized) toggle and a price+return dual-axis mode."""
     if not labels:
         return
     st.markdown(f'<div style="margin-top:8px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
@@ -1030,14 +1044,23 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
                        key=k+"_hx", label_visibility="collapsed")
     if not sel:
         return
+    smode="Price / Index"
+    if basis=="price":
+        smode=st.radio("Series", ["Price / Index","Cumulative return %","Annualized return %",
+                                  "Price + Return (dual axis)"], horizontal=True, key=k+"_hxmode")
     cc=st.columns([1.2,1.4,1.3,1.3])
     rng=cc[0].select_slider("Range",[1,2,3,5,10,20,99],value=5,
                             format_func=lambda x:"All" if x==99 else f"{x}Y", key=k+"_hxr")
-    right=cc[1].multiselect("Right axis", sel, default=[], key=k+"_hxright",
+    _dual=(smode=="Price + Return (dual axis)")
+    right=cc[1].multiselect("Right axis", sel, default=[], key=k+"_hxright", disabled=_dual,
                             help="Plot these on a separate right-hand axis (for very different scales).")
     avg_for=cc[2].multiselect("Average line", sel, default=[], key=k+"_hxavg")
     sd_for=cc[3].multiselect("±2σ bands", sel, default=[], key=k+"_hxsd")
     cutoff=None if rng==99 else pd.Timestamp(date.today()-relativedelta(years=int(rng)))
+    def _xform(s):
+        if smode=="Cumulative return %": return _cum_return(s)
+        if smode=="Annualized return %": return _ann_return(s)
+        return s
     fig=go.Figure(); plotted=0
     def _band(x0,x1,yv,col,dash,yax):
         fig.add_trace(go.Scatter(x=[x0,x1],y=[yv,yv],mode="lines",line=dict(color=col,width=1,dash=dash),
@@ -1052,18 +1075,35 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
             continue
         if cutoff is not None: s=s[s.index>=cutoff]
         if s.empty: continue
-        col=PALETTE[i%len(PALETTE)]; yax=("y2" if lab in right else "y")
+        col=PALETTE[i%len(PALETTE)]
+        if _dual:
+            # One instrument: price on left, cumulative return on right.
+            cr=_cum_return(s)
+            fig.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",name=f"{lab} · price",
+                                     line=dict(color=col,width=1.6),yaxis="y"))
+            fig.add_trace(go.Scatter(x=cr.index,y=cr.values,mode="lines",name=f"{lab} · cum %",
+                                     line=dict(color=col,width=1.2,dash="dot"),yaxis="y2"))
+            plotted+=1; continue
+        s=_xform(s)
+        yax=("y2" if lab in right else "y")
         fig.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",name=lab,
                                  line=dict(color=col,width=1.6),yaxis=yax))
         if lab in avg_for or lab in sd_for:
-            mu=float(s.mean()); sd=float(s.std()); x0,x1=s.index[0],s.index[-1]
-            if lab in avg_for: _band(x0,x1,mu,col,"dot",yax)
-            if lab in sd_for:  _band(x0,x1,mu+2*sd,col,"dash",yax); _band(x0,x1,mu-2*sd,col,"dash",yax)
+            v=s.dropna()
+            if len(v)>1:
+                mu=float(v.mean()); sd=float(v.std()); x0,x1=v.index[0],v.index[-1]
+                if lab in avg_for: _band(x0,x1,mu,col,"dot",yax)
+                if lab in sd_for:  _band(x0,x1,mu+2*sd,col,"dash",yax); _band(x0,x1,mu-2*sd,col,"dash",yax)
         plotted+=1
     if not plotted:
         st.info("No history for the selected series / range."); return
-    base_layout(fig,title,unit,h=height)
-    if right:
+    _lu={"Cumulative return %":"%","Annualized return %":"%","Price / Index":unit,
+         "Price + Return (dual axis)":unit}.get(smode, unit)
+    base_layout(fig,title+("" if smode in ("Price / Index","raw") else f" · {smode}"),_lu,h=height)
+    if _dual:
+        fig.update_layout(yaxis2=dict(overlaying="y",side="right",showgrid=False,
+                                      title="cumulative return %",rangemode="normal"))
+    elif right:
         fig.update_layout(yaxis2=dict(overlaying="y",side="right",showgrid=False,
                                       title="right axis",rangemode="normal"))
     st.plotly_chart(fig,use_container_width=True,key=k+"_hxchart")
@@ -1337,7 +1377,8 @@ def panel_returns(catkey, label, k):
     # Multi-series history explorer for this tab's instruments (price history).
     _names=list(data.keys())
     history_explorer(k+"_hx", lambda lab: md_history(tmap.get(lab, lab)), _names,
-                     default_sel=[_names[0]] if _names else [], unit="", title=f"{label} — price history")
+                     default_sel=[_names[0]] if _names else [], unit="", title=f"{label} — history",
+                     basis="price")
 
 # ── Treasury curve + steepness (FRED constant-maturity yields) ──
 _RATE_TENORS=[("3M","DGS3MO"),("6M","DGS6MO"),("1Y","DGS1"),("2Y","DGS2"),("3Y","DGS3"),
