@@ -1037,7 +1037,7 @@ def _rolling_return(s, months):
     return r.where(ok)
 
 def history_explorer(k, provider, labels, default_sel=None, unit="", title="History",
-                     height=360, basis="raw"):
+                     height=360, basis="raw", rebase_default=False):
     """Reusable multi-series history chart for a tab's own universe.
     `provider(label)` returns a pandas Series (date-indexed). basis='price' enables a
     Price/Index ↔ Return (cumulative / rolling) toggle and a price+return dual-axis mode."""
@@ -1050,10 +1050,13 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
                        key=k+"_hx", label_visibility="collapsed")
     if not sel:
         return
-    smode="Price / Index"
+    smode="Price / Index"; rebase=False
     if basis=="price":
         smode=st.radio("Series", ["Price / Index","Cumulative return %","Rolling return %",
                                   "Price + Return (dual axis)"], horizontal=True, key=k+"_hxmode")
+        if smode=="Price / Index":
+            rebase=st.checkbox("Rebase to 100 (index growth from the window start)",
+                               value=rebase_default, key=k+"_hxreb")
     cc=st.columns([1.3,1.1,1.3,1.2,1.2])
     rsel=cc[0].selectbox("Range",["1Y","2Y","3Y","5Y","10Y","20Y","All","Custom"],index=3,key=k+"_hxr")
     roll_m=None
@@ -1106,6 +1109,9 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
             s=_window(_rolling_return(s, roll_m))      # rolling on full series, then window
         else:
             s=_window(s)
+            if rebase and not s.empty:
+                _b=float(s.iloc[0])
+                if _b: s=s/_b*100.0
         s=s.dropna()
         if s.empty: continue
         yax=("y2" if lab in right else "y")
@@ -1620,9 +1626,10 @@ def panel_factors(k):
         rr=_n2r.get(lab)
         if not rr: return None
         ds2,vs2=fd.cumulative_series(rr["raw_dates"], rr["raw_rets"], None)
-        return pd.Series(vs2, index=pd.to_datetime(pd.Series(ds2)))
+        idx=[100.0*(1.0+v/100.0) for v in vs2]        # growth-of-100 index (compounded)
+        return pd.Series(idx, index=pd.to_datetime(pd.Series(ds2)))
     history_explorer(k+"_hx", _prov, names, default_sel=[names[0]] if names else [],
-                     unit="%", title="L/S factors — cumulative %")
+                     unit="index", title="L/S factors", basis="price", rebase_default=True)
 
 def ticker_picker(k, default_labels):
     """Searchable multi-ticker picker. Returns {label: symbol} for the chosen set.
