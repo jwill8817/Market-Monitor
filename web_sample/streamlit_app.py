@@ -1391,6 +1391,26 @@ def _rates_curve_data():
     asof=max([s.index[-1] for s in series.values()]) if series else None
     return trows, srows, (asof.date().isoformat() if asof is not None else "")
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _rates_hist_series():
+    """{label: yield/spread Series in %} for the history explorer on the Rates tab."""
+    import fi_spreads as fs
+    raw={}
+    for _,sid in _RATE_TENORS:
+        try:
+            dd,vv=fs._fred_fetch_all(sid)
+            if dd: raw[sid]=pd.Series(vv,index=pd.to_datetime(dd)).dropna().sort_index()
+        except Exception: pass
+    out={}
+    for lbl,sid in _RATE_TENORS:
+        if raw.get(sid) is not None: out[lbl]=raw[sid]
+    for lbl,lng,sht in _RATE_SPREADS:
+        a=raw.get(lng); b=raw.get(sht)
+        if a is None or b is None: continue
+        df=pd.concat({"a":a,"b":b},axis=1).dropna()
+        if not df.empty: out[lbl]=(df["a"]-df["b"])
+    return out
+
 def panel_rates(k):
     with st.spinner("Loading Treasury curve (FRED)…"):
         try: trows,srows,asof=_rates_curve_data()
@@ -1433,6 +1453,12 @@ def panel_rates(k):
         exp.append({"Type":"Spread","Name":r["name"],"Level%":round(r["level"],4),
                     **{p:(None if r.get(p) is None else round(r[p]/100,4)) for p in _cols}})
     dl(pd.DataFrame(exp),"Export rates & curve","JAWS_rates_curve.xlsx",k+"_dl")
+    # History explorer: plot any tenor yields and/or curve spreads together (all in %).
+    _rs=_rates_hist_series()
+    _rlabels=[lbl for lbl,_ in _RATE_TENORS if lbl in _rs]+[lbl for lbl,_,_ in _RATE_SPREADS if lbl in _rs]
+    history_explorer(k+"_hx", lambda lab: _rs.get(lab), _rlabels,
+                     default_sel=["10Y","2s10s"] if ("10Y" in _rs and "2s10s" in _rs) else _rlabels[:1],
+                     unit="%", title="Treasury yields & curve spreads — history")
 
 ANA_HDR=["Name","Unit","Cur","Δ1M","Δ3M","Δ1Y","Δ3Y","Δ5Y","Δ10Y","Min","Max","Avg","Δ Avg","Z","Since"]
 def panel_analytics(loader, label, fname, k):
