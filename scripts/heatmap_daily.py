@@ -133,47 +133,43 @@ def build(key, cfg):
 
 
 def _append_breadth(closes, asof):
-    """Compute market-breadth stats from constituent closes and append one row/day to
-    data/breadth_sp500.csv (deduped by date) — builds a breadth history over time."""
-    import csv
-    a50 = a200 = hi = lo = adv = dec = tot = 0
-    for s in closes.values():
-        s = s.dropna()
-        if len(s) < 60:
-            continue
-        tot += 1
-        last = float(s.iloc[-1])
-        if last > float(s.tail(50).mean()):
-            a50 += 1
-        if len(s) >= 200 and last > float(s.tail(200).mean()):
-            a200 += 1
-        win = s.tail(252)
-        if last >= float(win.max()) * 0.999:
-            hi += 1
-        if last <= float(win.min()) * 1.001:
-            lo += 1
-        if len(s) > 1:
-            if last > float(s.iloc[-2]): adv += 1
-            elif last < float(s.iloc[-2]): dec += 1
-    if not tot:
+    """Compute a full market-breadth *history* (not just today) from the constituent price
+    window — % above 50/200-DMA, 52-week new highs/lows, advancers/decliners — vectorized,
+    and write the last ~250 trading days to data/breadth_sp500.csv. Recomputed each run so
+    the chart has real history immediately and rolls forward over time."""
+    if len(closes) < 50:
         return
-    row = {"date": asof, "n": tot,
-           "pct_above_50dma": round(a50 / tot * 100, 1),
-           "pct_above_200dma": round(a200 / tot * 100, 1),
-           "new_highs_52w": hi, "new_lows_52w": lo,
-           "net_new_highs": hi - lo, "advancers": adv, "decliners": dec}
-    path = OUTDIR / "breadth_sp500.csv"
-    fields = list(row)
-    existing = []
-    if path.exists():
-        with open(path, newline="", encoding="utf-8") as f:
-            existing = [r for r in csv.DictReader(f) if r.get("date") != asof]
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
-        w.writerows(existing + [row])
-    print(f"breadth: {row['pct_above_50dma']}% >50dma, {row['pct_above_200dma']}% >200dma, "
-          f"net new highs {row['net_new_highs']} -> data/breadth_sp500.csv")
+    px = pd.DataFrame(closes).sort_index()            # columns = tickers, index = dates
+    valid = px.notna()
+    ma50 = px.rolling(50, min_periods=40).mean()
+    ma200 = px.rolling(200, min_periods=150).mean()
+    hi252 = px.rolling(252, min_periods=120).max()
+    lo252 = px.rolling(252, min_periods=120).min()
+    prev = px.shift(1)
+    a50 = (px > ma50).sum(axis=1)
+    a200 = (px > ma200).sum(axis=1)
+    n50 = (valid & ma50.notna()).sum(axis=1)
+    n200 = (valid & ma200.notna()).sum(axis=1)
+    newhi = (px >= hi252 * 0.999).sum(axis=1)
+    newlo = (px <= lo252 * 1.001).sum(axis=1)
+    adv = (px > prev).sum(axis=1)
+    dec = (px < prev).sum(axis=1)
+    df = pd.DataFrame({
+        "date": px.index,
+        "n": valid.sum(axis=1).values,
+        "pct_above_50dma": (a50 / n50.replace(0, 1) * 100).round(1).values,
+        "pct_above_200dma": (a200 / n200.replace(0, 1) * 100).round(1).values,
+        "new_highs_52w": newhi.values, "new_lows_52w": newlo.values,
+        "net_new_highs": (newhi - newlo).values, "advancers": adv.values, "decliners": dec.values,
+    })
+    df = df[n200.values >= 50].tail(260)              # only once 200-DMA breadth is meaningful
+    if df.empty:
+        return
+    df["date"] = pd.to_datetime(df["date"]).dt.date.astype(str)
+    (OUTDIR / "breadth_sp500.csv").write_text(df.to_csv(index=False), encoding="utf-8")
+    last = df.iloc[-1]
+    print(f"breadth: {len(df)} days, latest {last['pct_above_50dma']}% >50dma, "
+          f"{last['pct_above_200dma']}% >200dma, net new highs {last['net_new_highs']}")
 
 
 def main():

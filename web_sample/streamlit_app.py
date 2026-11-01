@@ -5706,6 +5706,10 @@ def panel_econ_calendar(k):
     if not cal:
         st.info("Economic calendar unavailable (FRED)."); return
     today=datetime.date.today()
+    if not any(r.get("next") for r in cal):
+        st.warning("Couldn't load the FRED **release schedule** (future dates) — the latest actuals still show "
+                   "below. This usually means FRED_API_KEY isn't set in the app's secrets, or FRED was slow. "
+                   "The schedule *is* available — add the key and reload.")
     hh=["Next release","Report","Latest actual","As of"]
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
     for r in cal:
@@ -5961,34 +5965,22 @@ def panel_vol_monitor(k):
                      f'<span style="color:{TEXT2};font-size:10.5px">{label}</span><br>'
                      f'<span style="color:{color};font-size:22px;font-weight:700">'
                      f'{("—" if val is None else format(val,fmt))}</span></div>', unsafe_allow_html=True)
-    cols=st.columns(6)
-    tile(cols[0],"VIX",vix,"+.1f" if False else ".1f",
+    cols=st.columns(4)
+    tile(cols[0],"VIX",vix,".1f",
          (RED if (vix or 0)>25 else YELLOW if (vix or 0)>16 else GREEN))
-    tile(cols[1],"Term (VIX3M−VIX)",term,"+.1f",
-         (RED if (term is not None and term<0) else GREEN))     # backwardation = stress
-    tile(cols[2],"Vol risk premium",vrp,"+.1f",
+    tile(cols[1],"Vol risk premium (VIX−RV)",vrp,"+.1f",
          (RED if (vrp is not None and vrp<0) else GREEN))       # negative = realized > implied
-    tile(cols[3],"MOVE (rates)",move,".0f",
+    tile(cols[2],"MOVE (rates vol)",move,".0f",
          (RED if (move or 0)>120 else YELLOW if (move or 0)>95 else GREEN))
-    tile(cols[4],"SKEW",skew,".0f",
-         (RED if (skew or 0)>150 else YELLOW if (skew or 0)>135 else GREEN))
-    tile(cols[5],"VVIX",vvix,".0f",
+    tile(cols[3],"VVIX (vol of vol)",vvix,".0f",
          (RED if (vvix or 0)>110 else YELLOW if (vvix or 0)>95 else GREEN))
-    # VIX term-structure curve (today)
-    ts=[("9D","VIX9D"),("1M","VIX"),("3M","VIX3M"),("6M","VIX6M")]
-    xs=[t for t,_ in ts]; ys=[_last(lbl) for _,lbl in ts]
-    if any(y is not None for y in ys):
-        tf=go.Figure(go.Scatter(x=xs,y=ys,mode="lines+markers+text",line=dict(color=ACCENT,width=2),
-            text=[f"{y:.1f}" if y is not None else "" for y in ys],textposition="top center",
-            textfont=dict(size=10,color=TEXT1)))
-        base_layout(tf,"VIX term structure (today) — upward = contango (calm), downward = backwardation (stress)","",h=250)
-        st.plotly_chart(tf, use_container_width=True, key=k+"_ts")
-    st.caption("**VIX** = 30-day S&P implied vol. **Term** (VIX3M−VIX): positive = contango (calm), negative = "
-               "backwardation (stress). **Vol risk premium** = VIX − 21-day realized vol; **negative = realized "
-               "is outrunning implied** (shock). **MOVE** = Treasury implied vol. **SKEW** = tail-hedging demand "
-               "(higher = more). **VVIX** = vol-of-vol. Source: Yahoo/CBOE (free).")
+    st.caption("**Vol risk premium** = VIX − 21-day realized vol; **positive** = options richer than realized "
+               "(vol sellers paid), **negative = realized is outrunning implied** (a shock). **MOVE** = Treasury "
+               "implied vol. **VVIX** = vol-of-vol. *(VIX term structure and SKEW have their own sections above — "
+               "this adds the vol-risk-premium and cross-asset vol.)* Source: Yahoo/CBOE (free).")
     history_explorer(k+"_hx", lambda lab: d.get(lab), list(d.keys()),
-                     default_sel=["VIX","Realized vol (S&P, 21d)"], unit="", title="Volatility — history")
+                     default_sel=["Vol risk premium (VIX−RV)","MOVE (rates vol)"], unit="",
+                     title="Vol risk premium & cross-asset vol — history")
 
 r1=st.columns(2)
 with r1[0]:
@@ -6012,7 +6004,7 @@ _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return
 # Return-distribution explorer sits up top (full-width), above the curves grid.
 _sec("ECON","Economic Calendar (upcoming US releases + latest actuals)", panel_econ_calendar, "sececon")
 _sec("MACRO","Macro Nowcast & Recession Monitor (growth · curve · financial conditions)", panel_macro_nowcast, "secmacro")
-_sec("VOL","Volatility Monitor (VIX term structure · vol-risk-premium · MOVE / SKEW / VVIX)", panel_vol_monitor, "secvol")
+_sec("VRP","Vol Risk Premium & Cross-Asset Vol (VIX−realized · MOVE · VVIX)", panel_vol_monitor, "secvol")
 _sec("BRDTH","Market Breadth (S&P 500 internals — % above MA · new highs/lows · adv/decl)", panel_breadth, "secbrdth")
 _sec("COT","Futures Positioning — CFTC Commitments of Traders (net speculative)", panel_cot, "seccot")
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
