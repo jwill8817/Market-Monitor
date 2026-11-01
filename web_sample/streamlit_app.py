@@ -5869,118 +5869,117 @@ def _macro_color(kind,val):
     return TEXT1
 
 def panel_macro_nowcast(k):
+    import datetime as _dt
     data=_macro_data()
     if not data:
         st.warning("Macro data unavailable (FRED)."); return
-    tiles=["GDPNow — real GDP (SAAR %)","Sahm Rule (≥0.50 ⇒ recession)","Yield curve: 10Y − 3M",
-           "Smoothed recession probability (%)","Chicago Fed NFCI (fin. conditions)",
-           "St. Louis Fed Financial Stress"]
-    cols=st.columns(len(tiles))
-    for col,lbl in zip(cols,tiles):
+    _thr={"growth":"< 0 (contraction)","sahm":"≥ 0.50","curve":"< 0 (inverted)",
+          "recprob":"> 20%","nfci":"> 0 (tight)"}
+    _lab={GREEN:"OK",YELLOW:"Watch",RED:"⚠ Stress"}
+    def _fmt(v,kind,unit):
+        suf="%" if (unit=="%" or kind=="recprob") else ""
+        if kind in ("curve","sahm"): return f"{v:+.2f}{suf}"
+        if kind=="nfci": return f"{v:+.2f}"
+        return f"{v:.1f}{suf}"
+    hh=["Indicator","Latest","As of","Problematic","3-mo trend","Status"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+    cut=_dt.date.today()-relativedelta(months=3)
+    for short,lbl,sid,unit,kind in _MACRO:
         d=data.get(lbl)
-        if not d:
-            col.markdown("—"); continue
-        val=d["latest"]; kind=d["kind"]; cO=_macro_color(kind,val)
-        suf="%" if (d["unit"]=="%" or kind=="recprob") else ""
-        disp=(f"{val:+.2f}" if kind in ("curve","sahm") else (f"{val:.2f}" if kind=="nfci" else f"{val:.1f}"))
-        col.markdown(f'<div style="font-family:Consolas;line-height:1.25">'
-                     f'<span style="color:{TEXT2};font-size:10.5px">{d["short"]}</span><br>'
-                     f'<span style="color:{cO};font-size:22px;font-weight:700">{disp}{suf}</span><br>'
-                     f'<span style="color:{TEXT3};font-size:9.5px">{d["asof"]}</span></div>',
-                     unsafe_allow_html=True)
-    st.caption("**Growth:** GDPNow = Atlanta Fed real-GDP nowcast. **Recession gauges:** Sahm Rule fires at "
-               "**≥0.50**; an **inverted** 10Y–3M / 10Y–2Y (negative) and a high smoothed probability flag risk. "
-               "**Financial conditions:** NFCI / Adjusted-NFCI / StL-Stress — **positive = tighter/stress**, "
-               "negative = loose. Green = benign, red = stressed. Source: **FRED** (free).")
-    # ── Recession context: one indicator through history with NBER recessions shaded ──
-    st.markdown(f'<div style="margin-top:8px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
-                'Recession context — where an indicator sits vs past cycles (NBER recessions shaded)</div>',
-                unsafe_allow_html=True)
-    ind=st.selectbox("Indicator", list(data.keys()), key=k+"_rc", label_visibility="collapsed")
-    di=data[ind]; s=pd.Series(di["values"], index=pd.to_datetime(pd.Series(di["dates"]))).dropna().sort_index()
-    blocks,urs=_usrec_blocks()
-    rf=go.Figure()
-    rf.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6),name=di["short"]))
-    lo,hi=s.index[0],s.index[-1]
-    for a,b in blocks:
-        a=max(a,lo); b=min(b,hi)
-        if a<=b: rf.add_vrect(x0=a,x1=b,fillcolor=TEXT3,opacity=0.22,line_width=0)
-    rm=urs.reindex(s.index,method="ffill")
-    try:
-        recavg=float(s[rm==1].mean()); expavg=float(s[rm==0].mean())
-        rf.add_hline(y=expavg,line=dict(color=GREEN,dash="dot",width=1),annotation_text=f"expansion avg {expavg:.2f}",annotation_font_size=9)
-        rf.add_hline(y=recavg,line=dict(color=RED,dash="dot",width=1),annotation_text=f"recession avg {recavg:.2f}",annotation_font_size=9)
-    except Exception: pass
-    rf.add_trace(go.Scatter(x=[s.index[-1]],y=[float(s.iloc[-1])],mode="markers",showlegend=False,
-                            marker=dict(size=10,color="#fff",line=dict(color=ACCENT,width=2))))
-    base_layout(rf,f"{di['short']} — vs NBER recessions (grey)  ·  now {float(s.iloc[-1]):.2f}","",h=300)
-    st.plotly_chart(rf, use_container_width=True, key=k+"_rcchart")
-    _lead = di["kind"] in ("curve","sahm")
-    st.caption(("**Leading indicator:** watch the **turn** into the shaded zones — the curve **inverts (goes "
-                "negative) ~6–18 months *before*** recessions (then re-steepens as the Fed cuts), and the Sahm "
-                "Rule **rises through 0.50 as one begins**. So the signal is the move, not the average level."
-                if _lead else
-                "Grey bands = NBER recessions. Compare today's reading (white dot) with where this sat during "
-                "past recessions vs expansions (dotted averages) to gauge how stressed conditions are now."))
-    def _prov(lab):
-        d=data.get(lab)
-        if not d: return None
-        return pd.Series(d["values"], index=pd.to_datetime(pd.Series(d["dates"])))
-    history_explorer(k+"_hx", _prov, list(data.keys()),
-                     default_sel=["Yield curve: 10Y − 3M"], unit="", title="Macro / recession — multi-series history")
+        if not d: continue
+        v=d["latest"]; col=_macro_color(kind,v)
+        vals=d["values"]; dts=d["dates"]
+        past=[x for x,dd in zip(vals,dts)
+              if (dd if isinstance(dd,_dt.date) else _dt.date.fromisoformat(str(dd)[:10]))<=cut]
+        prev=past[-1] if past else (vals[0] if vals else None)
+        if prev is not None and v is not None:
+            tr=v-prev; arr=("▲" if tr>0 else ("▼" if tr<0 else "–")); trd=f"{arr} {tr:+.2f}"
+        else: trd="—"
+        h+=(f"<tr><td style='text-align:left'>{short}</td>"
+            f"<td style='color:{col};font-weight:700'>{_fmt(v,kind,unit)}</td>"
+            f"<td style='color:{TEXT3}'>{d['asof']}</td>"
+            f"<td style='color:{TEXT3}'>{_thr.get(kind,'')}</td>"
+            f"<td style='color:{TEXT2}'>{trd}</td>"
+            f"<td style='color:{col};font-weight:700'>{_lab.get(col,'')}</td></tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("Where the US cycle stands. **Latest** is color-coded (green = benign, yellow = watch, red = "
+               "stressed); **Problematic** = the level that historically signals trouble; **3-mo trend** = change "
+               "vs ~3 months ago. GDPNow = growth nowcast; Sahm Rule & yield curve = recession gauges; "
+               "NFCI / StL-Stress = financial conditions (positive = tight). Source: **FRED** (free).")
+    with st.expander("📈 Chart an indicator over time (with NBER recessions shaded)"):
+        ind=st.selectbox("Indicator", list(data.keys()), key=k+"_rc")
+        di=data[ind]; s=pd.Series(di["values"], index=pd.to_datetime(pd.Series(di["dates"]))).dropna().sort_index()
+        blocks,_urs=_usrec_blocks()
+        rf=go.Figure()
+        rf.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6)))
+        lo,hi=s.index[0],s.index[-1]
+        for a,b in blocks:
+            a=max(a,lo); b=min(b,hi)
+            if a<=b: rf.add_vrect(x0=a,x1=b,fillcolor=TEXT3,opacity=0.22,line_width=0)
+        rf.add_trace(go.Scatter(x=[s.index[-1]],y=[float(s.iloc[-1])],mode="markers",showlegend=False,
+                                marker=dict(size=10,color="#fff",line=dict(color=ACCENT,width=2))))
+        base_layout(rf,f"{di['short']} — vs NBER recessions (grey) · now {float(s.iloc[-1]):.2f}","",h=320)
+        st.plotly_chart(rf, use_container_width=True, key=k+"_rcchart")
+        _lead=di["kind"] in ("curve","sahm")
+        st.caption("**Leading:** watch the **turn** into the grey zones — the curve inverts ~6–18 months *before* "
+                   "recessions; the Sahm Rule rises through 0.50 as one begins." if _lead else
+                   "Grey bands = NBER recessions; compare today's dot with past cycles.")
 
 # ── Volatility monitor (VIX term structure, vol-risk-premium, MOVE/SKEW/VVIX) ──
 @st.cache_data(ttl=900, show_spinner=False)
 def _vol_data():
     import numpy as _np, market_data as md
     start=(date.today()-relativedelta(years=5)).isoformat()
-    out={}
-    for lbl,sym in [("VIX9D","^VIX9D"),("VIX","^VIX"),("VIX3M","^VIX3M"),("VIX6M","^VIX6M"),
-                    ("MOVE (rates vol)","^MOVE"),("SKEW","^SKEW"),("VVIX (vol of vol)","^VVIX")]:
+    def _px(sym):
         s=md.price_history(sym, start=start)
-        if s is not None and not s.empty:
-            s=s.copy(); s.index=pd.to_datetime(s.index); out[lbl]=s
-    g=md.price_history("^GSPC", start=start)
-    if g is not None and not g.empty:
-        g=g.copy(); g.index=pd.to_datetime(g.index)
-        lr=_np.log(g/g.shift(1)).dropna()
-        rv=(lr.rolling(21).std()*(252**0.5)*100).dropna()
-        out["Realized vol (S&P, 21d)"]=rv
-        if "VIX" in out:
-            vrp=(out["VIX"].reindex(rv.index, method="ffill")-rv).dropna()
-            out["Vol risk premium (VIX−RV)"]=vrp
+        if s is None or s.empty: return None
+        s=s.copy(); s.index=pd.to_datetime(s.index); return s
+    out={}
+    vix=_px("^VIX"); move=_px("^MOVE"); g=_px("^GSPC"); tnx=_px("^TNX")
+    if vix is not None: out["eq_impl"]=vix
+    if g is not None:
+        out["eq_real"]=(_np.log(g/g.shift(1)).rolling(21).std()*(252**0.5)*100).dropna()
+    if move is not None: out["rt_impl"]=move
+    if tnx is not None:
+        out["rt_real"]=(tnx.diff().rolling(21).std()*(252**0.5)*100).dropna()   # 10Y-yield vol, bp/yr
     return out
 
 def panel_vol_monitor(k):
     d=_vol_data()
     if not d:
         st.warning("Volatility data unavailable (Yahoo)."); return
-    def _last(lbl):
-        s=d.get(lbl); return (float(s.iloc[-1]) if s is not None and not s.empty else None)
-    vix=_last("VIX"); v3=_last("VIX3M"); vrp=_last("Vol risk premium (VIX−RV)")
-    move=_last("MOVE (rates vol)"); skew=_last("SKEW"); vvix=_last("VVIX (vol of vol)")
-    term=(v3-vix) if (vix is not None and v3 is not None) else None
-    def tile(col,label,val,fmt,color):
-        col.markdown(f'<div style="font-family:Consolas;line-height:1.25">'
-                     f'<span style="color:{TEXT2};font-size:10.5px">{label}</span><br>'
-                     f'<span style="color:{color};font-size:22px;font-weight:700">'
-                     f'{("—" if val is None else format(val,fmt))}</span></div>', unsafe_allow_html=True)
-    cols=st.columns(4)
-    tile(cols[0],"VIX",vix,".1f",
-         (RED if (vix or 0)>25 else YELLOW if (vix or 0)>16 else GREEN))
-    tile(cols[1],"Vol risk premium (VIX−RV)",vrp,"+.1f",
-         (RED if (vrp is not None and vrp<0) else GREEN))       # negative = realized > implied
-    tile(cols[2],"MOVE (rates vol)",move,".0f",
-         (RED if (move or 0)>120 else YELLOW if (move or 0)>95 else GREEN))
-    tile(cols[3],"VVIX (vol of vol)",vvix,".0f",
-         (RED if (vvix or 0)>110 else YELLOW if (vvix or 0)>95 else GREEN))
-    st.caption("**Vol risk premium** = VIX − 21-day realized vol; **positive** = options richer than realized "
-               "(vol sellers paid), **negative = realized is outrunning implied** (a shock). **MOVE** = Treasury "
-               "implied vol. **VVIX** = vol-of-vol. *(VIX term structure and SKEW have their own sections above — "
-               "this adds the vol-risk-premium and cross-asset vol.)* Source: Yahoo/CBOE (free).")
-    history_explorer(k+"_hx", lambda lab: d.get(lab), list(d.keys()),
-                     default_sel=["Vol risk premium (VIX−RV)","MOVE (rates vol)"], unit="",
-                     title="Vol risk premium & cross-asset vol — history")
+    rng=st.selectbox("Range",["6M","1Y","2Y","3Y","5Y","All"],index=2,key=k+"_rng")
+    lo=None if rng=="All" else pd.Timestamp(date.today()-relativedelta(months=6) if rng=="6M"
+                                            else date.today()-relativedelta(years=int(rng[:-1])))
+    def _w(s): return s if (s is None or lo is None) else s[s.index>=lo]
+    def _l(s): return (float(s.iloc[-1]) if s is not None and not s.empty else None)
+    c1,c2=st.columns(2)
+    ei,er=d.get("eq_impl"),d.get("eq_real")
+    with c1:
+        if ei is not None and er is not None:
+            f=go.Figure()
+            f.add_trace(go.Scatter(x=_w(ei).index,y=_w(ei).values,mode="lines",name="Implied (VIX)",line=dict(color=BLUE,width=1.7)))
+            f.add_trace(go.Scatter(x=_w(er).index,y=_w(er).values,mode="lines",name="Realized (21d)",line=dict(color=ACCENT,width=1.5)))
+            vp=_l(ei)-_l(er)
+            base_layout(f,f"Equity vol — implied {_l(ei):.1f} vs realized {_l(er):.1f}  ·  premium {vp:+.1f}","vol %",h=330)
+            st.plotly_chart(f,use_container_width=True,key=k+"_eq")
+        else:
+            st.caption("Equity vol data unavailable.")
+    ri,rr=d.get("rt_impl"),d.get("rt_real")
+    with c2:
+        if ri is not None and rr is not None:
+            f=go.Figure()
+            f.add_trace(go.Scatter(x=_w(ri).index,y=_w(ri).values,mode="lines",name="Implied (MOVE)",line=dict(color=BLUE,width=1.7)))
+            f.add_trace(go.Scatter(x=_w(rr).index,y=_w(rr).values,mode="lines",name="Realized (10Y yield)",line=dict(color=ACCENT,width=1.5)))
+            vp=_l(ri)-_l(rr)
+            base_layout(f,f"Rates vol — implied {_l(ri):.0f} vs realized {_l(rr):.0f} bp  ·  premium {vp:+.0f}","bp/yr",h=330)
+            st.plotly_chart(f,use_container_width=True,key=k+"_rt")
+        else:
+            st.caption("MOVE (rates implied vol) unavailable right now — equity shown at left.")
+    st.caption("**Implied vs realized volatility.** Equity: **VIX** (30-day implied) vs **21-day realized** S&P vol "
+               "(both annualized %). Rates: **MOVE** (implied Treasury vol) vs **21-day realized 10Y-yield** vol "
+               "(both bp/yr). **Implied above realized = a vol premium** (normal — vol sellers get paid); "
+               "**realized above implied = a shock** (vol caught the market short). Source: Yahoo / CBOE / FRED (free).")
 
 r1=st.columns(2)
 with r1[0]:
@@ -6002,9 +6001,8 @@ def _sec(tag, title, fn, *a):
 # Market heatmap — right under the two tables, before the sector/composition section.
 _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return)", panel_heatmap, "sechm")
 # Return-distribution explorer sits up top (full-width), above the curves grid.
-_sec("ECON","Economic Calendar (upcoming US releases + latest actuals)", panel_econ_calendar, "sececon")
-_sec("MACRO","Macro Nowcast & Recession Monitor (growth · curve · financial conditions)", panel_macro_nowcast, "secmacro")
-_sec("VRP","Vol Risk Premium & Cross-Asset Vol (VIX−realized · MOVE · VVIX)", panel_vol_monitor, "secvol")
+_sec("MACRO","Macro & Recession Dashboard (growth · curve · financial conditions — now vs problematic)", panel_macro_nowcast, "secmacro")
+_sec("VOL","Implied vs Realized Volatility (equity: VIX vs realized · rates: MOVE vs realized)", panel_vol_monitor, "secvol")
 _sec("BRDTH","Market Breadth (S&P 500 internals — % above MA · new highs/lows · adv/decl)", panel_breadth, "secbrdth")
 _sec("COT","Futures Positioning — CFTC Commitments of Traders (net speculative)", panel_cot, "seccot")
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
