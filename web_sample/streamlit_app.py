@@ -5642,6 +5642,89 @@ def panel_heatmap(k):
         idxlabel=c1.selectbox("Index", list(_HEATMAP_IDX), key=k+"_idx")
         _render_constituent_heatmap(k, _HEATMAP_IDX[idxlabel], idxlabel, period)
 
+# ── Economic calendar (FRED release schedule + latest actuals) ──
+# (release_id, display name, headline FRED series, transform)
+_ECON_REL=[
+    (50,  "Employment Situation (NFP)",      "PAYEMS",            "level_chg_k"),
+    (10,  "Consumer Price Index (CPI)",      "CPIAUCSL",          "yoy"),
+    (54,  "Personal Income & Outlays (PCE)", "PCEPI",             "yoy"),
+    (46,  "Producer Price Index (PPI)",      "PPIFIS",            "yoy"),
+    (9,   "Retail Sales",                    "RSAFS",             "mom"),
+    (192, "JOLTS Job Openings",              "JTSJOL",            "level_k"),
+    (53,  "GDP (advance/2nd/3rd)",           "A191RL1Q225SBEA",   "level_pct"),
+    (13,  "Industrial Production",           "INDPRO",            "mom"),
+    (27,  "Housing Starts",                  "HOUST",             "level_k"),
+]
+
+def _fred_next_date(rid, key):
+    import urllib.request, urllib.parse, json, datetime
+    today=datetime.date.today().isoformat()
+    u="https://api.stlouisfed.org/fred/release/dates?"+urllib.parse.urlencode(
+       {"api_key":key,"file_type":"json","release_id":str(rid),
+        "include_release_dates_with_no_data":"true","sort_order":"asc","realtime_start":today,"limit":"6"})
+    try:
+        dd=json.loads(urllib.request.urlopen(u,timeout=12).read()).get("release_dates",[])
+        fut=[x["date"] for x in dd if x.get("date","")>=today]
+        return fut[0] if fut else None
+    except Exception:
+        return None
+
+def _fred_latest(sid, kind):
+    import fi_spreads as fs
+    try:
+        d,v=fs._fred_fetch_all(sid)
+    except Exception:
+        d=v=None
+    if not d:
+        return None, None
+    last=float(v[-1]); per=str(d[-1])
+    if kind=="yoy" and len(v)>12:       return f"{(last/v[-13]-1)*100:+.1f}% y/y", per
+    if kind=="mom" and len(v)>1:        return f"{(last/v[-2]-1)*100:+.1f}% m/m", per
+    if kind=="level_chg_k" and len(v)>1:return f"{(last-v[-2]):+,.0f}k", per
+    if kind=="level_k":                 return f"{last:,.0f}k", per
+    if kind=="level_pct":               return f"{last:+.1f}% SAAR", per
+    return f"{last:,.2f}", per
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def _econ_calendar():
+    try:
+        key=st.secrets.get("FRED_API_KEY","")
+    except Exception:
+        key=""
+    key=key or os.environ.get("FRED_API_KEY","")
+    out=[]
+    for rid,name,sid,kind in _ECON_REL:
+        nd=_fred_next_date(rid,key) if key else None
+        lv,per=_fred_latest(sid,kind)
+        out.append({"next":nd,"name":name,"last":lv,"period":per})
+    out.sort(key=lambda r:(r["next"] or "9999"))
+    return out
+
+def panel_econ_calendar(k):
+    import datetime
+    cal=_econ_calendar()
+    if not cal:
+        st.info("Economic calendar unavailable (FRED)."); return
+    today=datetime.date.today()
+    hh=["Next release","Report","Latest actual","As of"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+    for r in cal:
+        nd=r["next"]; soon=False
+        if nd:
+            try:
+                dd=datetime.date.fromisoformat(nd); soon=(dd-today).days<=7
+                ndisp=dd.strftime("%a %b %d").replace(" 0"," ")
+            except Exception: ndisp=nd
+        else: ndisp="—"
+        dc=ACCENT if soon else TEXT1
+        h+=(f"<tr><td style='color:{dc};text-align:left'>{ndisp}</td>"
+            f"<td style='text-align:left'>{r['name']}</td>"
+            f"<td>{r['last'] or '—'}</td><td style='color:{TEXT3}'>{r['period'] or ''}</td></tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption("**Upcoming US data releases** (FRED schedule) with the **latest actual** print. Dates within "
+               "**7 days** are highlighted. Consensus estimates aren't available free, so only the scheduled date "
+               "and the most recent actual are shown. (Central-bank meeting dates are in the Global CB Monitor.)")
+
 # ── Market breadth (S&P 500 internals) ────────────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
 def _load_breadth():
@@ -5883,6 +5966,7 @@ def _sec(tag, title, fn, *a):
 # Market heatmap — right under the two tables, before the sector/composition section.
 _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return)", panel_heatmap, "sechm")
 # Return-distribution explorer sits up top (full-width), above the curves grid.
+_sec("ECON","Economic Calendar (upcoming US releases + latest actuals)", panel_econ_calendar, "sececon")
 _sec("MACRO","Macro Nowcast & Recession Monitor (growth · curve · financial conditions)", panel_macro_nowcast, "secmacro")
 _sec("VOL","Volatility Monitor (VIX term structure · vol-risk-premium · MOVE / SKEW / VVIX)", panel_vol_monitor, "secvol")
 _sec("BRDTH","Market Breadth (S&P 500 internals — % above MA · new highs/lows · adv/decl)", panel_breadth, "secbrdth")
