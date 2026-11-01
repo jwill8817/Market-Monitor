@@ -5642,6 +5642,70 @@ def panel_heatmap(k):
         idxlabel=c1.selectbox("Index", list(_HEATMAP_IDX), key=k+"_idx")
         _render_constituent_heatmap(k, _HEATMAP_IDX[idxlabel], idxlabel, period)
 
+# ── Macro nowcast & recession monitor (FRED) ──────────────────
+# (short label, long label, FRED id, unit, kind)
+_MACRO=[
+    ("GDPNow","GDPNow — real GDP (SAAR %)","GDPNOW","%","growth"),
+    ("Sahm Rule","Sahm Rule (≥0.50 ⇒ recession)","SAHMREALTIME","pp","sahm"),
+    ("10Y–3M","Yield curve: 10Y − 3M","T10Y3M","%","curve"),
+    ("10Y–2Y","Yield curve: 10Y − 2Y","T10Y2Y","%","curve"),
+    ("Rec. prob","Smoothed recession probability (%)","RECPROUSM156N","%","recprob"),
+    ("NFCI","Chicago Fed NFCI (fin. conditions)","NFCI","idx","nfci"),
+    ("Adj NFCI","Adjusted NFCI","ANFCI","idx","nfci"),
+    ("StL Stress","St. Louis Fed Financial Stress","STLFSI4","idx","nfci"),
+]
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _macro_data():
+    import fi_spreads as fs
+    out={}
+    for short,lbl,sid,unit,kind in _MACRO:
+        try:
+            d,v=fs._fred_fetch_all(sid)
+            if d: out[lbl]={"short":short,"dates":d,"values":v,"unit":unit,"kind":kind,
+                            "latest":float(v[-1]),"asof":str(d[-1])}
+        except Exception: pass
+    return out
+
+def _macro_color(kind,val):
+    if kind=="growth":  return GREEN if val>=2 else (YELLOW if val>=0 else RED)
+    if kind=="sahm":    return RED if val>=0.5 else (YELLOW if val>=0.3 else GREEN)
+    if kind=="curve":   return RED if val<0 else (YELLOW if val<0.25 else GREEN)
+    if kind=="recprob": return RED if val>=20 else (YELLOW if val>=5 else GREEN)
+    if kind=="nfci":    return RED if val>=0.5 else (YELLOW if val>=0 else GREEN)
+    return TEXT1
+
+def panel_macro_nowcast(k):
+    data=_macro_data()
+    if not data:
+        st.warning("Macro data unavailable (FRED)."); return
+    tiles=["GDPNow — real GDP (SAAR %)","Sahm Rule (≥0.50 ⇒ recession)","Yield curve: 10Y − 3M",
+           "Smoothed recession probability (%)","Chicago Fed NFCI (fin. conditions)",
+           "St. Louis Fed Financial Stress"]
+    cols=st.columns(len(tiles))
+    for col,lbl in zip(cols,tiles):
+        d=data.get(lbl)
+        if not d:
+            col.markdown("—"); continue
+        val=d["latest"]; kind=d["kind"]; cO=_macro_color(kind,val)
+        suf="%" if (d["unit"]=="%" or kind=="recprob") else ""
+        disp=(f"{val:+.2f}" if kind in ("curve","sahm") else (f"{val:.2f}" if kind=="nfci" else f"{val:.1f}"))
+        col.markdown(f'<div style="font-family:Consolas;line-height:1.25">'
+                     f'<span style="color:{TEXT2};font-size:10.5px">{d["short"]}</span><br>'
+                     f'<span style="color:{cO};font-size:22px;font-weight:700">{disp}{suf}</span><br>'
+                     f'<span style="color:{TEXT3};font-size:9.5px">{d["asof"]}</span></div>',
+                     unsafe_allow_html=True)
+    st.caption("**Growth:** GDPNow = Atlanta Fed real-GDP nowcast. **Recession gauges:** Sahm Rule fires at "
+               "**≥0.50**; an **inverted** 10Y–3M / 10Y–2Y (negative) and a high smoothed probability flag risk. "
+               "**Financial conditions:** NFCI / Adjusted-NFCI / StL-Stress — **positive = tighter/stress**, "
+               "negative = loose. Green = benign, red = stressed. Source: **FRED** (free).")
+    def _prov(lab):
+        d=data.get(lab)
+        if not d: return None
+        return pd.Series(d["values"], index=pd.to_datetime(pd.Series(d["dates"])))
+    history_explorer(k+"_hx", _prov, list(data.keys()),
+                     default_sel=["Yield curve: 10Y − 3M"], unit="", title="Macro / recession — history")
+
 r1=st.columns(2)
 with r1[0]:
     with st.container(border=True): render_slot("q1", TABLE_TABS, "Equity Indices")
@@ -5662,6 +5726,7 @@ def _sec(tag, title, fn, *a):
 # Market heatmap — right under the two tables, before the sector/composition section.
 _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return)", panel_heatmap, "sechm")
 # Return-distribution explorer sits up top (full-width), above the curves grid.
+_sec("MACRO","Macro Nowcast & Recession Monitor (growth · curve · financial conditions)", panel_macro_nowcast, "secmacro")
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
 _sec("RMTX","Monthly Return Matrix (compare assets)", panel_return_matrix, "secrmtx")
