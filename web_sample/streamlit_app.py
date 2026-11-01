@@ -5642,6 +5642,52 @@ def panel_heatmap(k):
         idxlabel=c1.selectbox("Index", list(_HEATMAP_IDX), key=k+"_idx")
         _render_constituent_heatmap(k, _HEATMAP_IDX[idxlabel], idxlabel, period)
 
+# ── CFTC Commitments of Traders (positioning) ─────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_cot():
+    import os, json
+    here=os.path.dirname(os.path.abspath(__file__))
+    for p in ("data/cot.json", os.path.join(here,"..","data","cot.json"),
+              os.path.join(here,"data","cot.json")):
+        try:
+            if os.path.exists(p):
+                with open(p,encoding="utf-8") as f: return json.load(f)
+        except Exception: pass
+    return None
+
+def panel_cot(k):
+    data=_load_cot()
+    if not data or not data.get("markets"):
+        st.info("No COT data yet — the daily job builds it from the CFTC (published weekly)."); return
+    series={}; rows=[]
+    for m in data["markets"]:
+        pts=m.get("points") or []
+        if not pts: continue
+        s=pd.Series([float(v) for _,v in pts], index=pd.to_datetime([d for d,_ in pts])).dropna()
+        if s.empty: continue
+        series[m["name"]]=s
+        net=float(s.iloc[-1]); prev=float(s.iloc[-2]) if len(s)>1 else net
+        pct=float(s.rank(pct=True).iloc[-1])*100
+        grp="Financials" if "financ" in m.get("category","").lower() else "Commodities"
+        rows.append((m["name"],grp,net,net-prev,pct))
+    if not rows:
+        st.info("No COT series available."); return
+    hh=["Market","Group","Net spec","1-wk Δ","3Y %ile"]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+    for name,grp,net,chg,pct in rows:
+        nc=GREEN if net>=0 else RED; cc=GREEN if chg>=0 else RED
+        pc=(RED if pct>=90 else (ACCENT if pct<=10 else (YELLOW if (pct>=75 or pct<=25) else TEXT2)))
+        h+=(f"<tr><td style='text-align:left'>{name}</td><td style='color:{TEXT3}'>{grp}</td>"
+            f"<td style='color:{nc}'>{net:+,.0f}</td><td style='color:{cc}'>{chg:+,.0f}</td>"
+            f"<td style='color:{pc};font-weight:700'>{pct:.0f}</td></tr>")
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption(f"**Net speculative positioning** (long − short), as of **{data.get('asof','')}** · weekly (CFTC, free). "
+               "Financials = **Leveraged Funds** (TFF report); commodities = **Managed Money** (disaggregated). "
+               "**3Y %ile**: how stretched positioning is — **≥90 = crowded long** (red), **≤10 = crowded short** "
+               "(coral). Treasuries / USD aren't in the free *current* dataset, so they're omitted.")
+    history_explorer(k+"_hx", lambda lab: series.get(lab), list(series.keys()),
+                     default_sel=["S&P 500"], unit="contracts", title="COT net positioning — history")
+
 # ── Macro nowcast & recession monitor (FRED) ──────────────────
 # (short label, long label, FRED id, unit, kind)
 _MACRO=[
@@ -5793,6 +5839,7 @@ _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return
 # Return-distribution explorer sits up top (full-width), above the curves grid.
 _sec("MACRO","Macro Nowcast & Recession Monitor (growth · curve · financial conditions)", panel_macro_nowcast, "secmacro")
 _sec("VOL","Volatility Monitor (VIX term structure · vol-risk-premium · MOVE / SKEW / VVIX)", panel_vol_monitor, "secvol")
+_sec("COT","Futures Positioning — CFTC Commitments of Traders (net speculative)", panel_cot, "seccot")
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
 _sec("RMTX","Monthly Return Matrix (compare assets)", panel_return_matrix, "secrmtx")
