@@ -5884,7 +5884,7 @@ def panel_macro_nowcast(k):
 # ── Volatility monitor (VIX term structure, vol-risk-premium, MOVE/SKEW/VVIX) ──
 @st.cache_data(ttl=900, show_spinner=False)
 def _vol_data():
-    import numpy as _np
+    import numpy as _np, market_data as md
     start=(date.today()-relativedelta(years=5)).isoformat()
     out={}
     for lbl,sym in [("VIX9D","^VIX9D"),("VIX","^VIX"),("VIX3M","^VIX3M"),("VIX6M","^VIX6M"),
