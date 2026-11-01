@@ -5830,6 +5830,20 @@ _MACRO=[
     ("StL Stress","St. Louis Fed Financial Stress","STLFSI4","idx","nfci"),
 ]
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _usrec_blocks():
+    """NBER recession periods (from FRED USREC) as [(start, end), ...] + the raw 0/1 series."""
+    import fi_spreads as fs
+    d, v = fs._fred_fetch_all("USREC")
+    s = pd.Series(v, index=pd.to_datetime(d))
+    blocks = []; start = None; prev = None
+    for dt, val in s.items():
+        if val == 1 and start is None: start = dt
+        if val == 0 and start is not None: blocks.append((start, prev)); start = None
+        prev = dt
+    if start is not None: blocks.append((start, prev))
+    return blocks, s
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _macro_data():
     import fi_spreads as fs
@@ -5874,12 +5888,42 @@ def panel_macro_nowcast(k):
                "**≥0.50**; an **inverted** 10Y–3M / 10Y–2Y (negative) and a high smoothed probability flag risk. "
                "**Financial conditions:** NFCI / Adjusted-NFCI / StL-Stress — **positive = tighter/stress**, "
                "negative = loose. Green = benign, red = stressed. Source: **FRED** (free).")
+    # ── Recession context: one indicator through history with NBER recessions shaded ──
+    st.markdown(f'<div style="margin-top:8px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Recession context — where an indicator sits vs past cycles (NBER recessions shaded)</div>',
+                unsafe_allow_html=True)
+    ind=st.selectbox("Indicator", list(data.keys()), key=k+"_rc", label_visibility="collapsed")
+    di=data[ind]; s=pd.Series(di["values"], index=pd.to_datetime(pd.Series(di["dates"]))).dropna().sort_index()
+    blocks,urs=_usrec_blocks()
+    rf=go.Figure()
+    rf.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",line=dict(color=ACCENT,width=1.6),name=di["short"]))
+    lo,hi=s.index[0],s.index[-1]
+    for a,b in blocks:
+        a=max(a,lo); b=min(b,hi)
+        if a<=b: rf.add_vrect(x0=a,x1=b,fillcolor=TEXT3,opacity=0.22,line_width=0)
+    rm=urs.reindex(s.index,method="ffill")
+    try:
+        recavg=float(s[rm==1].mean()); expavg=float(s[rm==0].mean())
+        rf.add_hline(y=expavg,line=dict(color=GREEN,dash="dot",width=1),annotation_text=f"expansion avg {expavg:.2f}",annotation_font_size=9)
+        rf.add_hline(y=recavg,line=dict(color=RED,dash="dot",width=1),annotation_text=f"recession avg {recavg:.2f}",annotation_font_size=9)
+    except Exception: pass
+    rf.add_trace(go.Scatter(x=[s.index[-1]],y=[float(s.iloc[-1])],mode="markers",showlegend=False,
+                            marker=dict(size=10,color="#fff",line=dict(color=ACCENT,width=2))))
+    base_layout(rf,f"{di['short']} — vs NBER recessions (grey)  ·  now {float(s.iloc[-1]):.2f}","",h=300)
+    st.plotly_chart(rf, use_container_width=True, key=k+"_rcchart")
+    _lead = di["kind"] in ("curve","sahm")
+    st.caption(("**Leading indicator:** watch the **turn** into the shaded zones — the curve **inverts (goes "
+                "negative) ~6–18 months *before*** recessions (then re-steepens as the Fed cuts), and the Sahm "
+                "Rule **rises through 0.50 as one begins**. So the signal is the move, not the average level."
+                if _lead else
+                "Grey bands = NBER recessions. Compare today's reading (white dot) with where this sat during "
+                "past recessions vs expansions (dotted averages) to gauge how stressed conditions are now."))
     def _prov(lab):
         d=data.get(lab)
         if not d: return None
         return pd.Series(d["values"], index=pd.to_datetime(pd.Series(d["dates"])))
     history_explorer(k+"_hx", _prov, list(data.keys()),
-                     default_sel=["Yield curve: 10Y − 3M"], unit="", title="Macro / recession — history")
+                     default_sel=["Yield curve: 10Y − 3M"], unit="", title="Macro / recession — multi-series history")
 
 # ── Volatility monitor (VIX term structure, vol-risk-premium, MOVE/SKEW/VVIX) ──
 @st.cache_data(ttl=900, show_spinner=False)
