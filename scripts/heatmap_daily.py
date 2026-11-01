@@ -91,6 +91,7 @@ def build(key, cfg):
     hist = yf.download(syms, start=start, interval="1d", auto_adjust=True,
                        group_by="ticker", threads=True, progress=False)
     rows = []
+    _closes = {}
     for c in cons:
         t = c["t"]
         try:
@@ -103,6 +104,7 @@ def build(key, cfg):
             s = pd.to_numeric(s, errors="coerce").dropna()
             if s.empty:
                 continue
+            _closes[t] = s                                # keep for breadth stats
             rets = _period_returns(s)
             if not rets:
                 continue
@@ -126,6 +128,52 @@ def build(key, cfg):
     OUTDIR.mkdir(parents=True, exist_ok=True)
     (OUTDIR / f"heatmap_{key}.json").write_text(json.dumps(out), encoding="utf-8")
     print(f"{cfg['label']}: {len(rows)} names -> data/heatmap_{key}.json")
+    if key == "sp500":
+        _append_breadth(_closes, asof)
+
+
+def _append_breadth(closes, asof):
+    """Compute market-breadth stats from constituent closes and append one row/day to
+    data/breadth_sp500.csv (deduped by date) — builds a breadth history over time."""
+    import csv
+    a50 = a200 = hi = lo = adv = dec = tot = 0
+    for s in closes.values():
+        s = s.dropna()
+        if len(s) < 60:
+            continue
+        tot += 1
+        last = float(s.iloc[-1])
+        if last > float(s.tail(50).mean()):
+            a50 += 1
+        if len(s) >= 200 and last > float(s.tail(200).mean()):
+            a200 += 1
+        win = s.tail(252)
+        if last >= float(win.max()) * 0.999:
+            hi += 1
+        if last <= float(win.min()) * 1.001:
+            lo += 1
+        if len(s) > 1:
+            if last > float(s.iloc[-2]): adv += 1
+            elif last < float(s.iloc[-2]): dec += 1
+    if not tot:
+        return
+    row = {"date": asof, "n": tot,
+           "pct_above_50dma": round(a50 / tot * 100, 1),
+           "pct_above_200dma": round(a200 / tot * 100, 1),
+           "new_highs_52w": hi, "new_lows_52w": lo,
+           "net_new_highs": hi - lo, "advancers": adv, "decliners": dec}
+    path = OUTDIR / "breadth_sp500.csv"
+    fields = list(row)
+    existing = []
+    if path.exists():
+        with open(path, newline="", encoding="utf-8") as f:
+            existing = [r for r in csv.DictReader(f) if r.get("date") != asof]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(existing + [row])
+    print(f"breadth: {row['pct_above_50dma']}% >50dma, {row['pct_above_200dma']}% >200dma, "
+          f"net new highs {row['net_new_highs']} -> data/breadth_sp500.csv")
 
 
 def main():

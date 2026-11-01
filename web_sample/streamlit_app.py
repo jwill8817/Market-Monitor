@@ -5642,6 +5642,52 @@ def panel_heatmap(k):
         idxlabel=c1.selectbox("Index", list(_HEATMAP_IDX), key=k+"_idx")
         _render_constituent_heatmap(k, _HEATMAP_IDX[idxlabel], idxlabel, period)
 
+# ── Market breadth (S&P 500 internals) ────────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_breadth():
+    import os
+    here=os.path.dirname(os.path.abspath(__file__))
+    for p in ("data/breadth_sp500.csv", os.path.join(here,"..","data","breadth_sp500.csv"),
+              os.path.join(here,"data","breadth_sp500.csv")):
+        try:
+            if os.path.exists(p):
+                df=pd.read_csv(p); df["date"]=pd.to_datetime(df["date"]); return df.sort_values("date")
+        except Exception: pass
+    return None
+
+def panel_breadth(k):
+    df=_load_breadth()
+    if df is None or df.empty:
+        st.info("No breadth history yet — the daily job computes it from S&P 500 constituents "
+                "after the close (starts accumulating from the first run)."); return
+    last=df.iloc[-1]
+    def tile(col,label,val,fmt,color,suf=""):
+        col.markdown(f'<div style="font-family:Consolas;line-height:1.25">'
+                     f'<span style="color:{TEXT2};font-size:10.5px">{label}</span><br>'
+                     f'<span style="color:{color};font-size:22px;font-weight:700">'
+                     f'{("—" if val is None else format(val,fmt))}{suf}</span></div>', unsafe_allow_html=True)
+    a50=float(last["pct_above_50dma"]); a200=float(last["pct_above_200dma"])
+    nnh=int(last["net_new_highs"]); adv=int(last.get("advancers",0)); dec=int(last.get("decliners",0))
+    hi=int(last["new_highs_52w"]); lo=int(last["new_lows_52w"])
+    cols=st.columns(5)
+    tile(cols[0],"% above 50-DMA",a50,".0f",(GREEN if a50>=55 else RED if a50<=45 else YELLOW),"%")
+    tile(cols[1],"% above 200-DMA",a200,".0f",(GREEN if a200>=55 else RED if a200<=45 else YELLOW),"%")
+    tile(cols[2],"Net new highs (52w)",nnh,"+d",(GREEN if nnh>=0 else RED))
+    tile(cols[3],"52w highs / lows",hi,"d",(GREEN if hi>=lo else RED),f" / {lo}")
+    tile(cols[4],"Advancers / decliners",adv,"d",(GREEN if adv>=dec else RED),f" / {dec}")
+    st.caption(f"**S&P 500 internals**, as of **{last['date'].date()}** · {int(last['n'])} names. "
+               "**% above 50/200-DMA** = share of constituents in uptrends (above = bullish breadth). "
+               "**Net new highs** = 52-week highs − lows. **Advancers/decliners** = up vs down today. "
+               "Built from constituent prices (free); accumulates daily after the close.")
+    _cols={"% above 50-DMA":"pct_above_50dma","% above 200-DMA":"pct_above_200dma",
+           "Net new highs (52w)":"net_new_highs","52w new highs":"new_highs_52w","52w new lows":"new_lows_52w"}
+    def _prov(lab):
+        c=_cols.get(lab)
+        if c is None or c not in df.columns: return None
+        return pd.Series(df[c].astype(float).values, index=df["date"].values)
+    history_explorer(k+"_hx", _prov, list(_cols),
+                     default_sel=["% above 200-DMA"], unit="", title="Market breadth — history")
+
 # ── CFTC Commitments of Traders (positioning) ─────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
 def _load_cot():
@@ -5839,6 +5885,7 @@ _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return
 # Return-distribution explorer sits up top (full-width), above the curves grid.
 _sec("MACRO","Macro Nowcast & Recession Monitor (growth · curve · financial conditions)", panel_macro_nowcast, "secmacro")
 _sec("VOL","Volatility Monitor (VIX term structure · vol-risk-premium · MOVE / SKEW / VVIX)", panel_vol_monitor, "secvol")
+_sec("BRDTH","Market Breadth (S&P 500 internals — % above MA · new highs/lows · adv/decl)", panel_breadth, "secbrdth")
 _sec("COT","Futures Positioning — CFTC Commitments of Traders (net speculative)", panel_cot, "seccot")
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
