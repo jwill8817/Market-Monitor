@@ -5706,6 +5706,71 @@ def panel_macro_nowcast(k):
     history_explorer(k+"_hx", _prov, list(data.keys()),
                      default_sel=["Yield curve: 10Y − 3M"], unit="", title="Macro / recession — history")
 
+# ── Volatility monitor (VIX term structure, vol-risk-premium, MOVE/SKEW/VVIX) ──
+@st.cache_data(ttl=900, show_spinner=False)
+def _vol_data():
+    import numpy as _np
+    start=(date.today()-relativedelta(years=5)).isoformat()
+    out={}
+    for lbl,sym in [("VIX9D","^VIX9D"),("VIX","^VIX"),("VIX3M","^VIX3M"),("VIX6M","^VIX6M"),
+                    ("MOVE (rates vol)","^MOVE"),("SKEW","^SKEW"),("VVIX (vol of vol)","^VVIX")]:
+        s=md.price_history(sym, start=start)
+        if s is not None and not s.empty:
+            s=s.copy(); s.index=pd.to_datetime(s.index); out[lbl]=s
+    g=md.price_history("^GSPC", start=start)
+    if g is not None and not g.empty:
+        g=g.copy(); g.index=pd.to_datetime(g.index)
+        lr=_np.log(g/g.shift(1)).dropna()
+        rv=(lr.rolling(21).std()*(252**0.5)*100).dropna()
+        out["Realized vol (S&P, 21d)"]=rv
+        if "VIX" in out:
+            vrp=(out["VIX"].reindex(rv.index, method="ffill")-rv).dropna()
+            out["Vol risk premium (VIX−RV)"]=vrp
+    return out
+
+def panel_vol_monitor(k):
+    d=_vol_data()
+    if not d:
+        st.warning("Volatility data unavailable (Yahoo)."); return
+    def _last(lbl):
+        s=d.get(lbl); return (float(s.iloc[-1]) if s is not None and not s.empty else None)
+    vix=_last("VIX"); v3=_last("VIX3M"); vrp=_last("Vol risk premium (VIX−RV)")
+    move=_last("MOVE (rates vol)"); skew=_last("SKEW"); vvix=_last("VVIX (vol of vol)")
+    term=(v3-vix) if (vix is not None and v3 is not None) else None
+    def tile(col,label,val,fmt,color):
+        col.markdown(f'<div style="font-family:Consolas;line-height:1.25">'
+                     f'<span style="color:{TEXT2};font-size:10.5px">{label}</span><br>'
+                     f'<span style="color:{color};font-size:22px;font-weight:700">'
+                     f'{("—" if val is None else format(val,fmt))}</span></div>', unsafe_allow_html=True)
+    cols=st.columns(6)
+    tile(cols[0],"VIX",vix,"+.1f" if False else ".1f",
+         (RED if (vix or 0)>25 else YELLOW if (vix or 0)>16 else GREEN))
+    tile(cols[1],"Term (VIX3M−VIX)",term,"+.1f",
+         (RED if (term is not None and term<0) else GREEN))     # backwardation = stress
+    tile(cols[2],"Vol risk premium",vrp,"+.1f",
+         (RED if (vrp is not None and vrp<0) else GREEN))       # negative = realized > implied
+    tile(cols[3],"MOVE (rates)",move,".0f",
+         (RED if (move or 0)>120 else YELLOW if (move or 0)>95 else GREEN))
+    tile(cols[4],"SKEW",skew,".0f",
+         (RED if (skew or 0)>150 else YELLOW if (skew or 0)>135 else GREEN))
+    tile(cols[5],"VVIX",vvix,".0f",
+         (RED if (vvix or 0)>110 else YELLOW if (vvix or 0)>95 else GREEN))
+    # VIX term-structure curve (today)
+    ts=[("9D","VIX9D"),("1M","VIX"),("3M","VIX3M"),("6M","VIX6M")]
+    xs=[t for t,_ in ts]; ys=[_last(lbl) for _,lbl in ts]
+    if any(y is not None for y in ys):
+        tf=go.Figure(go.Scatter(x=xs,y=ys,mode="lines+markers+text",line=dict(color=ACCENT,width=2),
+            text=[f"{y:.1f}" if y is not None else "" for y in ys],textposition="top center",
+            textfont=dict(size=10,color=TEXT1)))
+        base_layout(tf,"VIX term structure (today) — upward = contango (calm), downward = backwardation (stress)","",h=250)
+        st.plotly_chart(tf, use_container_width=True, key=k+"_ts")
+    st.caption("**VIX** = 30-day S&P implied vol. **Term** (VIX3M−VIX): positive = contango (calm), negative = "
+               "backwardation (stress). **Vol risk premium** = VIX − 21-day realized vol; **negative = realized "
+               "is outrunning implied** (shock). **MOVE** = Treasury implied vol. **SKEW** = tail-hedging demand "
+               "(higher = more). **VVIX** = vol-of-vol. Source: Yahoo/CBOE (free).")
+    history_explorer(k+"_hx", lambda lab: d.get(lab), list(d.keys()),
+                     default_sel=["VIX","Realized vol (S&P, 21d)"], unit="", title="Volatility — history")
+
 r1=st.columns(2)
 with r1[0]:
     with st.container(border=True): render_slot("q1", TABLE_TABS, "Equity Indices")
@@ -5727,6 +5792,7 @@ def _sec(tag, title, fn, *a):
 _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return)", panel_heatmap, "sechm")
 # Return-distribution explorer sits up top (full-width), above the curves grid.
 _sec("MACRO","Macro Nowcast & Recession Monitor (growth · curve · financial conditions)", panel_macro_nowcast, "secmacro")
+_sec("VOL","Volatility Monitor (VIX term structure · vol-risk-premium · MOVE / SKEW / VVIX)", panel_vol_monitor, "secvol")
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
 _sec("RMTX","Monthly Return Matrix (compare assets)", panel_return_matrix, "secrmtx")
