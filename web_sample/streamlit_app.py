@@ -1080,7 +1080,7 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
         if lo is not None: s=s[s.index>=lo]
         if hi is not None: s=s[s.index<=hi]
         return s
-    fig=go.Figure(); plotted=0
+    fig=go.Figure(); plotted=0; _exp={}
     def _band(x0,x1,yv,col,dash,yax):
         fig.add_trace(go.Scatter(x=[x0,x1],y=[yv,yv],mode="lines",line=dict(color=col,width=1,dash=dash),
                                  yaxis=yax,showlegend=False,hoverinfo="skip"))
@@ -1102,6 +1102,7 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
                                      line=dict(color=col,width=1.6),yaxis="y"))
             fig.add_trace(go.Scatter(x=cr.index,y=cr.values,mode="lines",name=f"{lab} · cum %",
                                      line=dict(color=col,width=1.2,dash="dot"),yaxis="y2"))
+            _exp[f"{lab} price"]=sp; _exp[f"{lab} cum%"]=cr
             plotted+=1; continue
         if smode=="Cumulative return %":
             s=_cum_return(_window(s))
@@ -1117,6 +1118,7 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
         yax=("y2" if lab in right else "y")
         fig.add_trace(go.Scatter(x=s.index,y=s.values,mode="lines",name=lab,
                                  line=dict(color=col,width=1.6),yaxis=yax))
+        _exp[lab]=s
         if lab in avg_for or lab in sd_for:
             if len(s)>1:
                 mu=float(s.mean()); sd=float(s.std()); x0,x1=s.index[0],s.index[-1]
@@ -1136,6 +1138,11 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
         fig.update_layout(yaxis2=dict(overlaying="y",side="right",showgrid=False,
                                       title="right axis",rangemode="normal"))
     st.plotly_chart(fig,use_container_width=True,key=k+"_hxchart")
+    if _exp:
+        try:
+            _edf=pd.concat(_exp, axis=1).sort_index(); _edf.insert(0,"Date",_edf.index)
+            dl(_edf, "Export chart data", f"JAWS_{k}_history.xlsx", k+"_hxdl")
+        except Exception: pass
 
 def add_today_marker(fig, series, color=None):
     """Highlight the latest point with a large white dot (colored ring) so 'today' pops."""
@@ -5537,6 +5544,9 @@ def _render_sector_heatmap(k, period):
              f"<td>{w/tot*100:.1f}</td><td style='color:{cc}'>{r:+.2f}</td></tr>")
     with st.expander("Breakdown table", expanded=False):
         st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+        _edf=pd.DataFrame([{"Sector":g,"ETF":e,"Weight_pct":round(w/tot*100,1),f"{period}_ret_pct":round(r,2)}
+                           for e,g,w,r in sorted(rows,key=lambda x:x[3],reverse=True)])
+        dl(_edf, "Export table", f"JAWS_sector_heatmap_{period}.xlsx", k+"_dl")
 
 def _render_geo_heatmap(k, period):
     """Live MSCI World geography: single-country ETFs sized by MSCI World weight, grouped by
@@ -5579,6 +5589,10 @@ def _render_geo_heatmap(k, period):
              f"<td>{w:.1f}</td><td style='color:{cc}'>{ret:+.2f}</td></tr>")
     with st.expander("Breakdown table", expanded=False):
         st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+        _edf=pd.DataFrame([{"Region":region,"Country":ctry,"ETF":etf,"World_wt_pct":round(w,1),
+                            f"{period}_ret_pct":round(ret,2)}
+                           for region,ctry,etf,w,ret in sorted(recs,key=lambda x:x[3],reverse=True)])
+        dl(_edf, "Export table", f"JAWS_geo_heatmap_{period}.xlsx", k+"_dl")
 
 def _render_constituent_heatmap(k, idxkey, idxlabel, period):
     data=_load_heatmap(idxkey)
@@ -5623,6 +5637,10 @@ def _render_constituent_heatmap(k, idxkey, idxlabel, period):
              f"<td style='color:{cc}'>{sec_wr[s]:+.2f}</td></tr>")
     with st.expander("Breakdown table", expanded=False):
         st.markdown(hc+"</table></div>", unsafe_allow_html=True)
+        _edf=pd.DataFrame([{"Ticker":t,"Name":nm,"Sector":s,"MktCap_$B":round(mc/1e9,1),
+                            f"{period}_ret_pct":round(ret,2)}
+                           for t,s,mc,ret,nm in sorted(recs,key=lambda x:x[3],reverse=True)])
+        dl(_edf, "Export constituents", f"JAWS_{idxkey}_constituents_{period}.xlsx", k+"_dl")
 
 def panel_heatmap(k):
     c0,c1,c2=st.columns([2.4,2,1.6])
@@ -5772,6 +5790,8 @@ def panel_breadth(k):
         c=_cols.get(lab)
         if c is None or c not in df.columns: return None
         return pd.Series(df[c].astype(float).values, index=df["date"].values)
+    _bdf=df.copy(); _bdf["date"]=_bdf["date"].dt.date.astype(str)
+    dl(_bdf, "Export breadth history", "JAWS_breadth_history.xlsx", k+"_dl")
     history_explorer(k+"_hx", _prov, list(_cols),
                      default_sel=["% above 200-DMA"], unit="", title="Market breadth — history")
 
@@ -5818,6 +5838,9 @@ def panel_cot(k):
                "Financials = **Leveraged Funds** (TFF report); commodities = **Managed Money** (disaggregated). "
                "**3Y %ile**: how stretched positioning is — **≥90 = crowded long** (red), **≤10 = crowded short** "
                "(coral). Treasuries / USD aren't in the free *current* dataset, so they're omitted.")
+    _cdf=pd.DataFrame([{"Market":n,"Group":g,"Net_spec":round(net),"Wk_chg":round(chg),
+                        "Pctile_3y":round(pct,1)} for n,g,net,chg,pct in rows])
+    dl(_cdf, "Export positioning table", "JAWS_cot_positioning.xlsx", k+"_dl")
     history_explorer(k+"_hx", lambda lab: series.get(lab), list(series.keys()),
                      default_sel=["S&P 500"], unit="contracts", title="COT net positioning — history")
 
@@ -5906,6 +5929,33 @@ def panel_macro_nowcast(k):
                "stressed); **Problematic** = the level that historically signals trouble; **3-mo trend** = change "
                "vs ~3 months ago. GDPNow = growth nowcast; Sahm Rule & yield curve = recession gauges; "
                "NFCI / StL-Stress = financial conditions (positive = tight). Source: **FRED** (free).")
+    _mrows=[{"Indicator":short,"FRED_series":sid,"Latest":data[lbl]["latest"],"As_of":data[lbl]["asof"],
+             "Problematic":_thr.get(kind,""),"Status":_lab.get(_macro_color(kind,data[lbl]["latest"]),"")}
+            for short,lbl,sid,unit,kind in _MACRO if data.get(lbl)]
+    dl(pd.DataFrame(_mrows), "Export dashboard", "JAWS_macro_dashboard.xlsx", k+"_dl")
+    with st.expander("ℹ️  What each indicator is & the data behind it"):
+        _DEF=[
+            ("GDPNow","GDPNOW","The Atlanta Fed's **running nowcast of current-quarter real GDP growth** (annualized %), "
+             "rebuilt as each data input arrives — a real-time read before the official GDP print. Low/negative = the economy is stalling."),
+            ("Sahm Rule","SAHMREALTIME","The **3-month-average unemployment rate minus its lowest point over the prior 12 months** (in pp). "
+             "**≥ 0.50 has coincided with the start of every US recession since the 1970s** — the most reliable real-time trigger."),
+            ("10Y–3M / 10Y–2Y","T10Y3M / T10Y2Y","**Yield-curve slope** (long minus short Treasury yield, %). A **negative (inverted) curve** "
+             "has preceded recessions by ~6–18 months (the 10Y–3M is the Fed's preferred version); it re-steepens once the Fed cuts."),
+            ("Recession prob.","RECPROUSM156N","**Smoothed probability the economy is *currently* in recession** (%), from a Markov-switching model on four "
+             "coincident indicators (payrolls, income, production, sales). A coincident gauge — high = likely already in one."),
+            ("NFCI / Adj-NFCI","NFCI / ANFCI","Chicago Fed **National Financial Conditions Index** — 100+ money/credit/leverage measures into one. "
+             "**Positive = tighter than average** (stress), negative = loose. Adjusted-NFCI strips out the part explained by the economy."),
+            ("StL Stress","STLFSI4","St. Louis Fed **Financial Stress Index** — 18 rate spreads, yields and vol series. **Positive = above-average stress**, "
+             "negative = calm. Spikes during crises."),
+        ]
+        _hh=["Indicator","FRED series","What it is / how to read it"]
+        _h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in _hh)+"</tr>"
+        for nm,sid,desc in _DEF:
+            _h+=(f"<tr><td style='text-align:left'><b>{nm}</b></td><td style='color:{TEXT3}'>{sid}</td>"
+                 f"<td style='text-align:left;white-space:normal'>{desc}</td></tr>")
+        st.markdown(_h+"</table></div>", unsafe_allow_html=True)
+        st.caption("All series are published by **FRED** (Federal Reserve Bank of St. Louis) and are free. "
+                   "Leading gauges (curve, Sahm) warn *ahead*; coincident gauges (recession prob, conditions) describe *now*.")
     with st.expander("📈 Chart an indicator over time (with NBER recessions shaded)"):
         ind=st.selectbox("Indicator", list(data.keys()), key=k+"_rc")
         di=data[ind]; s=pd.Series(di["values"], index=pd.to_datetime(pd.Series(di["dates"]))).dropna().sort_index()
@@ -5980,6 +6030,16 @@ def panel_vol_monitor(k):
                "(both annualized %). Rates: **MOVE** (implied Treasury vol) vs **21-day realized 10Y-yield** vol "
                "(both bp/yr). **Implied above realized = a vol premium** (normal — vol sellers get paid); "
                "**realized above implied = a shock** (vol caught the market short). Source: Yahoo / CBOE / FRED (free).")
+    _vexp={}
+    for _lbl,_kk in [("Equity implied (VIX)","eq_impl"),("Equity realized 21d (%)","eq_real"),
+                     ("Rates implied (MOVE)","rt_impl"),("Rates realized 10Y (bp/yr)","rt_real")]:
+        _s=d.get(_kk)
+        if _s is not None and not _s.empty: _vexp[_lbl]=_w(_s)
+    if _vexp:
+        try:
+            _vdf=pd.concat(_vexp,axis=1).sort_index(); _vdf.insert(0,"Date",_vdf.index)
+            dl(_vdf, "Export vol data", "JAWS_implied_vs_realized_vol.xlsx", k+"_dl")
+        except Exception: pass
 
 r1=st.columns(2)
 with r1[0]:
