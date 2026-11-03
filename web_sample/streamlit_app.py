@@ -1037,7 +1037,7 @@ def _rolling_return(s, months):
     return r.where(ok)
 
 def history_explorer(k, provider, labels, default_sel=None, unit="", title="History",
-                     height=360, basis="raw", rebase_default=False):
+                     height=360, basis="raw", rebase_default=False, ranges=None, range_index=3):
     """Reusable multi-series history chart for a tab's own universe.
     `provider(label)` returns a pandas Series (date-indexed). basis='price' enables a
     Price/Index ↔ Return (cumulative / rolling) toggle and a price+return dual-axis mode."""
@@ -1058,7 +1058,9 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
             rebase=st.checkbox("Rebase to 100 (index growth from the window start)",
                                value=rebase_default, key=k+"_hxreb")
     cc=st.columns([1.3,1.1,1.3,1.2,1.2])
-    rsel=cc[0].selectbox("Range",["1Y","2Y","3Y","5Y","10Y","20Y","All","Custom"],index=3,key=k+"_hxr")
+    _ranges=ranges if ranges is not None else ["1Y","2Y","3Y","5Y","10Y","20Y","All","Custom"]
+    if "Custom" not in _ranges: _ranges=_ranges+["Custom"]
+    rsel=cc[0].selectbox("Range",_ranges,index=min(range_index,len(_ranges)-1),key=k+"_hxr")
     roll_m=None
     if smode=="Rolling return %":
         roll_m=_ROLL_MONTHS[cc[1].selectbox("Rolling",list(_ROLL_MONTHS),index=3,key=k+"_hxroll")]
@@ -1074,8 +1076,12 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
         _cs=d1.date_input("Start", value=date.today()-relativedelta(years=5), key=k+"_hxcs", min_value=date(1900,1,1))
         _ce=d2.date_input("End", value=date.today(), key=k+"_hxce", min_value=date(1900,1,1))
         lo,hi=pd.Timestamp(_cs),pd.Timestamp(_ce)
+    elif rsel=="YTD":
+        lo=pd.Timestamp(date(date.today().year,1,1)); hi=pd.Timestamp(date.today())
     elif rsel!="All":
-        lo=pd.Timestamp(date.today()-relativedelta(years=int(rsel[:-1]))); hi=pd.Timestamp(date.today())
+        _n=int(rsel[:-1])
+        _delta=relativedelta(months=_n) if rsel.endswith("M") else relativedelta(years=_n)
+        lo=pd.Timestamp(date.today()-_delta); hi=pd.Timestamp(date.today())
     def _window(s):
         if lo is not None: s=s[s.index>=lo]
         if hi is not None: s=s[s.index<=hi]
@@ -5793,7 +5799,8 @@ def panel_breadth(k):
     _bdf=df.copy(); _bdf["date"]=_bdf["date"].dt.date.astype(str)
     dl(_bdf, "Export breadth history", "JAWS_breadth_history.xlsx", k+"_dl")
     history_explorer(k+"_hx", _prov, list(_cols),
-                     default_sel=["% above 200-DMA"], unit="", title="Market breadth — history")
+                     default_sel=["% above 200-DMA"], unit="", title="Market breadth — history",
+                     ranges=["1M","3M","6M","YTD","1Y","All"], range_index=1)
 
 # ── CFTC Commitments of Traders (positioning) ─────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -5842,7 +5849,8 @@ def panel_cot(k):
                         "Pctile_3y":round(pct,1)} for n,g,net,chg,pct in rows])
     dl(_cdf, "Export positioning table", "JAWS_cot_positioning.xlsx", k+"_dl")
     history_explorer(k+"_hx", lambda lab: series.get(lab), list(series.keys()),
-                     default_sel=["S&P 500"], unit="contracts", title="COT net positioning — history")
+                     default_sel=["S&P 500"], unit="contracts", title="COT net positioning — history",
+                     ranges=["3M","6M","1Y","2Y","3Y","All"], range_index=4)
 
 # ── Macro nowcast & recession monitor (FRED) ──────────────────
 # (short label, long label, FRED id, unit, kind)
