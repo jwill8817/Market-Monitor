@@ -379,6 +379,8 @@ function buildBossLevel() {
     // defeated walk-off state
     defeatTimer:0,
     ARENA_W,
+    type:'spino',
+    waterX:260,         // center x of water pool in world coords
   };
 }
 
@@ -881,6 +883,70 @@ function updateBoss(dt) {
     if (boss.y >= floor) { boss.y=floor; boss.vy=0; boss.state='patrol'; boss.stateTimer=90; }
   }
 
+  // ── Spinosaurus: water dive ──
+  if (boss.state === 'waterdive') {
+    boss.x += boss.facing * boss.chargeSpeed * 0.9 * dt;
+    if (boss.x <= WALL_L) boss.x = WALL_L;
+    if (boss.x >= WALL_R) boss.x = WALL_R;
+    // When boss reaches near the water pool, submerge
+    if (Math.abs(boss.x - (boss.waterX - boss.w/2)) < 30 || boss.stateTimer <= 0) {
+      boss.state='submerged'; boss.stateTimer=90;
+      boss.submergedY = boss.y;
+      boss.y = H + 200; // hide below screen
+      spawnParticles(boss.waterX - cameraX, H-70, '#64b5f6', 20);
+    }
+  }
+
+  // ── Spinosaurus: submerged ──
+  if (boss.state === 'submerged') {
+    if (boss.stateTimer <= 0) {
+      // Leap out toward player
+      boss.state='waterleap'; boss.stateTimer=100;
+      boss.x = boss.waterX - boss.w/2;
+      boss.y = H - boss.h - 58;
+      boss.vy = -15;
+      boss.leapTargetX = px;
+      boss.facing = px > boss.x ? 1 : -1;
+      spawnParticles(boss.waterX - cameraX, H-70, '#64b5f6', 30);
+    }
+  }
+
+  // ── Spinosaurus: water leap (arc toward player) ──
+  if (boss.state === 'waterleap') {
+    boss.vy = (boss.vy||0) + GRAVITY * dt;
+    boss.y  += boss.vy * dt;
+    // drift x toward player
+    const dx2 = boss.leapTargetX - (boss.x + boss.w/2);
+    boss.x += Math.sign(dx2) * Math.min(Math.abs(dx2)*0.04, 5) * dt;
+    boss.facing = boss.vx >= 0 ? (boss.leapTargetX > boss.x ? 1 : -1) : -1;
+    const floor = H - boss.h - 60;
+    if (boss.y >= floor) {
+      boss.y = floor; boss.vy = 0;
+      boss.state='eat'; boss.stateTimer=55;
+      boss.facing = px > boss.x ? 1 : -1;
+    }
+    if (boss.stateTimer <= 0) { boss.state='patrol'; boss.stateTimer=100; }
+  }
+
+  // ── Spinosaurus: eat (tongue-out bite) ──
+  if (boss.state === 'eat') {
+    if (boss.stateTimer > 20 && player.invincible <= 0) {
+      const biteReach = 140;
+      const biteX = bx + (boss.facing > 0 ? boss.w : -biteReach);
+      if (px+player.w > biteX && px < biteX+biteReach && player.y+player.h > boss.y+boss.h*0.2 && player.y < boss.y+boss.h*0.7) {
+        player.vy = JUMP_FORCE * 0.5;
+        player.vx = boss.facing * 8;
+        if (!easyMode) {
+          player.invincible = 60; lives--;
+          document.getElementById('lives').textContent = '🥚'.repeat(Math.max(0,lives));
+          spawnParticles(player.x+player.w/2, player.y+player.h/2, '#ff4444', 14);
+          if (lives <= 0) { state='dead'; showMessage('💀 Oh no!','Iggy got eaten!\n\nPress Play Again to try again!','Play Again! 🦖'); }
+        } else { player.invincible = 60; spawnParticles(player.x+player.w/2, player.y+player.h/2, '#ffd700', 8); }
+      }
+    }
+    if (boss.stateTimer <= 0) { boss.state='patrol'; boss.stateTimer=110; }
+  }
+
   // ── T-Rex roar shockwave ──
   if (boss.state === 'roar') {
     if (boss.stateTimer === Math.floor(boss.stateTimer) && boss.stateTimer <= 40 && boss.stateTimer > 38) {
@@ -1073,6 +1139,10 @@ function updateBoss(dt) {
           bossProjectiles.push({ x:bx+(boss.facing>0?boss.w:0), y:boss.y+boss.h*0.55,
             vx:boss.facing*6.5, vy:-1.5, life:1, size:9, color:'#c62828' });
         }
+      } else if (boss.type === 'spino' && roll < 0.45 * aggression) {
+        // Water dive — runs to pool, submerges, then leaps out at player
+        boss.state='waterdive'; boss.stateTimer=80;
+        boss.facing = boss.waterX < bx ? -1 : 1;
       } else if (boss.type === 'sauro' && roll < 0.5 * aggression) {
         // Tail slam — massive sweeping tail smash
         boss.state='tailslam'; boss.stateTimer=60;
@@ -1501,9 +1571,45 @@ function drawIggy(x, y, facing, frame, invincible) {
 // ── Draw: Spinosaurus Boss ──────────────────────────────────
 function drawSpinoBoss(b) {
   if (!b || b.hp<=0) return;
+
+  // While submerged: only draw water ripples at pool, no body
+  if (b.state === 'submerged') {
+    const poolSx = b.waterX - cameraX;
+    const t = Date.now()/400;
+    ctx.save();
+    for (let i=0;i<4;i++){
+      const r = ((t*40+i*25)%90)+8;
+      ctx.globalAlpha = Math.max(0, 0.6 - r/90);
+      ctx.strokeStyle='#64b5f6'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.ellipse(poolSx, H-72, r, r*0.22, 0, 0, Math.PI*2); ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+
   const sx = b.x - cameraX;
   if (sx+b.w < -20 || sx > W+20) return;
   if (b.invincible>0 && b.state!=='defeated' && Math.floor(b.invincible/5)%2===0) return;
+
+  // During waterleap: clip lower half to simulate emerging from water
+  const isLeaping = b.state === 'waterleap';
+  if (isLeaping) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H-60);
+    ctx.clip();
+    // Splash particles at pool position
+    const poolSx2 = b.waterX - cameraX;
+    const t2 = Date.now()/300;
+    ctx.save();
+    ctx.globalAlpha=0.5; ctx.fillStyle='#90caf9';
+    for (let i=0;i<6;i++){
+      const a = (i/6)*Math.PI*2;
+      const r = 20+Math.sin(t2+i)*8;
+      ctx.beginPath(); ctx.arc(poolSx2+Math.cos(a)*r, H-70+Math.sin(a)*r*0.25, 5, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
 
   ctx.save();
   ctx.translate(sx + b.w/2, b.y + b.h*0.55);
@@ -1600,6 +1706,23 @@ function drawSpinoBoss(b) {
   // nostril
   ctx.beginPath(); ctx.ellipse(76,-11,2.5,1.5,0.3,0,Math.PI*2); ctx.fillStyle='#1b5e20'; ctx.fill();
 
+  // ── Tongue (only during eat state) ──
+  if (b.state === 'eat') {
+    const tonguePhase = Date.now()/120;
+    const tw = Math.sin(tonguePhase)*3;
+    ctx.beginPath();
+    ctx.moveTo(60,-3);
+    ctx.bezierCurveTo(80+tw,-5, 110+tw,2, 130+tw*1.5,0);
+    ctx.bezierCurveTo(110+tw,6, 80+tw,8, 60,5);
+    ctx.closePath();
+    ctx.fillStyle='#f06292'; ctx.fill();
+    // tongue tip fork
+    ctx.beginPath();
+    ctx.moveTo(126+tw,-1); ctx.lineTo(136+tw,-6); ctx.lineTo(134+tw,-1);
+    ctx.moveTo(126+tw,1);  ctx.lineTo(136+tw,6);  ctx.lineTo(134+tw,1);
+    ctx.fillStyle='#e91e63'; ctx.fill();
+  }
+
   // ── Arms ──
   ctx.save(); ctx.translate(26,18+breathe); ctx.rotate(-0.3+legSwing*0.04);
   drawRoundRect(0,0,9,14,4,'#388e3c','#1b5e20');
@@ -1653,6 +1776,8 @@ function drawSpinoBoss(b) {
   }
 
   ctx.restore();
+  // Close waterleap clip region
+  if (isLeaping) ctx.restore();
 }
 
 // ── Draw: Allosaurus Boss ─────────────────────────────────
@@ -4870,6 +4995,51 @@ function drawBackground() {
     }
     ctx.restore();
     ctx.fillStyle='#37474f'; ctx.fillRect(0,H-64,W,8);
+    return;
+  }
+
+  if (level === 8) {
+    // ── Spinosaurus: murky riverbank ──
+    const spGrad = ctx.createLinearGradient(0,0,0,H);
+    spGrad.addColorStop(0,'#1a2e1a'); spGrad.addColorStop(0.5,'#2e4e2e'); spGrad.addColorStop(1,'#1a3010');
+    ctx.fillStyle=spGrad; ctx.fillRect(0,0,W,H);
+    // Hazy river mist
+    ctx.save(); ctx.globalAlpha=0.12+Math.sin(Date.now()/900)*0.05;
+    ctx.fillStyle='#b2dfdb'; ctx.fillRect(0,H-160,W,160);
+    ctx.restore();
+    // Water pool — shown at world x=110 to x=410 (center=260)
+    const poolScreenX = 110 - cameraX;
+    const poolW = 300;
+    const poolY = H - 90;
+    const poolH = 32;
+    const poolGrad = ctx.createLinearGradient(poolScreenX, poolY, poolScreenX, poolY+poolH);
+    poolGrad.addColorStop(0,'#1565c0'); poolGrad.addColorStop(1,'#0d3b80');
+    ctx.fillStyle=poolGrad; ctx.fillRect(poolScreenX, poolY, poolW, poolH);
+    // Water shimmer
+    ctx.save(); ctx.globalAlpha=0.25;
+    const wt=Date.now()/600;
+    for (let i=0;i<5;i++){
+      ctx.fillStyle='#64b5f6';
+      ctx.beginPath(); ctx.ellipse(poolScreenX+30+i*55+Math.sin(wt+i)*12,poolY+poolH*0.35+Math.sin(wt*0.8+i)*3,20+i%2*8,4,0,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+    // Pool edge ripples
+    ctx.save(); ctx.globalAlpha=0.35; ctx.strokeStyle='#90caf9'; ctx.lineWidth=1.5;
+    [130,220,340].forEach((rx,i)=>{
+      const r=((wt*25+i*30)%45)+5;
+      ctx.beginPath(); ctx.ellipse(poolScreenX+rx-110,poolY+poolH*0.5,r,r*0.22,0,0,Math.PI*2); ctx.stroke();
+    });
+    ctx.restore();
+    // Jungle trees
+    ctx.fillStyle='rgba(10,40,10,0.55)';
+    [80,250,490,730,980,1200].forEach((tx,i)=>{
+      const tpx=tx-cameraX*0.35;
+      if (tpx>-100&&tpx<W+100){
+        ctx.fillRect(tpx-6,H-64-80-i%2*30,12,80+i%2*30);
+        ctx.beginPath(); ctx.arc(tpx,H-64-85-i%2*30,32+i%3*10,0,Math.PI*2); ctx.fill();
+      }
+    });
+    ctx.fillStyle='#4e342e'; ctx.fillRect(0,H-64,W,8);
     return;
   }
 
