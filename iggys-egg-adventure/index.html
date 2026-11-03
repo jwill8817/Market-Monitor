@@ -424,7 +424,7 @@ function buildDeltaLevel() {
   boss = { x:950, y:H-130, w:100, h:120, hp:5, maxHp:5, vx:-2.8, facing:-1,
     frame:0, frameTimer:0, state:'intro', stateTimer:175, invincible:0,
     chargeSpeed:11, ARENA_W, type:'delta',
-    speechBubble:true, speechText:"You can't catch me!!", defeatTimer:0, frustratedBubble:false };
+    speechBubble:true, speechText:"i'm going to do some wild stuff\nso you should be extra scared", defeatTimer:0, frustratedBubble:false };
 }
 
 function buildTorvoLevel() {
@@ -439,7 +439,7 @@ function buildTorvoLevel() {
   boss = { x:950, y:H-155, w:130, h:145, hp:5, maxHp:5, vx:-1.9, facing:-1,
     frame:0, frameTimer:0, state:'intro', stateTimer:185, invincible:0,
     chargeSpeed:8.5, ARENA_W, type:'torvo',
-    speechBubble:true, speechText:'Do you want me to beat you,\nor can you defeat me?', defeatTimer:0, frustratedBubble:false };
+    speechBubble:true, speechText:'well if you want to play\nthaaaaatt baaaad, i guess we can', defeatTimer:0, frustratedBubble:false };
 }
 
 function buildSeaLevel() {
@@ -2106,17 +2106,20 @@ function drawDeltadromeus(b) {
   // ── Speech bubble ──
   const bubbleText = b.speechBubble ? b.speechText : b.frustratedBubble ? "TOO FAST...I'M TOO FAST!!" : null;
   if (bubbleText) {
-    const bubX = sx + (b.facing > 0 ? b.w + 10 : -210);
-    const bubY = b.y - 60;
-    const bw = 190, bh = 46;
+    const lines = bubbleText.split('\n');
+    const bw = 220, bh = lines.length > 1 ? 58 : 46;
+    const bubX = sx + (b.facing > 0 ? b.w + 10 : -bw - 10);
+    const bubY = b.y - 68;
     drawRoundRect(bubX, bubY, bw, bh, 10, 'white', b.frustratedBubble ? '#2e7d50' : '#333');
     const tailX = b.facing > 0 ? bubX - 1 : bubX + bw + 1;
     ctx.beginPath();
     ctx.moveTo(tailX,bubY+bh*0.6); ctx.lineTo(tailX+(b.facing>0?-18:18),bubY+bh*0.8); ctx.lineTo(tailX,bubY+bh*0.9);
     ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#2e7d50':'#333'; ctx.lineWidth=2; ctx.stroke();
     ctx.fillStyle=b.frustratedBubble?'#1a5c36':'#222';
-    ctx.font='bold 13px Comic Sans MS';
-    ctx.textAlign='center'; ctx.fillText(bubbleText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
+    ctx.font='bold 12px Comic Sans MS'; ctx.textAlign='center';
+    const startY = lines.length > 1 ? bubY+18 : bubY+bh/2+5;
+    lines.forEach((ln,i) => ctx.fillText(ln, bubX+bw/2, startY+i*17));
+    ctx.textAlign='left';
   }
 
   ctx.restore();
