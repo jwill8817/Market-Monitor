@@ -1037,7 +1037,8 @@ def _rolling_return(s, months):
     return r.where(ok)
 
 def history_explorer(k, provider, labels, default_sel=None, unit="", title="History",
-                     height=360, basis="raw", rebase_default=False, ranges=None, range_index=3):
+                     height=360, basis="raw", rebase_default=False, ranges=None, range_index=3,
+                     right_default=None, right_unit=None):
     """Reusable multi-series history chart for a tab's own universe.
     `provider(label)` returns a pandas Series (date-indexed). basis='price' enables a
     Price/Index ↔ Return (cumulative / rolling) toggle and a price+return dual-axis mode."""
@@ -1065,8 +1066,10 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
     if smode=="Rolling return %":
         roll_m=_ROLL_MONTHS[cc[1].selectbox("Rolling",list(_ROLL_MONTHS),index=3,key=k+"_hxroll")]
     _dual=(smode=="Price + Return (dual axis)")
-    right=cc[2].multiselect("Right axis", sel, default=[], key=k+"_hxright", disabled=_dual,
-                            help="Plot these on a separate right-hand axis (for very different scales).")
+    _rdef=[x for x in (right_default or []) if x in sel]
+    right=cc[2].multiselect("Right axis", sel, default=_rdef, key=k+"_hxright", disabled=_dual,
+                            help="Plot these on a separate right-hand axis (for very different scales, "
+                                 "e.g. counts vs percentages).")
     avg_for=cc[3].multiselect("Average line", sel, default=[], key=k+"_hxavg")
     sd_for=cc[4].multiselect("±2σ bands", sel, default=[], key=k+"_hxsd")
     # Date window — presets or discrete custom start/end.
@@ -1142,7 +1145,7 @@ def history_explorer(k, provider, labels, default_sel=None, unit="", title="Hist
                                       title="cumulative return %",rangemode="normal"))
     elif right:
         fig.update_layout(yaxis2=dict(overlaying="y",side="right",showgrid=False,
-                                      title="right axis",rangemode="normal"))
+                                      title=(right_unit or "right axis"),rangemode="normal"))
     st.plotly_chart(fig,use_container_width=True,key=k+"_hxchart")
     if _exp:
         try:
@@ -5787,11 +5790,15 @@ def panel_breadth(k):
     tile(cols[3],"52w highs / lows",hi,"d",(GREEN if hi>=lo else RED),f" / {lo}")
     tile(cols[4],"Advancers / decliners",adv,"d",(GREEN if adv>=dec else RED),f" / {dec}")
     st.caption(f"**S&P 500 internals**, as of **{last['date'].date()}** · {int(last['n'])} names. "
-               "**% above 50/200-DMA** = share of constituents in uptrends (above = bullish breadth). "
-               "**Net new highs** = 52-week highs − lows. **Advancers/decliners** = up vs down today. "
-               "Built from constituent prices (free); accumulates daily after the close.")
-    _cols={"% above 50-DMA":"pct_above_50dma","% above 200-DMA":"pct_above_200dma",
-           "Net new highs (52w)":"net_new_highs","52w new highs":"new_highs_52w","52w new lows":"new_lows_52w"}
+               "**% above 50/200-DMA** = share of constituents in uptrends, as a **% of the index** (above = "
+               "bullish breadth). **Net new highs**, **52w highs/lows** and **advancers/decliners** are "
+               "**counts of companies**, not percentages. Built from constituent prices (free); accumulates "
+               "daily after the close.")
+    # Two kinds of series: percentages (0–100) and raw company counts. They go on separate axes.
+    _pct_cols={"% above 50-DMA (%)":"pct_above_50dma","% above 200-DMA (%)":"pct_above_200dma"}
+    _cnt_cols={"Net new highs (count)":"net_new_highs","52w new highs (count)":"new_highs_52w",
+               "52w new lows (count)":"new_lows_52w"}
+    _cols={**_pct_cols,**_cnt_cols}
     def _prov(lab):
         c=_cols.get(lab)
         if c is None or c not in df.columns: return None
@@ -5799,7 +5806,9 @@ def panel_breadth(k):
     _bdf=df.copy(); _bdf["date"]=_bdf["date"].dt.date.astype(str)
     dl(_bdf, "Export breadth history", "JAWS_breadth_history.xlsx", k+"_dl")
     history_explorer(k+"_hx", _prov, list(_cols),
-                     default_sel=["% above 200-DMA"], unit="", title="Market breadth — history",
+                     default_sel=["% above 200-DMA (%)","Net new highs (count)"],
+                     unit="%", right_unit="count", right_default=list(_cnt_cols),
+                     title="Market breadth — history (% of index on left · company counts on right)",
                      ranges=["1M","3M","6M","YTD","1Y","All"], range_index=1)
 
 # ── CFTC Commitments of Traders (positioning) ─────────────────
