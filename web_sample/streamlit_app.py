@@ -2009,6 +2009,50 @@ def panel_rvol(k):
         dl(df,"Export","JAWS_realizedvol.xlsx",k+"_dl")
 
 _ZPER={"1D":1,"1W":5,"1M":21,"3M":63,"6M":126,"1Y":252}
+
+def _scan_winlabel(S, E):
+    """Friendly label for a calendar window — 'Oct 2026' for a full month, else a date range."""
+    S=pd.Timestamp(S); E=pd.Timestamp(E)
+    mo_end=S.replace(day=1)+relativedelta(months=1)-relativedelta(days=1)
+    if S.day==1 and E.normalize()==mo_end.normalize():
+        return S.strftime("%b %Y")
+    return f"{S:%b %d, %Y}–{E:%b %d, %Y}"
+
+def _scan_one(c, yrs, mode, w, wstart, wend, asof_date):
+    """Return (measured_change%, mean%, std, z, asof_label, horizon_days) for one price series.
+
+    mode 'Calendar window': realized change over [wstart→wend] (close before the window to the
+      last close in it), z-scored against the distribution of SAME-LENGTH rolling changes over
+      the prior `yrs` years. mode 'As of a date'/'Latest': the w-day change ending at the as-of
+      date (or the last observation), z-scored against its `yrs`-year history up to that point."""
+    try: c=c.dropna().sort_index()
+    except Exception: return None
+    if len(c)<10: return None
+    if mode=="Calendar window":
+        S=pd.Timestamp(wstart); E=pd.Timestamp(wend)
+        end_pos=int(c.index.searchsorted(E, side="right"))-1          # last close on/before window end
+        base_pos=int(c.index.searchsorted(S, side="left"))-1          # last close strictly before window start
+        if base_pos<0 or end_pos<=base_pos: return None
+        w_win=end_pos-base_pos
+        cur=(float(c.iloc[end_pos])/float(c.iloc[base_pos])-1)*100
+        cutoff=E-relativedelta(years=yrs)
+        hist=c.iloc[:end_pos+1]; hist=hist[hist.index>=cutoff]
+        r=(hist.pct_change(w_win).dropna())*100
+        if len(r)<5: return None
+        mu=float(r.mean()); sd=float(r.std(ddof=1)); z=(cur-mu)/sd if sd>1e-9 else None
+        return cur,mu,sd,z,str(c.index[end_pos].date()),w_win
+    # Latest / As-of-date: w-period change ending at the chosen point.
+    E=pd.Timestamp(asof_date) if asof_date is not None else c.index[-1]
+    end_pos=int(c.index.searchsorted(E, side="right"))-1
+    if end_pos<w+5: return None
+    cutoff=pd.Timestamp(c.index[end_pos])-relativedelta(years=yrs)
+    hist=c.iloc[:end_pos+1]; hist=hist[hist.index>=cutoff]
+    r=(hist.pct_change(w).dropna())*100
+    if len(r)<5: return None
+    cur=float(r.iloc[-1]); mu=float(r.mean()); sd=float(r.std(ddof=1))
+    z=(cur-mu)/sd if sd>1e-9 else None
+    return cur,mu,sd,z,str(c.index[end_pos].date()),w
+
 def panel_scanner(k):
     # ── Universe: flip segments + search/add individual instruments ──
     segs=seg_catalog()
@@ -2028,28 +2072,49 @@ def panel_scanner(k):
     for sg in seg_pick: items.update(segs[sg])
     for sym in list(dict.fromkeys(st.session_state[k+"_syms"]+pasted)): items[sym]=sym
 
-    c1,c2=st.columns(2)
-    yrs=c1.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=10,key=k+"_yr")
-    zper=c2.selectbox("Z-score period",list(_ZPER.keys()),index=2,key=k+"_zp")
-    w=_ZPER[zper]
+    r1=st.columns([1,1.4])
+    yrs=int(r1[0].number_input("Look-back (years)", min_value=1, max_value=40, value=10, step=1, key=k+"_yr",
+                               help="How much history the z-score distribution is measured over (any value, 1–40)."))
+    mode=r1[1].selectbox("Assess", ["Latest value","As of a date","Calendar window"], index=0, key=k+"_mode",
+                         help="Latest = the most recent change. As-of = the change ending on a chosen date "
+                              "(point-in-time). Calendar window = the realized change over an exact date range, "
+                              "e.g. a specific month, scored vs same-length moves over the look-back.")
+    _UMD={"Days":1,"Weeks":5,"Months":21}; _UAB={"Days":"D","Weeks":"W","Months":"M"}
+    w=None; hlabel=None; asof_date=None; wstart=wend=None; wlabel=None
+    if mode=="Calendar window":
+        r2=st.columns(2)
+        _end0=date.today().replace(day=1)-relativedelta(days=1); _start0=_end0.replace(day=1)
+        wstart=r2[0].date_input("Window start", value=_start0, key=k+"_ws", min_value=date(1950,1,1))
+        wend=r2[1].date_input("Window end", value=_end0, key=k+"_we", min_value=date(1950,1,1))
+        if pd.Timestamp(wend)<pd.Timestamp(wstart):
+            st.warning("Window end is before window start."); return
+        asof_date=pd.Timestamp(wend); wlabel=_scan_winlabel(wstart,wend)
+    else:
+        r2=st.columns(3 if mode=="As of a date" else 2)
+        znum=int(r2[0].number_input("Z-score period", min_value=1, max_value=520, value=21, step=1, key=k+"_zn",
+                                    help="Return horizon: e.g. 21 Days ≈ 1 month, 12 Months ≈ 1 year."))
+        zunit=r2[1].selectbox("Unit", list(_UMD), index=0, key=k+"_zu")
+        w=znum*_UMD[zunit]; hlabel=f"{znum}{_UAB[zunit]}"
+        if mode=="As of a date":
+            asof_date=pd.Timestamp(r2[2].date_input("As-of date", value=date.today(), key=k+"_asof",
+                                                    min_value=date(1950,1,1)))
     if not items:
         st.info("Add segments or instruments above to scan."); return
-    cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs))
     rows=[]
     with st.spinner(f"Scanning {len(items)} instruments…"):
         for name,sym in items.items():
             c=md_history(sym)
-            if c.empty: continue
-            c=c[c.index>=cutoff]
-            if len(c)<w+5: continue
-            r=(c.pct_change(w).dropna())*100          # w-period returns over lookback
-            if len(r)<5: continue
-            cur=float(r.iloc[-1]); mu=float(r.mean()); sd=float(r.std(ddof=1))
-            z=(cur-mu)/sd if sd>1e-9 else None
-            rows.append({"Instrument":name,"Ticker":sym,"Last":float(c.iloc[-1]),
-                         "Ret%":cur,"Avg%":mu,"Z":z})
+            if c is None or c.empty: continue
+            res=_scan_one(c, yrs, mode, w, wstart, wend, asof_date)
+            if res is None: continue
+            cur,mu,sd,z,asof_lbl,wd=res
+            rows.append({"Instrument":name,"Ticker":sym,"Last":float(c.dropna().iloc[-1]),
+                         "Ret%":cur,"Avg%":mu,"Z":z,"As of":asof_lbl,"Horizon_days":int(wd)})
+    if not rows:
+        st.info("No instruments had enough history for the chosen look-back / window."); return
     rows.sort(key=lambda r:-(abs(r["Z"]) if r["Z"] is not None else 0))
-    hdr=["Instrument","Tkr","Last",f"{zper} Ret%",f"{zper} Avg%","Z","σ"]
+    H=wlabel if mode=="Calendar window" else hlabel
+    hdr=["Instrument","Tkr","Last",f"{H} Chg%",f"{yrs}y Avg%","Z","σ","As of"]
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hdr)+"</tr>"
     for r in rows:
         z=r["Z"]; az=abs(z) if z is not None else 0
@@ -2060,10 +2125,19 @@ def panel_scanner(k):
             f"<td style='color:{rcl}'>{r['Ret%']:+.2f}%</td>"
             f"<td style='color:{TEXT2}'>{r['Avg%']:+.2f}%</td>"
             f"<td style='color:{zc}'>{(f'{z:+.2f}' if z is not None else '—')}</td>"
-            f"<td style='color:{zc}'>{flag}</td></tr>")
+            f"<td style='color:{zc}'>{flag}</td>"
+            f"<td style='color:{TEXT3}'>{r['As of']}</td></tr>")
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
-    st.caption(f"Z = (latest {zper} return − mean {zper} return over {yrs}y) ÷ {yrs}y std. "
-               f"Red ≥ |2σ| extreme move vs history = potential dislocation.")
+    if mode=="Calendar window":
+        st.caption(f"**Realized change over {wlabel}** (close before the window → last close in it), z-scored "
+                   f"against the distribution of **same-length rolling changes** over the prior **{yrs}y**. "
+                   "Z = (window change − mean) ÷ std. Red ≥ |2σ| = extreme vs history (potential dislocation).")
+    elif mode=="As of a date":
+        st.caption(f"**{hlabel} change ending {asof_date.date()}** (point-in-time), z-scored against its **{yrs}y** "
+                   "history up to that date. Red ≥ |2σ| = extreme vs history (potential dislocation).")
+    else:
+        st.caption(f"Latest **{hlabel} change** vs its **{yrs}y** history. "
+                   "Z = (latest change − mean) ÷ std. Red ≥ |2σ| = extreme move vs history (potential dislocation).")
     dl(pd.DataFrame(rows),"Export","JAWS_dislocation_scanner.xlsx",k+"_dl")
 
 def _wl_ret(c, anchor):
