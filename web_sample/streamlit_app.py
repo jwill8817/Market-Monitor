@@ -2011,11 +2011,19 @@ def panel_rvol(k):
 _ZPER={"1D":1,"1W":5,"1M":21,"3M":63,"6M":126,"1Y":252}
 
 def _scan_winlabel(S, E):
-    """Friendly label for a calendar window — 'Oct 2026' for a full month, else a date range."""
+    """Friendly label for a calendar window — single day, full week/month/quarter/year, else range."""
     S=pd.Timestamp(S); E=pd.Timestamp(E)
+    if S.normalize()==E.normalize():
+        return S.strftime("%b %d, %Y")                                   # single day
+    if S.month==1 and S.day==1 and E.month==12 and E.day==31 and S.year==E.year:
+        return S.strftime("%Y")                                          # full calendar year
     mo_end=S.replace(day=1)+relativedelta(months=1)-relativedelta(days=1)
     if S.day==1 and E.normalize()==mo_end.normalize():
-        return S.strftime("%b %Y")
+        return S.strftime("%b %Y")                                       # full month
+    if S.day==1 and S.month in (1,4,7,10):                               # full quarter
+        q_end=S+relativedelta(months=3)-relativedelta(days=1)
+        if E.normalize()==q_end.normalize():
+            return f"Q{(S.month-1)//3+1} {S.year}"
     return f"{S:%b %d, %Y}–{E:%b %d, %Y}"
 
 def _scan_one(c, lb, mode, w, wstart, wend, asof_date):
@@ -2089,17 +2097,38 @@ def panel_scanner(k):
     _MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     w=None; hlabel=None; asof_date=None; wstart=wend=None; wlabel=None
     if mode=="Calendar window":
-        wmode=st.radio("Window", ["Specific month","Custom date range"], horizontal=True, key=k+"_wmode")
+        wmode=st.radio("Window", ["Specific period","Custom date range"], horizontal=True, key=k+"_wmode")
         _end0=date.today().replace(day=1)-relativedelta(days=1)          # last day of the prior full month
-        if wmode=="Specific month":
-            mc=st.columns(2)
-            yr_pick=int(mc[0].number_input("Year", min_value=1950, max_value=date.today().year,
-                                           value=_end0.year, step=1, key=k+"_wy"))
-            mo_pick=mc[1].selectbox("Month", _MONTHS, index=_end0.month-1, key=k+"_wmo")
-            wstart=date(yr_pick, _MONTHS.index(mo_pick)+1, 1)
-            wend=wstart+relativedelta(months=1)-relativedelta(days=1)
+        if wmode=="Specific period":
+            ptype=st.selectbox("Period type", ["Day","Week","Month","Quarter","Year"], index=2, key=k+"_ptype")
+            if ptype=="Day":
+                _d=st.date_input("Day", value=date.today()-relativedelta(days=1), key=k+"_pday", min_value=date(1950,1,1))
+                wstart=wend=_d
+            elif ptype=="Week":
+                _wk=st.date_input("Week containing", value=date.today()-relativedelta(days=7), key=k+"_pwk", min_value=date(1950,1,1))
+                wstart=_wk-relativedelta(days=_wk.weekday())             # Monday of that week
+                wend=wstart+relativedelta(days=6)                        # Sunday
+            elif ptype=="Month":
+                mc=st.columns(2)
+                yr_pick=int(mc[0].number_input("Year", min_value=1950, max_value=date.today().year,
+                                               value=_end0.year, step=1, key=k+"_wy"))
+                mo_pick=mc[1].selectbox("Month", _MONTHS, index=_end0.month-1, key=k+"_wmo")
+                wstart=date(yr_pick, _MONTHS.index(mo_pick)+1, 1)
+                wend=wstart+relativedelta(months=1)-relativedelta(days=1)
+            elif ptype=="Quarter":
+                qc=st.columns(2)
+                yr_pick=int(qc[0].number_input("Year", min_value=1950, max_value=date.today().year,
+                                               value=_end0.year, step=1, key=k+"_wqy"))
+                q_pick=qc[1].selectbox("Quarter", ["Q1","Q2","Q3","Q4"], index=(_end0.month-1)//3, key=k+"_wq")
+                _qm=(int(q_pick[1])-1)*3+1
+                wstart=date(yr_pick, _qm, 1)
+                wend=wstart+relativedelta(months=3)-relativedelta(days=1)
+            else:  # Year
+                yr_pick=int(st.number_input("Year", min_value=1950, max_value=date.today().year,
+                                            value=_end0.year, step=1, key=k+"_wyr"))
+                wstart=date(yr_pick,1,1); wend=date(yr_pick,12,31)
             if pd.Timestamp(wstart)>pd.Timestamp(date.today()):
-                st.warning("That month is in the future."); return
+                st.warning("That period is in the future."); return
         else:
             r2=st.columns(2)
             wstart=r2[0].date_input("Window start", value=_end0.replace(day=1), key=k+"_ws", min_value=date(1950,1,1))
