@@ -2057,8 +2057,10 @@ def _scan_one(c, lb, mode, w, wstart, wend, asof_date):
 def panel_scanner(k):
     # ── Universe: flip segments + search/add individual instruments ──
     segs=seg_catalog()
-    seg_pick=st.multiselect("Add segments", list(segs.keys()),
-                            default=["Equity Indices","US Sectors"], key=k+"_segs")
+    _allsegs=list(segs.keys())
+    seg_pick=st.multiselect("Add segments", _allsegs, default=_allsegs, key=k+"_segs",
+                            help="Defaults to every data category for a broad, robust scan. "
+                                 "Deselect segments to narrow it (and speed it up).")
     if k+"_syms" not in st.session_state: st.session_state[k+"_syms"]=[]
     if _HAS_SEARCHBOX:
         sel=st_searchbox(search_instruments, placeholder="Search & add an instrument…", key=k+"_sb")
