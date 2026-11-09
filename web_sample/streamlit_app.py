@@ -2199,20 +2199,35 @@ def panel_scanner(k):
                                                     min_value=date(1950,1,1)))
     if not items:
         st.info("Add segments or instruments above to scan."); return
-    rows=[]
-    with st.spinner(f"Scanning {len(items)} instruments…"):
-        for name,sym in items.items():
-            c=md_history(sym)
-            if c is None or c.empty: continue
-            disp=float(c.dropna().iloc[-1])              # familiar price-index level for display
-            cr=md_return_history(sym)                     # total-return basis for the return math
-            res=_scan_one(cr, lb, mode, w, wstart, wend, asof_date)
-            if res is None: continue
-            cur,mu,sd,z,asof_lbl,wd=res
-            rows.append({"Instrument":name,"Ticker":sym,"Last":disp,
-                         "Ret%":cur,"Avg%":mu,"Z":z,"As of":asof_lbl,"Horizon_days":int(wd)})
+    # The scan can fetch several hundred instruments, so it runs ONLY on demand (not on page
+    # load) — otherwise an all-category default would block the whole app from rendering.
+    rc=st.columns([1,3])
+    go=rc[0].button(f"▶ Run scan  ({len(items)})", key=k+"_run", type="primary")
+    rc[1].caption("Scans the selected universe for dislocations. A full all-category run pulls several "
+                  "hundred instruments (~30–60s the first time); results stay until you re-run.")
+    if go:
+        _rows=[]
+        with st.spinner(f"Scanning {len(items)} instruments…"):
+            for name,sym in items.items():
+                c=md_history(sym)
+                if c is None or c.empty: continue
+                disp=float(c.dropna().iloc[-1])          # familiar price-index level for display
+                cr=md_return_history(sym)                 # total-return basis for the return math
+                res=_scan_one(cr, lb, mode, w, wstart, wend, asof_date)
+                if res is None: continue
+                cur,mu,sd,z,asof_lbl,wd=res
+                _rows.append({"Instrument":name,"Ticker":sym,"Last":disp,
+                              "Ret%":cur,"Avg%":mu,"Z":z,"As of":asof_lbl,"Horizon_days":int(wd)})
+        st.session_state[k+"_rows"]=_rows
+        st.session_state[k+"_ctx"]=(mode,hlabel,wlabel,lblab,asof_date)
+    rows=st.session_state.get(k+"_rows")
+    if rows is None:
+        st.info("Set your universe and parameters above, then **Run scan**."); return
     if not rows:
         st.info("No instruments had enough history for the chosen look-back / window."); return
+    # Render with the context the stored results were computed under (so controls changed after a
+    # scan don't mislabel the table until the next Run).
+    mode,hlabel,wlabel,lblab,asof_date=st.session_state.get(k+"_ctx",(mode,hlabel,wlabel,lblab,asof_date))
     rows.sort(key=lambda r:-(abs(r["Z"]) if r["Z"] is not None else 0))
     H=wlabel if mode=="Calendar window" else hlabel
     hdr=["Instrument","Tkr","Last",f"{H} Chg%",f"{lblab} Avg%","Z","σ","As of"]
