@@ -183,6 +183,7 @@ INDICES = {
     "FTSE 100":   "^FTSE",
     "DAX":        "^GDAXI",
     "Nikkei 225": "^N225",
+    "TOPIX (ETF)": "1475.T",   # iShares Core TOPIX ETF (JPY) — index symbols are delisted on Yahoo
     "Hang Seng":  "^HSI",
     "KOSPI":      "^KS11",
     "CAC 40":     "^FCHI",
