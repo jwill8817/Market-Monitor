@@ -511,7 +511,7 @@ def resolve_ticker(sym):
     try:
         for qq in yf.Search(sym, max_results=4).quotes:
             if qq.get("symbol","").upper()==sym.upper():
-                name=qq.get("shortname") or qq.get("longname"); break
+                name=_yq_name(qq); break
     except Exception: pass
     return name, price
 
@@ -529,10 +529,19 @@ def fred_title(sid):
     except Exception: return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def _yq_name(h):
+    """Best display name from a Yahoo search quote. For funds, shortName is often just the
+    issuer (e.g. '1475.T' → 'BLACKROCK JAPAN CO LTD ISHARES'), while longName holds the real
+    fund name ('iShares Core TOPIX ETF'), so prefer longName for ETFs/mutual funds."""
+    sn=(h.get("shortname") or "").strip(); ln=(h.get("longname") or "").strip()
+    if (h.get("quoteType") or "").upper() in ("ETF","MUTUALFUND") and ln:
+        return ln
+    return sn or ln or h.get("symbol")
+
 def yf_search(q):
     import yfinance as yf
     try:
-        return [(h.get("symbol"), h.get("shortname") or h.get("longname") or h.get("symbol"))
+        return [(h.get("symbol"), _yq_name(h))
                 for h in yf.Search(q, max_results=8).quotes if h.get("symbol")]
     except Exception: return []
 
