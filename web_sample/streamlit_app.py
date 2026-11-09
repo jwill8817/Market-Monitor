@@ -362,6 +362,49 @@ def md_history(sym, start=None, adjusted=True):
             return s.copy()
     return _md_history_remote(sym, start=start, adjusted=adjusted)
 
+def md_return_history(sym, start=None):
+    """Price history for RETURN math. Substitutes the total-return counterpart for the price
+    indices that have one (^GSPC→^SP500TR, ^IXIC→^XCMP, ^RUT→^RUTTR) so returns include
+    dividends and match the top return tables. ETFs/stocks are already dividend-adjusted;
+    price-only indices without a TR counterpart (KOSPI, Hang Seng, …) are unchanged."""
+    try:
+        import market_data as _md
+        trk=getattr(_md,"TOTAL_RETURN_OVERRIDE",{}).get(sym)
+    except Exception:
+        trk=None
+    if trk:
+        s=md_history(trk, start=start)
+        if s is not None and not s.empty:
+            return s
+    return md_history(sym, start=start)
+
+def _sym_basis(sym):
+    """'TR' (total return) or 'PR' (price only) for a tradable symbol, mirroring the top tables."""
+    try:
+        import market_data as _md
+        return _md._return_basis(sym, False) or "TR"
+    except Exception:
+        return "TR"
+
+def pr_tag(label, sym):
+    """Append a small 'PR' superscript to a label when the symbol is price-return only."""
+    return label+(f' <sup style="color:{YELLOW};font-size:9px;">PR</sup>' if _sym_basis(sym)=="PR" else "")
+
+def pr_caption(pairs):
+    """Render a PR/TR legend caption for the given (label, sym) pairs, listing the PR names —
+    the same denotation the top return tables use."""
+    try:
+        prs=[lbl for lbl,sym in pairs if isinstance(sym,str) and _sym_basis(sym)=="PR"]
+    except Exception:
+        prs=[]
+    if prs:
+        st.caption(f'<span style="color:{YELLOW}">PR</span> = <b>price return</b> (excludes dividends): '
+                   + ", ".join(prs) + ". All others are <b>total return</b> (dividends/coupons reinvested) — "
+                   "matching the top return tables.", unsafe_allow_html=True)
+    else:
+        st.caption("All series are <b>total return</b> (dividends/coupons reinvested) — matching the top "
+                   "return tables.", unsafe_allow_html=True)
+
 def _series_from_wide(raw, kind):
     """Wide DataFrame (col1=dates, rest=series) → {SYMBOL:(name, price Series)}."""
     if raw.shape[1]<2:
@@ -2147,20 +2190,13 @@ def panel_scanner(k):
                                                     min_value=date(1950,1,1)))
     if not items:
         st.info("Add segments or instruments above to scan."); return
-    import market_data as _md
-    _tro=getattr(_md,"TOTAL_RETURN_OVERRIDE",{})         # price index → total-return counterpart
     rows=[]
     with st.spinner(f"Scanning {len(items)} instruments…"):
         for name,sym in items.items():
             c=md_history(sym)
             if c is None or c.empty: continue
             disp=float(c.dropna().iloc[-1])              # familiar price-index level for display
-            # Use the total-return series for RETURN math where one exists (adds back dividends),
-            # so the scanner matches the top return tables. ETFs are already dividend-adjusted.
-            cr=c; _trk=_tro.get(sym)
-            if _trk:
-                _t=md_history(_trk)
-                if _t is not None and not _t.empty: cr=_t
+            cr=md_return_history(sym)                     # total-return basis for the return math
             res=_scan_one(cr, lb, mode, w, wstart, wend, asof_date)
             if res is None: continue
             cur,mu,sd,z,asof_lbl,wd=res
@@ -2239,10 +2275,12 @@ def panel_watchlist(k):
             if c is None or c.empty:
                 h+=(f"<tr><td>{lbl}</td><td style='color:{TEXT3}'>{sym}</td>"
                     f"<td colspan='{len(RET_HDR)-3}' style='color:{TEXT3}'>no data</td></tr>"); continue
+            cr=md_return_history(sym)                     # total-return basis for the return math
+            if cr is None or cr.empty: cr=c
             vals={}
             for nm,anc in anchors:
-                vals[nm]=(_wl_ret(c, c.index[-2]) if (nm=="1D" and len(c)>=2)
-                          else (_wl_ret(c, anc) if anc else None))
+                vals[nm]=(_wl_ret(cr, cr.index[-2]) if (nm=="1D" and len(cr)>=2)
+                          else (_wl_ret(cr, anc) if anc else None))
             cells="".join(f"<td>{f_pct(vals[nm])}</td>" for nm,_ in anchors)
             h+=(f"<tr><td>{lbl}</td><td style='color:{TEXT3}'>{sym}</td>"
                 f"<td>{f_price(float(c.iloc[-1]),lbl)}</td>{cells}</tr>")
@@ -2255,8 +2293,8 @@ def panel_watchlist(k):
     if cc2.button("Remove selected", key=k+"_rmbtn") and rm:
         for s in rm: wl.pop(s,None)
         watchlist_save(); st.rerun()
-    st.caption("Total-return basis (dividends/coupons included). Your watchlist is saved and persists "
-               "across sessions until you remove an item.")
+    pr_caption(list(wl.items()))
+    st.caption("Your watchlist is saved and persists across sessions until you remove an item.")
     if rows: dl(pd.DataFrame(rows),"Export","JAWS_watchlist.xlsx",k+"_dl2")
 
 def panel_custom(k):
@@ -2297,7 +2335,7 @@ def panel_custom(k):
 
 def panel_rolling_returns(k):
     chosen=ticker_picker(k, ["S&P 500"])
-    series={lbl:md_history(sym) for lbl,sym in chosen.items()}
+    series={lbl:md_return_history(sym) for lbl,sym in chosen.items()}
     series={lbl:s for lbl,s in series.items() if s is not None and not s.empty}
     c1,c2,c3=st.columns([1.2,1,1])
     fmode=c1.radio("Frequency",["Auto","Daily","Monthly"],horizontal=True,key=k+"_fm",
@@ -2326,6 +2364,7 @@ def panel_rolling_returns(k):
     yr=yaxis_range_controls(k); fig=base_layout(fig,f"Rolling {win}-{unit} total return (%)","%",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     if note: st.caption(note)
+    pr_caption(list(chosen.items()))
     if exp:
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_rolling_returns.xlsx",k+"_dl")
@@ -2333,7 +2372,7 @@ def panel_rolling_returns(k):
 def panel_rolling_sharpe(k):
     import numpy as np
     chosen=ticker_picker(k, ["S&P 500"])
-    series={lbl:md_history(sym) for lbl,sym in chosen.items()}
+    series={lbl:md_return_history(sym) for lbl,sym in chosen.items()}
     series={lbl:s for lbl,s in series.items() if s is not None and not s.empty}
     rf=md_history("BIL")     # SPDR 1-3 month T-bill ETF (total return) = risk-free
     c1,c2,c3=st.columns([1.2,1,1])
@@ -2377,6 +2416,7 @@ def panel_rolling_sharpe(k):
             else "⚠ T-bill (BIL) unavailable — risk-free treated as 0.")
     st.caption(f"Sharpe = mean(excess) ÷ std(excess) × √{ppy}, over a rolling {win}-{unit} window "
                f"(excess = asset return − T-bill return). {rfnote} " + (note or ""))
+    pr_caption(list(chosen.items()))
     if exp:
         df=pd.DataFrame(exp); df.insert(0,"Date",df.index)
         dl(df,"Export","JAWS_rolling_sharpe.xlsx",k+"_dl")
@@ -2410,7 +2450,7 @@ def panel_return_dist(k):
     rets={}
     with st.spinner("Loading return distribution…"):
         for lbl in labels[:2]:
-            s=md_history(chosen[lbl], start=start)
+            s=md_return_history(chosen[lbl], start=start)
             if s is None or s.empty: continue
             s=s.sort_index()
             if rule: s=s.resample(rule).last()
@@ -2475,6 +2515,7 @@ def panel_return_dist(k):
                "probability density so bars and line are comparable. The dashed vertical line marks the **latest "
                "return** and its **percentile** within its own history (e.g. 90%ile = only 10% of periods were "
                "higher). Returns = simple % change of the (adjusted) price at the chosen frequency.")
+    pr_caption([(lbl,chosen[lbl]) for lbl in rets.keys()])
     # Full export: stats + the raw periodic return series for every chosen asset.
     _retdf=pd.concat({lbl:r for lbl,r in rets.items()}, axis=1)
     _retdf.index.name="Date"; _retdf=_retdf.reset_index()
@@ -2732,7 +2773,7 @@ def panel_composition(k):
 @st.cache_data(ttl=3600, show_spinner=False)
 def _asset_monthly_returns(sym):
     """Monthly total return (%) of a ticker in its native currency (no FX conversion)."""
-    s=md_history(sym)
+    s=md_return_history(sym)
     if s is None or s.empty: return None
     s=s.sort_index()
     if getattr(s.index,"tz",None) is not None: s.index=s.index.tz_localize(None)
@@ -2781,6 +2822,7 @@ def panel_return_matrix(k):
                "asset's **native currency** (no FX conversion — e.g. **1475.T = TOPIX** is the yen return). "
                "**Mean** = average monthly return; **Cumulative** = compounded return over the window. "
                "Dates are month-end (MM/YYYY).")
+    pr_caption([(_LBL.get(s.upper(),s.upper()), s) for s in syms if s not in missing])
     exp=chrono.copy(); exp.insert(0,"Month",[d.strftime("%m/%Y") for d in exp.index])
     dl(exp.reset_index(drop=True), "Export return matrix", "JAWS_return_matrix.xlsx", k+"_dl")
 
@@ -2813,7 +2855,7 @@ def panel_periodic_returns(k):
         return [t.strftime("%Y-%m") for t in idx]
     series={}
     for lbl in labels:
-        s=md_history(chosen[lbl])
+        s=md_return_history(chosen[lbl])
         if s is None or s.empty: continue
         r=(s.sort_index().resample(rule).last().pct_change()*100).dropna()
         if tfmode=="Custom":
@@ -2835,6 +2877,7 @@ def panel_periodic_returns(k):
         fig.update_xaxes(title=("Month" if freq=="Monthly" else freq[:-2]))
         st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
         st.caption("Grouped periodic returns per asset (% change of the period-end price).")
+        pr_caption([(lbl,chosen[lbl]) for lbl in series])
         mrow=st.columns(min(len(series),4) or 1)
         for i,(lbl,r) in enumerate(series.items()):
             mrow[i%len(mrow)].metric(lbl, f"{float(r.iloc[-1]):+.2f}%",
@@ -2931,8 +2974,8 @@ def panel_outperf(k):
                    help="Rolling = A's window return minus B's. Cumulative = growth of A "
                         "relative to B since the start of the period.")
     fmode=c3.radio("Frequency",["Auto","Daily","Monthly"],horizontal=True,key=k+"_fm")
-    sA=md_history(symA, start=cstart.strftime("%Y-%m-%d"))
-    sB=md_history(symB, start=cstart.strftime("%Y-%m-%d"))
+    sA=md_return_history(symA, start=cstart.strftime("%Y-%m-%d"))
+    sB=md_return_history(symB, start=cstart.strftime("%Y-%m-%d"))
     if sA is None or sA.empty or sB is None or sB.empty:
         st.warning("One of the series returned no data for this range."); return
     sA=sA[sA.index<=pd.Timestamp(cend)]; sB=sB[sB.index<=pd.Timestamp(cend)]
@@ -2970,6 +3013,7 @@ def panel_outperf(k):
     st.plotly_chart(fig,use_container_width=True,key=k+"_chart")
     st.caption(("Positive = A outperforming B. " )+(note or
                "Rolling = difference in trailing-window returns; Cumulative = relative growth since period start."))
+    pr_caption([(A,symA),(B,symB)])
     ex=pd.DataFrame({"Date":out.index,f"{A} - {B} (%)":out.values})
     dl(ex,"Export","JAWS_outperformance.xlsx",k+"_dl")
 
@@ -3994,7 +4038,7 @@ def _reg_build_series(src, sym, fred_id, upfile, fac, tf, freq):
     """Return a pd.Series (datetime index) for one regression variable."""
     s=None; is_factor=False
     if src=="Market ticker" and sym.strip():
-        s=md_history(sym.strip())
+        s=md_return_history(sym.strip())    # total-return basis for the return math
     elif src=="FRED series" and fred_id.strip():
         import fi_spreads as fs
         d,v=fs._fred_fetch_all(fred_id.strip())
@@ -4267,6 +4311,9 @@ def panel_regression():
                     '<span class="jaws-title" style="font-size:15px;">Regression Lab</span> '
                     '<span class="jaws-sub">OLS · any tool data or your own monthly CSV</span>',
                     unsafe_allow_html=True)
+        st.caption("Market-ticker variables use **total-return** data where a TR index exists (S&P 500 / "
+                   "Nasdaq / Russell → ^SP500TR / ^XCMP / ^RUTTR); ETFs are dividend-adjusted — matching the "
+                   "top return tables.")
         import numpy as np
         from scipy import stats
         cf1,cf2=st.columns([1,2])
@@ -4796,9 +4843,9 @@ def _corr_change_series(kind, payload, freq):
         kind="level_series"                  # macro pseudo-instrument → diff, not pct
         s=md_history(payload)
     elif kind=="ticker":
-        s=md_history(payload)
+        s=md_return_history(payload)         # total-return basis for the return math
     elif kind=="auto":                       # individual entry: ticker, else FRED
-        s=md_history(payload)
+        s=md_return_history(payload)
         if s is None or s.empty:
             d,v=fs._fred_fetch_all(payload)
             if d: s=pd.Series(v,index=pd.to_datetime(d)); kind="level"
@@ -4902,6 +4949,9 @@ def panel_corr():
         st.plotly_chart(fig, use_container_width=True, key="corr_chart")
         out=corr.copy(); out.insert(0,"Series",out.index)
         dl(out, "Export matrix", "JAWS_correlation.xlsx", "corr_dl")
+        st.caption("Equity-index returns use **total return** where a TR index exists (S&P 500 / Nasdaq / "
+                   "Russell); other indexes are price return; FRED series are level changes — matching the "
+                   "top return tables.")
 
         # ── Rolling correlation between two chosen series ──
         st.divider()
@@ -5404,7 +5454,9 @@ def panel_exporter():
         with st.spinner(f"Building {freq.lower()} {dtp.lower()} for {total} series…"):
             # 1) tickers / FRED IDs
             for sym in syms:
-                s=md_history(sym, adjusted=adjusted)
+                # Total-return basis (returns, or adjusted prices) substitutes the TR index for
+                # S&P/Nasdaq/Russell; "Actual (unadjusted)" keeps the raw market price.
+                s=md_return_history(sym) if adjusted else md_history(sym, adjusted=False)
                 if s is None or s.empty:           # fall back to FRED for economic IDs
                     import fi_spreads as fs
                     d,v=fs._fred_fetch_all(sym)
@@ -5437,6 +5489,10 @@ def panel_exporter():
         st.dataframe(df.tail(12), use_container_width=True, height=240, hide_index=True)
         st.caption(f"{len(df)} rows × {len(cols)} series · {freq.lower()} {dtp.lower()} · "
                    f"{df['Date'].iloc[0].date()} → {df['Date'].iloc[-1].date()}")
+        if adjusted:
+            st.caption("On a **total-return** basis, S&P 500 / Nasdaq / Russell use their TR indexes "
+                       "(^SP500TR / ^XCMP / ^RUTTR); ETFs are dividend-adjusted — matching the top tables. "
+                       "Use **Actual (unadjusted)** prices for raw market levels.")
         rmode = (dtp=="Returns")
         e1,e2=st.columns(2)
         with e1:
