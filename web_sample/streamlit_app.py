@@ -2147,15 +2147,24 @@ def panel_scanner(k):
                                                     min_value=date(1950,1,1)))
     if not items:
         st.info("Add segments or instruments above to scan."); return
+    import market_data as _md
+    _tro=getattr(_md,"TOTAL_RETURN_OVERRIDE",{})         # price index → total-return counterpart
     rows=[]
     with st.spinner(f"Scanning {len(items)} instruments…"):
         for name,sym in items.items():
             c=md_history(sym)
             if c is None or c.empty: continue
-            res=_scan_one(c, lb, mode, w, wstart, wend, asof_date)
+            disp=float(c.dropna().iloc[-1])              # familiar price-index level for display
+            # Use the total-return series for RETURN math where one exists (adds back dividends),
+            # so the scanner matches the top return tables. ETFs are already dividend-adjusted.
+            cr=c; _trk=_tro.get(sym)
+            if _trk:
+                _t=md_history(_trk)
+                if _t is not None and not _t.empty: cr=_t
+            res=_scan_one(cr, lb, mode, w, wstart, wend, asof_date)
             if res is None: continue
             cur,mu,sd,z,asof_lbl,wd=res
-            rows.append({"Instrument":name,"Ticker":sym,"Last":float(c.dropna().iloc[-1]),
+            rows.append({"Instrument":name,"Ticker":sym,"Last":disp,
                          "Ret%":cur,"Avg%":mu,"Z":z,"As of":asof_lbl,"Horizon_days":int(wd)})
     if not rows:
         st.info("No instruments had enough history for the chosen look-back / window."); return
@@ -2185,6 +2194,9 @@ def panel_scanner(k):
     else:
         st.caption(f"Latest **{hlabel} change** vs its **{lblab}** history. "
                    "Z = (latest change − mean) ÷ std. Red ≥ |2σ| = extreme move vs history (potential dislocation).")
+    st.caption("Returns are **total-return** where a TR index exists (S&P 500, Nasdaq Comp, Russell 2000 use "
+               "^SP500TR/^XCMP/^RUTTR) and dividend-adjusted for ETFs — matching the top return tables. Price-only "
+               "indexes without a TR counterpart (e.g. KOSPI, Hang Seng) are price-return on both.")
     dl(pd.DataFrame(rows),"Export","JAWS_dislocation_scanner.xlsx",k+"_dl")
 
 def _wl_ret(c, anchor):
