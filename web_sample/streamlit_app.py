@@ -5530,19 +5530,147 @@ def panel_exporter():
             st.download_button("⬇ Download CSV", csv_df.to_csv(index=False).encode(),
                 f"JAWS_export_{freq.lower()}_{dtp.lower()}.csv", "text/csv", key="exp_csv")
 
+# ── Global sovereign rates (daily where available; see data/global_rates.json) ──
+_GR_ORDER=["1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","25Y","30Y","40Y"]
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_global_rates():
+    import os, json
+    here=os.path.dirname(os.path.abspath(__file__))
+    for p in ("data/global_rates.json", os.path.join(here,"..","data","global_rates.json"),
+              os.path.join(here,"data","global_rates.json")):
+        try:
+            if os.path.exists(p):
+                with open(p,encoding="utf-8") as f: return json.load(f)
+        except Exception: pass
+    return None
+
+def _gr_tenorsort(ts):
+    return sorted(ts, key=lambda t:_GR_ORDER.index(t) if t in _GR_ORDER else 99)
+
+def _gr_series(country, tenor):
+    """pd.Series (date-indexed) of a country's tenor yield, or None."""
+    ys=country.get("yields",{}).get(tenor)
+    if not ys: return None
+    s=pd.Series(ys, index=pd.to_datetime(country["dates"])).dropna()
+    return s if not s.empty else None
+
+def _gr_freqbadge(freq):
+    c={"daily":GREEN,"monthly":YELLOW,"intraday":BLUE}.get(freq,TEXT3)
+    return f'<span style="color:{c};font-weight:700;font-size:10px">{freq.upper()}</span>'
+
+def panel_global_rates(k):
+    data=_load_global_rates()
+    if not data or not data.get("countries"):
+        st.info("No global-rates data yet — the daily job builds it from official sources "
+                "(FRED, Bundesbank, Bank of England, Japan MOF). Check back after the next run."); return
+    countries=data["countries"]
+    by={c["code"]:c for c in countries}
+    labels={c["code"]:c["label"] for c in countries}
+    # ── Snapshot curve table: rows = tenors, cols = countries ──
+    all_ten=_gr_tenorsort({t for c in countries for t in c.get("tenors",[])})
+    hh=["Tenor"]+[f'{c["label"]}<br><span style="color:{TEXT3};font-size:9px">{c["bond"]}</span> '
+                  f'{_gr_freqbadge(c["freq"])}' for c in countries]
+    h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{x}</th>" for x in hh)+"</tr>"
+    for t in all_ten:
+        h+=f"<tr><td style='font-weight:700'>{t}</td>"
+        for c in countries:
+            lat=c.get("latest",{}).get(t)
+            h+=(f"<td>{lat['v']:.2f}</td>" if lat else f"<td style='color:{TEXT3}'>—</td>")
+        h+="</tr>"
+    st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    st.caption(f"**Sovereign yield curves** (%), latest available. As of **{data.get('asof','')}**. "
+               + " · ".join(f"{c['label']}: {c['source']} ({c['freq']})" for c in countries))
+    st.caption(f"{_gr_freqbadge('daily')} updated every business day · {_gr_freqbadge('monthly')} "
+               "monthly (OECD 10y benchmark only — no free daily multi-tenor curve) · "
+               f"{_gr_freqbadge('intraday')} intraday. Germany/UK/Japan/US are **daily full/benchmark "
+               "curves**; France/Italy/Spain are **monthly 10y** until a free daily source is wired in.")
+
+    # ── Key spreads (vs Bund) + per-country 2s10s ──
+    st.markdown(f'<div style="margin-top:10px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Key spreads — periphery/benchmark vs German Bund, plus curve slope (2s10s)</div>',
+                unsafe_allow_html=True)
+    def _latest(code, t):
+        c=by.get(code); lat=c.get("latest",{}).get(t) if c else None
+        return (lat["v"] if lat else None)
+    de10=_latest("DE","10Y")
+    sp_rows=[]
+    for code in ["US","FR","IT","ES","GB","JP"]:
+        if code in by and _latest(code,"10Y") is not None and de10 is not None:
+            spr=(_latest(code,"10Y")-de10)*100
+            fr=by[code]["freq"] if by[code]["freq"]=="daily" and by["DE"]["freq"]=="daily" else "monthly"
+            sp_rows.append((f'{by[code]["bond"]} – Bund (10y)', spr, fr))
+    for code in ["US","DE","JP"]:        # 2s10s where 2Y+10Y both daily
+        if code in by and _latest(code,"2Y") is not None and _latest(code,"10Y") is not None:
+            sp_rows.append((f'{labels[code]} 2s10s', (_latest(code,"10Y")-_latest(code,"2Y"))*100,
+                            by[code]["freq"]))
+    if sp_rows:
+        hh2=["Spread","Level (bps)","Freq"]
+        h2='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{x}</th>" for x in hh2)+"</tr>"
+        for nm,val,fr in sp_rows:
+            vc=GREEN if val>=0 else RED
+            h2+=(f"<tr><td style='text-align:left'>{nm}</td>"
+                 f"<td style='color:{vc};font-weight:700'>{val:+,.0f}</td>"
+                 f"<td>{_gr_freqbadge(fr)}</td></tr>")
+        st.markdown(h2+"</table></div>", unsafe_allow_html=True)
+        st.caption("**Spread = yield difference × 100 (bps).** A Bund spread uses the common 10y point; "
+                   "it's **daily** only when both legs are daily (so OAT/BTP/Bonos–Bund are **monthly** "
+                   "for now). **2s10s** = 10y − 2y (curve slope; positive = upward-sloping).")
+
+    # ── Custom spread builder (A − B), any country/tenor ──
+    opts=[]
+    for c in countries:
+        for t in _gr_tenorsort(c["tenors"]):
+            opts.append(f'{c["code"]} {t}')
+    oc=st.columns([1,1,2])
+    aA=oc[0].selectbox("Leg A", opts, index=opts.index("US 10Y") if "US 10Y" in opts else 0, key=k+"_spa")
+    bB=oc[1].selectbox("Leg B (minus)", opts, index=opts.index("DE 10Y") if "DE 10Y" in opts else 0, key=k+"_spb")
+    def _pick(sel):
+        code,t=sel.split(); return _gr_series(by[code], t)
+    sA=_pick(aA); sB=_pick(bB)
+    if sA is not None and sB is not None:
+        pair=pd.concat([sA.rename("a"),sB.rename("b")],axis=1,join="inner").dropna()
+        if not pair.empty:
+            spr=((pair["a"]-pair["b"])*100)
+            cur=float(spr.iloc[-1]); mu=float(spr.mean()); sd=float(spr.std(ddof=1)) if len(spr)>1 else 0.0
+            z=(cur-mu)/sd if sd>1e-9 else None
+            fig=go.Figure()
+            fig.add_trace(go.Scatter(x=spr.index,y=spr.values,mode="lines",line=dict(color=ACCENT,width=1.6),
+                                     name=f"{aA} − {bB}"))
+            fig.add_hline(y=mu,line=dict(color=BLUE,dash="dot"),annotation_text=f"avg {mu:+.0f}")
+            add_today_marker(fig, spr)
+            base_layout(fig,f"{aA} − {bB} spread (bps) · now {cur:+.0f} · avg {mu:+.0f}"
+                        + (f" · z {z:+.1f}" if z is not None else ""),"bps",h=360)
+            st.plotly_chart(fig, use_container_width=True, key=k+"_spchart")
+            _sdf=pd.DataFrame({"Date":spr.index, f"{aA}-{bB}_bps":spr.values})
+            dl(_sdf,"Export spread","JAWS_global_rates_spread.xlsx",k+"_spdl")
+            _bothd=(by[aA.split()[0]]["freq"]=="daily" and by[bB.split()[0]]["freq"]=="daily")
+            st.caption(f"Spread history is **{'daily' if _bothd else 'monthly'}** "
+                       f"({'both legs daily' if _bothd else 'one leg is monthly, so the overlap is monthly'}).")
+        else:
+            st.caption("No overlapping dates between those two legs.")
+
+    # ── Yield history explorer (any country-tenor series) ──
+    _prov=lambda lab:(_gr_series(by[lab.split()[0]], lab.split()[1]) if lab.split()[0] in by else None)
+    history_explorer(k+"_hx", _prov, opts,
+                     default_sel=[x for x in ["US 10Y","DE 10Y","GB 10Y","JP 10Y"] if x in opts][:4] or opts[:1],
+                     unit="%", title="Sovereign yields — history",
+                     ranges=["1Y","2Y","3Y","5Y","10Y","All"], range_index=2)
+
 # ── Slot dispatcher ─────────────────────────────────────────────
 RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility","FX":"fx",
              "Fixed Income":"fixed_income","Municipals":"munis","Factor ETFs":"factors",
              "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds",
              "Risk Premia":"risk_premia","AQR Strategies":"aqr","Crypto":"crypto"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
-TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Funding","Inflation","L/S Factors","Valuation"]
+TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Global Rates","Funding","Inflation","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner"]
 
 def _dispatch(sel, k):
     if sel in RETURN_CATS:    panel_returns(RETURN_CATS[sel], sel, k)
     elif sel=="FI Spreads":   panel_analytics(spreads_analytics,"Spreads","JAWS_FI_Spreads.xlsx",k)
     elif sel=="Rates":        panel_rates(k)
+    elif sel=="Global Rates": panel_global_rates(k)
     elif sel=="Funding":      panel_analytics(funding_analytics,"Funding","JAWS_Funding.xlsx",k)
     elif sel=="Inflation":    panel_analytics(inflation_analytics,"Inflation","JAWS_Inflation.xlsx",k)
     elif sel=="L/S Factors":  panel_factors(k)
