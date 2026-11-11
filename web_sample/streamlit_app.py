@@ -5623,8 +5623,8 @@ def panel_global_rates(k):
                 'Country drill-in — level and change over each period, by tenor</div>',
                 unsafe_allow_html=True)
     import datetime as _dt
-    _dc=next((x for x in countries if x["label"]==st.selectbox(
-        "Country", [c["label"] for c in countries], key=k+"_dcty")), countries[0])
+    _csel=st.selectbox("Country", [c["label"] for c in countries], key=k+"_dcty")
+    _dc=next((x for x in countries if x["label"]==_csel), countries[0])
     _today=_dt.date.today()
     _periods=[("1D",None),("1W",_today-_dt.timedelta(days=7)),
               ("MTD",_today.replace(day=1)-_dt.timedelta(days=1)),
