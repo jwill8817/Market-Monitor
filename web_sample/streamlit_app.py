@@ -5617,16 +5617,20 @@ def panel_global_rates(k):
                    "it's **daily** only when both legs are daily (so OAT/BTP/Bonos–Bund are **monthly** "
                    "for now). **2s10s** = 10y − 2y (curve slope; positive = upward-sloping).")
 
-    # ── Custom spread builder (A − B), any country/tenor ──
-    opts=[]
+    # ── Custom spread builder (A − B), any bond/tenor ──
+    opts=[]; opt_map={}
     for c in countries:
         for t in _gr_tenorsort(c["tenors"]):
-            opts.append(f'{c["code"]} {t}')
+            lab=f'{c["bond"]} {t}'               # e.g. "Bund 10Y", "Treasury 2Y", "Gilt 10Y"
+            opts.append(lab); opt_map[lab]=(c["code"], t)
+    _def=lambda b,t:(f"{b} {t}" if f"{b} {t}" in opt_map else None)
     oc=st.columns([1,1,2])
-    aA=oc[0].selectbox("Leg A", opts, index=opts.index("US 10Y") if "US 10Y" in opts else 0, key=k+"_spa")
-    bB=oc[1].selectbox("Leg B (minus)", opts, index=opts.index("DE 10Y") if "DE 10Y" in opts else 0, key=k+"_spb")
+    _a0=_def("Treasury","10Y") or opts[0]
+    _b0=_def("Bund","10Y") or (opts[1] if len(opts)>1 else opts[0])
+    aA=oc[0].selectbox("Leg A", opts, index=opts.index(_a0), key=k+"_spa")
+    bB=oc[1].selectbox("Leg B (minus)", opts, index=opts.index(_b0), key=k+"_spb")
     def _pick(sel):
-        code,t=sel.split(); return _gr_series(by[code], t)
+        code,t=opt_map[sel]; return _gr_series(by[code], t)
     sA=_pick(aA); sB=_pick(bB)
     if sA is not None and sB is not None:
         pair=pd.concat([sA.rename("a"),sB.rename("b")],axis=1,join="inner").dropna()
@@ -5644,16 +5648,16 @@ def panel_global_rates(k):
             st.plotly_chart(fig, use_container_width=True, key=k+"_spchart")
             _sdf=pd.DataFrame({"Date":spr.index, f"{aA}-{bB}_bps":spr.values})
             dl(_sdf,"Export spread","JAWS_global_rates_spread.xlsx",k+"_spdl")
-            _bothd=(by[aA.split()[0]]["freq"]=="daily" and by[bB.split()[0]]["freq"]=="daily")
+            _bothd=(by[opt_map[aA][0]]["freq"]=="daily" and by[opt_map[bB][0]]["freq"]=="daily")
             st.caption(f"Spread history is **{'daily' if _bothd else 'monthly'}** "
                        f"({'both legs daily' if _bothd else 'one leg is monthly, so the overlap is monthly'}).")
         else:
             st.caption("No overlapping dates between those two legs.")
 
-    # ── Yield history explorer (any country-tenor series) ──
-    _prov=lambda lab:(_gr_series(by[lab.split()[0]], lab.split()[1]) if lab.split()[0] in by else None)
-    history_explorer(k+"_hx", _prov, opts,
-                     default_sel=[x for x in ["US 10Y","DE 10Y","GB 10Y","JP 10Y"] if x in opts][:4] or opts[:1],
+    # ── Yield history explorer (any bond-tenor series) ──
+    _prov=lambda lab:(_gr_series(by[opt_map[lab][0]], opt_map[lab][1]) if lab in opt_map else None)
+    _hxdef=[x for x in ["Treasury 10Y","Bund 10Y","Gilt 10Y","JGB 10Y"] if x in opt_map][:4] or opts[:1]
+    history_explorer(k+"_hx", _prov, opts, default_sel=_hxdef,
                      unit="%", title="Sovereign yields — history",
                      ranges=["1Y","2Y","3Y","5Y","10Y","All"], range_index=2)
 
