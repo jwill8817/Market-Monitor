@@ -5661,13 +5661,14 @@ def panel_global_rates(k):
         h3+=f"<tr><td style='font-weight:700'>{t}</td><td style='color:{cell}'>{cur:.2f}</td>"
         row={"Tenor":t,"Latest_pct":round(cur,3)}
         for lab,ref in _periods:
-            v=_chg_bps(s,ref); row[lab+"_bps"]=None if v is None else round(v)
+            v=_chg_bps(s,ref); row[lab+"_%"]=None if v is None else round(v/100,3)
             if v is None: h3+=f"<td style='color:{TEXT3}'>—</td>"
-            else: h3+=f"<td style='color:{GREEN if v>=0 else RED}'>{v:+.0f}</td>"
+            else: h3+=f"<td style='color:{GREEN if v>=0 else RED}'>{v/100:+.2f}%</td>"
         h3+=f"<td style='color:{TEXT3}'>{rng}</td></tr>"; _drows.append(row)
     st.markdown(h3+"</table></div>", unsafe_allow_html=True)
-    st.caption(f"**{_dc['label']} {_dc['bond']}** — level (%) and change in **bps** over each period "
-               f"(green = yield up, red = down). {_gr_freqbadge(_dc['freq'])} {_dc['source']}. "
+    st.caption(f"**{_dc['label']} {_dc['bond']}** — level and change in **% (percentage points)** over each "
+               f"period, e.g. +0.40% = a 40 bp move (green = yield up, red = down). "
+               f"{_gr_freqbadge(_dc['freq'])} {_dc['source']}. "
                + ("Monthly market — changes are at month granularity and short periods may be blank."
                   if _dc['freq']=="monthly" else "Policy = central-bank rate (BIS)."))
     if _drows:
@@ -5684,25 +5685,26 @@ def panel_global_rates(k):
     sp_rows=[]
     for code in ["US","FR","IT","ES","GB","JP"]:
         if code in by and _latest(code,"10Y") is not None and de10 is not None:
-            spr=(_latest(code,"10Y")-de10)*100
+            spr=(_latest(code,"10Y")-de10)          # percentage points
             fr=by[code]["freq"] if by[code]["freq"]=="daily" and by["DE"]["freq"]=="daily" else "monthly"
             sp_rows.append((f'{by[code]["bond"]} – Bund (10y)', spr, fr))
     for code in ["US","DE","JP"]:        # 2s10s where 2Y+10Y both daily
         if code in by and _latest(code,"2Y") is not None and _latest(code,"10Y") is not None:
-            sp_rows.append((f'{labels[code]} 2s10s', (_latest(code,"10Y")-_latest(code,"2Y"))*100,
+            sp_rows.append((f'{labels[code]} 2s10s', (_latest(code,"10Y")-_latest(code,"2Y")),
                             by[code]["freq"]))
     if sp_rows:
-        hh2=["Spread","Level (bps)","Freq"]
+        hh2=["Spread","Level %","Freq"]
         h2='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{x}</th>" for x in hh2)+"</tr>"
         for nm,val,fr in sp_rows:
             vc=GREEN if val>=0 else RED
             h2+=(f"<tr><td style='text-align:left'>{nm}</td>"
-                 f"<td style='color:{vc};font-weight:700'>{val:+,.0f}</td>"
+                 f"<td style='color:{vc};font-weight:700'>{val:+.2f}%</td>"
                  f"<td>{_gr_freqbadge(fr)}</td></tr>")
         st.markdown(h2+"</table></div>", unsafe_allow_html=True)
-        st.caption("**Spread = yield difference × 100 (bps).** A Bund spread uses the common 10y point; "
-                   "it's **daily** only when both legs are daily (so OAT/BTP/Bonos–Bund are **monthly** "
-                   "for now). **2s10s** = 10y − 2y (curve slope; positive = upward-sloping).")
+        st.caption("**Spread = yield difference**, in **% (percentage points)** — e.g. +0.91% = BTP yields "
+                   "91 bp above Bund. A Bund spread uses the common 10y point; it's **daily** only when both "
+                   "legs are daily (so OAT/BTP/Bonos–Bund are **monthly** for now). **2s10s** = 10y − 2y "
+                   "(curve slope; positive = upward-sloping).")
 
     # ── Custom spread builder (A − B), any bond/tenor ──
     opts=[]; opt_map={}
@@ -5722,18 +5724,18 @@ def panel_global_rates(k):
     if sA is not None and sB is not None:
         pair=pd.concat([sA.rename("a"),sB.rename("b")],axis=1,join="inner").dropna()
         if not pair.empty:
-            spr=((pair["a"]-pair["b"])*100)
+            spr=(pair["a"]-pair["b"])            # percentage points
             cur=float(spr.iloc[-1]); mu=float(spr.mean()); sd=float(spr.std(ddof=1)) if len(spr)>1 else 0.0
             z=(cur-mu)/sd if sd>1e-9 else None
             fig=go.Figure()
             fig.add_trace(go.Scatter(x=spr.index,y=spr.values,mode="lines",line=dict(color=ACCENT,width=1.6),
                                      name=f"{aA} − {bB}"))
-            fig.add_hline(y=mu,line=dict(color=BLUE,dash="dot"),annotation_text=f"avg {mu:+.0f}")
+            fig.add_hline(y=mu,line=dict(color=BLUE,dash="dot"),annotation_text=f"avg {mu:+.2f}%")
             add_today_marker(fig, spr)
-            base_layout(fig,f"{aA} − {bB} spread (bps) · now {cur:+.0f} · avg {mu:+.0f}"
-                        + (f" · z {z:+.1f}" if z is not None else ""),"bps",h=360)
+            base_layout(fig,f"{aA} − {bB} spread (%) · now {cur:+.2f}% · avg {mu:+.2f}%"
+                        + (f" · z {z:+.1f}" if z is not None else ""),"%",h=360)
             st.plotly_chart(fig, use_container_width=True, key=k+"_spchart")
-            _sdf=pd.DataFrame({"Date":spr.index, f"{aA}-{bB}_bps":spr.values})
+            _sdf=pd.DataFrame({"Date":spr.index, f"{aA}-{bB}_%":spr.values})
             dl(_sdf,"Export spread","JAWS_global_rates_spread.xlsx",k+"_spdl")
             _bothd=(by[opt_map[aA][0]]["freq"]=="daily" and by[opt_map[bB][0]]["freq"]=="daily")
             st.caption(f"Spread history is **{'daily' if _bothd else 'monthly'}** "
