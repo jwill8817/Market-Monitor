@@ -5531,7 +5531,10 @@ def panel_exporter():
                 f"JAWS_export_{freq.lower()}_{dtp.lower()}.csv", "text/csv", key="exp_csv")
 
 # ── Global sovereign rates (daily where available; see data/global_rates.json) ──
-_GR_ORDER=["1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","25Y","30Y","40Y"]
+_GR_ORDER=["Policy","1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","25Y","30Y","40Y"]
+# country code → (BIS area code for cb_rate_series, central-bank label)
+_GR_CB={"US":("US","Fed funds"),"DE":("XM","ECB"),"FR":("XM","ECB"),"IT":("XM","ECB"),
+        "ES":("XM","ECB"),"GB":("GB","BoE Bank Rate"),"JP":("JP","BoJ")}
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _load_global_rates():
@@ -5549,11 +5552,19 @@ def _gr_tenorsort(ts):
     return sorted(ts, key=lambda t:_GR_ORDER.index(t) if t in _GR_ORDER else 99)
 
 def _gr_series(country, tenor):
-    """pd.Series (date-indexed) of a country's tenor yield, or None."""
+    """pd.Series (date-indexed) of a country's tenor yield, or None. 'Policy' = central-bank
+    policy rate (BIS), attached to the country by panel_global_rates."""
+    if tenor=="Policy":
+        s=country.get("_policy")
+        return s if (s is not None and not s.empty) else None
     ys=country.get("yields",{}).get(tenor)
     if not ys: return None
     s=pd.Series(ys, index=pd.to_datetime(country["dates"])).dropna()
     return s if not s.empty else None
+
+def _gr_disp_tenors(c):
+    """Display tenors for one country — policy rate first (when available), then the curve."""
+    return (["Policy"] if c.get("_policy") is not None else []) + _gr_tenorsort(c.get("tenors",[]))
 
 def _gr_freqbadge(freq):
     c={"daily":GREEN,"monthly":YELLOW,"intraday":BLUE}.get(freq,TEXT3)
@@ -5567,16 +5578,33 @@ def panel_global_rates(k):
     countries=data["countries"]
     by={c["code"]:c for c in countries}
     labels={c["code"]:c["label"] for c in countries}
-    # ── Snapshot curve table: rows = tenors, cols = countries ──
+    # Attach each country's central-bank policy rate (BIS, daily) as the shortest point.
+    for c in countries:
+        area,cbname=_GR_CB.get(c["code"],(None,None))
+        c["_cbname"]=cbname; c["_policy"]=None
+        if area:
+            s=cb_rate_series(area)
+            if s is not None and not s.empty: c["_policy"]=s.dropna()
+    def _pol_latest(c):
+        s=c.get("_policy"); return float(s.iloc[-1]) if (s is not None and not s.empty) else None
+    # ── Snapshot curve table: rows = tenors (policy first), cols = countries ──
     all_ten=_gr_tenorsort({t for c in countries for t in c.get("tenors",[])})
+    disp_ten=(["Policy"] if any(c.get("_policy") is not None for c in countries) else [])+all_ten
     hh=["Tenor"]+[f'{c["label"]}<br><span style="color:{TEXT3};font-size:9px">{c["bond"]}</span> '
                   f'{_gr_freqbadge(c["freq"])}' for c in countries]
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{x}</th>" for x in hh)+"</tr>"
-    for t in all_ten:
-        h+=f"<tr><td style='font-weight:700'>{t}</td>"
+    for t in disp_ten:
+        tlab=("Policy <span style='color:%s;font-size:9px'>CB o/n</span>"%TEXT3 if t=="Policy"
+              else t)
+        h+=f"<tr><td style='font-weight:700'>{tlab}</td>"
         for c in countries:
-            lat=c.get("latest",{}).get(t)
-            h+=(f"<td>{lat['v']:.2f}</td>" if lat else f"<td style='color:{TEXT3}'>—</td>")
+            if t=="Policy":
+                pv=_pol_latest(c)
+                h+=(f"<td style='color:{BLUE}'>{pv:.2f}</td>" if pv is not None
+                    else f"<td style='color:{TEXT3}'>—</td>")
+            else:
+                lat=c.get("latest",{}).get(t)
+                h+=(f"<td>{lat['v']:.2f}</td>" if lat else f"<td style='color:{TEXT3}'>—</td>")
         h+="</tr>"
     st.markdown(h+"</table></div>", unsafe_allow_html=True)
     st.caption(f"**Sovereign yield curves** (%), latest available. As of **{data.get('asof','')}**. "
@@ -5585,6 +5613,10 @@ def panel_global_rates(k):
                "monthly (OECD 10y benchmark only — no free daily multi-tenor curve) · "
                f"{_gr_freqbadge('intraday')} intraday. Germany/UK/Japan/US are **daily full/benchmark "
                "curves**; France/Italy/Spain are **monthly 10y** until a free daily source is wired in.")
+    _polsrc=", ".join(f"{labels[code]}={cb}" for code,(ar,cb) in _GR_CB.items()
+                      if code in by and by[code].get("_policy") is not None)
+    st.caption(f"<span style='color:{BLUE}'>**Policy**</span> row = current **central-bank policy rate** "
+               f"(BIS, daily): {_polsrc}. Euro-area countries share the **ECB** rate.", unsafe_allow_html=True)
 
     # ── Key spreads (vs Bund) + per-country 2s10s ──
     st.markdown(f'<div style="margin-top:10px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
@@ -5620,8 +5652,8 @@ def panel_global_rates(k):
     # ── Custom spread builder (A − B), any bond/tenor ──
     opts=[]; opt_map={}
     for c in countries:
-        for t in _gr_tenorsort(c["tenors"]):
-            lab=f'{c["bond"]} {t}'               # e.g. "Bund 10Y", "Treasury 2Y", "Gilt 10Y"
+        for t in _gr_disp_tenors(c):             # "Policy" first, then the curve
+            lab=f'{c["bond"]} {t}'               # e.g. "Bund Policy", "Bund 10Y", "Treasury 2Y"
             opts.append(lab); opt_map[lab]=(c["code"], t)
     _def=lambda b,t:(f"{b} {t}" if f"{b} {t}" in opt_map else None)
     oc=st.columns([1,1,2])
