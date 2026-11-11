@@ -1437,6 +1437,12 @@ def panel_returns(catkey, label, k):
     with st.spinner(f"Loading {label}…"):
         data,tmap = md_returns(catkey, custom_start=cs.isoformat() if cs else None,
                                custom_end=ce.isoformat() if ce else None, absolute=absolute)
+    if not isinstance(data, dict) or not data:
+        st.warning(f"{label} data is temporarily unavailable (the market-data source may be rate-limiting). "
+                   "Try again in a moment or reboot the app."); return
+    data={n:i for n,i in data.items() if isinstance(i, dict)}   # drop any failed/None entries
+    if not data:
+        st.warning(f"No {label} rows available right now — data source hiccup. Try again shortly."); return
     fc=f_abs if absolute else f_pct
     # ── Sort controls (any column, asc/desc) ──
     sc1,sc2=st.columns([2,1])

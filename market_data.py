@@ -72,13 +72,18 @@ _PXLOCK = _threading.Lock()
 
 
 def _pxcache():
+    """Return the on-disk last-good price cache as a dict. Always a dict — a missing, corrupt,
+    or non-dict pickle (e.g. one that deserialized to None after a Python upgrade) is discarded
+    rather than returned, so callers can safely do cache.get(...)."""
     global _PXCACHE
-    if _PXCACHE is None:
+    if not isinstance(_PXCACHE, dict):
+        loaded = None
         try:
             with open(_PXCACHE_PATH, "rb") as f:
-                _PXCACHE = _pickle.load(f)
+                loaded = _pickle.load(f)
         except Exception:
-            _PXCACHE = {}
+            loaded = None
+        _PXCACHE = loaded if isinstance(loaded, dict) else {}
     return _PXCACHE
 
 
@@ -158,6 +163,8 @@ def price_histories(symbols, start=None, adjusted=True):
     # Merge with the last-good cache: save fresh successes, fall back for any still-empty.
     with _PXLOCK:
         cache = _pxcache()
+        if not isinstance(cache, dict):
+            cache = {}
         changed = False
         for sym in uniq:
             ser = out.get(sym)
