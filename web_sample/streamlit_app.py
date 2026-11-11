@@ -5618,6 +5618,55 @@ def panel_global_rates(k):
     st.caption(f"<span style='color:{BLUE}'>**Policy**</span> row = current **central-bank policy rate** "
                f"(BIS, daily): {_polsrc}. Euro-area countries share the **ECB** rate.", unsafe_allow_html=True)
 
+    # ── Country drill-in: level & period changes by tenor (like the US Rates tab) ──
+    st.markdown(f'<div style="margin-top:10px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Country drill-in — level and change over each period, by tenor</div>',
+                unsafe_allow_html=True)
+    import datetime as _dt
+    _dc=next((x for x in countries if x["label"]==st.selectbox(
+        "Country", [c["label"] for c in countries], key=k+"_dcty")), countries[0])
+    _today=_dt.date.today()
+    _periods=[("1D",None),("1W",_today-_dt.timedelta(days=7)),
+              ("MTD",_today.replace(day=1)-_dt.timedelta(days=1)),
+              ("QTD",_dt.date(_today.year,3*((_today.month-1)//3)+1,1)-_dt.timedelta(days=1)),
+              ("YTD",_dt.date(_today.year-1,12,31)),
+              ("1Y",_today-relativedelta(years=1)),("3Y",_today-relativedelta(years=3))]
+    def _chg_bps(s, ref):
+        if s is None or s.empty: return None
+        cur=float(s.iloc[-1])
+        if ref is None:
+            if len(s)<2: return None
+            base=float(s.iloc[-2])
+        else:
+            prior=s[s.index<=pd.Timestamp(ref)]
+            if prior.empty: return None
+            base=float(prior.iloc[-1])
+        return (cur-base)*100
+    _ser={t:_gr_series(_dc,t) for t in _gr_disp_tenors(_dc)}
+    _ser={t:s for t,s in _ser.items() if s is not None and not s.empty}
+    hh3=["Tenor","Latest %","1D","1W","MTD","QTD","YTD","1Y","3Y","52w range %"]
+    h3='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{x}</th>" for x in hh3)+"</tr>"
+    _drows=[]
+    for t,s in _ser.items():
+        cur=float(s.iloc[-1])
+        s52=s[s.index>=pd.Timestamp(_today-relativedelta(years=1))]
+        rng=f"{s52.min():.2f}–{s52.max():.2f}" if not s52.empty else "—"
+        cell=f"{BLUE}" if t=="Policy" else TEXT1
+        h3+=f"<tr><td style='font-weight:700'>{t}</td><td style='color:{cell}'>{cur:.2f}</td>"
+        row={"Tenor":t,"Latest_pct":round(cur,3)}
+        for lab,ref in _periods:
+            v=_chg_bps(s,ref); row[lab+"_bps"]=None if v is None else round(v)
+            if v is None: h3+=f"<td style='color:{TEXT3}'>—</td>"
+            else: h3+=f"<td style='color:{GREEN if v>=0 else RED}'>{v:+.0f}</td>"
+        h3+=f"<td style='color:{TEXT3}'>{rng}</td></tr>"; _drows.append(row)
+    st.markdown(h3+"</table></div>", unsafe_allow_html=True)
+    st.caption(f"**{_dc['label']} {_dc['bond']}** — level (%) and change in **bps** over each period "
+               f"(green = yield up, red = down). {_gr_freqbadge(_dc['freq'])} {_dc['source']}. "
+               + ("Monthly market — changes are at month granularity and short periods may be blank."
+                  if _dc['freq']=="monthly" else "Policy = central-bank rate (BIS)."))
+    if _drows:
+        dl(pd.DataFrame(_drows), "Export drill-in", f"JAWS_global_rates_{_dc['code']}.xlsx", k+"_ddl")
+
     # ── Key spreads (vs Bund) + per-country 2s10s ──
     st.markdown(f'<div style="margin-top:10px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
                 'Key spreads — periphery/benchmark vs German Bund, plus curve slope (2s10s)</div>',
