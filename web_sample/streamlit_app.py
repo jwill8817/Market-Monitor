@@ -5699,13 +5699,13 @@ RETURN_CATS={"Equity Indices":"indices","Volatility & Correlation":"volatility",
              "Commodities":"commodities","US Sectors":"sectors","Hedge Funds":"hedge_funds",
              "Risk Premia":"risk_premia","AQR Strategies":"aqr","Crypto":"crypto"}
 # Tabs shown above each quadrant (radio = lazy: only the selected one loads).
-TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","Rates","Global Rates","Funding","Inflation","L/S Factors","Valuation"]
+TABLE_TABS=["Watchlist","Custom Data"]+list(RETURN_CATS.keys())+["FI Spreads","US Rates","Global Rates","Funding","Inflation","L/S Factors","Valuation"]
 PANEL_TABS=["Yield Curve","Chart","Realized Vol","Scanner"]
 
 def _dispatch(sel, k):
     if sel in RETURN_CATS:    panel_returns(RETURN_CATS[sel], sel, k)
     elif sel=="FI Spreads":   panel_analytics(spreads_analytics,"Spreads","JAWS_FI_Spreads.xlsx",k)
-    elif sel=="Rates":        panel_rates(k)
+    elif sel=="US Rates":     panel_rates(k)
     elif sel=="Global Rates": panel_global_rates(k)
     elif sel=="Funding":      panel_analytics(funding_analytics,"Funding","JAWS_Funding.xlsx",k)
     elif sel=="Inflation":    panel_analytics(inflation_analytics,"Inflation","JAWS_Inflation.xlsx",k)
