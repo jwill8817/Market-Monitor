@@ -2379,7 +2379,7 @@ def panel_rolling_returns(k):
     if use_monthly:
         win=int(c2.number_input("Window (months)", min_value=1, max_value=60, value=6, step=1, key=k+"_wm")); unit="month"
     else:
-        win=int(c2.number_input("Window (days)", min_value=5, max_value=756, value=63, step=1, key=k+"_wd")); unit="day"
+        win=int(c2.number_input("Window (days)", min_value=1, max_value=756, value=63, step=1, key=k+"_wd")); unit="day"
     yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
     labels=list(series.keys())
     b1,b2=st.columns(2)
@@ -2395,7 +2395,9 @@ def panel_rolling_returns(k):
             line=dict(color=col,width=1.6))); exp[label]=rr
         add_stat_bands(fig, rr.values, col, label, label in avg_for, label in sd_for); add_today_marker(fig, rr, col)
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
-    yr=yaxis_range_controls(k); fig=base_layout(fig,f"Rolling {win}-{unit} total return (%)","%",h=440); apply_yrange(fig,yr)
+    _ttl=("Daily return (%)" if (not use_monthly and win==1) else
+          ("Monthly return (%)" if (use_monthly and win==1) else f"Rolling {win}-{unit} total return (%)"))
+    yr=yaxis_range_controls(k); fig=base_layout(fig,_ttl,"%",h=440); apply_yrange(fig,yr)
     st.plotly_chart(fig, use_container_width=True, key=k+"_chart")
     if note: st.caption(note)
     pr_caption(list(chosen.items()))
