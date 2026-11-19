@@ -1470,6 +1470,10 @@ def panel_returns(catkey, label, k):
         st.caption(f'<span style="color:{YELLOW}">PR</span> = **price return** (excludes dividends — '
                    "no free total-return index on Yahoo). All other rows are **total return** "
                    "(dividends reinvested).", unsafe_allow_html=True)
+    elif catkey in ("hedge_funds","risk_premia","aqr"):
+        st.caption("All rows are **total return** — dividend/distribution-adjusted (ETF adjusted close or "
+                   "mutual-fund NAV) — so ETFs and mutual funds are directly comparable. Newly launched funds "
+                   "show blank longer-period columns until they build history.", unsafe_allow_html=True)
     c1,c2,c3=st.columns([1,1,1])
     c1.date_input("Custom start", value=cs, key=k+"_cs", min_value=date(1900,1,1))
     c2.date_input("Custom end", value=ce, key=k+"_ce", min_value=date(1900,1,1))
