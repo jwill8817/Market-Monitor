@@ -5540,6 +5540,118 @@ def panel_exporter():
             st.download_button("⬇ Download CSV", csv_df.to_csv(index=False).encode(),
                 f"JAWS_export_{freq.lower()}_{dtp.lower()}.csv", "text/csv", key="exp_csv")
 
+# ── SG Trend Indicator (Société Générale CTA positioning & performance) ──
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_sg_trend():
+    import os, json
+    here=os.path.dirname(os.path.abspath(__file__))
+    for p in ("data/sg_trend.json", os.path.join(here,"..","data","sg_trend.json"),
+              os.path.join(here,"data","sg_trend.json")):
+        try:
+            if os.path.exists(p):
+                with open(p,encoding="utf-8") as f: return json.load(f)
+        except Exception: pass
+    return None
+
+def panel_sg_trend(k):
+    d=_load_sg_trend()
+    if not d:
+        st.info("No SG Trend data yet — the daily job builds it from Société Générale's public feed. "
+                "Check back after the next run."); return
+    st.caption(f"**SG Trend Indicator** — a transparent, rules-based medium-term trend-following (CTA) model "
+               f"from **Société Générale**, as of **{d.get('asof','')}**. The **SG CTA Index** / **SG Trend "
+               "Index** are peer-group performance benchmarks. Free public daily feed.")
+    # ── Headline performance ──
+    _sm=d.get("summary",[])
+    if _sm:
+        hh=["Index","Daily","MTD","YTD"]
+        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+        def _p(v): return (f'<span style="color:{TEXT3}">—</span>' if v is None
+                           else f'<span style="color:{GREEN if v>=0 else RED}">{v:+.2f}%</span>')
+        for r in _sm:
+            h+=(f"<tr><td style='text-align:left'>{r['name']}</td>"
+                f"<td>{_p(r.get('daily'))}</td><td>{_p(r.get('mtd'))}</td><td>{_p(r.get('ytd'))}</td></tr>")
+        st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    # ── Sector P&L + net positioning ──
+    mk=d.get("markets",[])
+    cL,cR=st.columns(2)
+    with cL:
+        st.markdown(f'<div style="color:{TEXT2};font-family:Consolas;font-size:12px;">Sector contribution '
+                    '(trend P&L, % of index)</div>', unsafe_allow_html=True)
+        hh=["Sector","MTD","YTD"]
+        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+        for s in d.get("sectors",[]):
+            bold=";font-weight:700" if s["sector"]=="Portfolio" else ""
+            def _c(v): return (f'<span style="color:{TEXT3}">—</span>' if v is None
+                               else f'<span style="color:{GREEN if v>=0 else RED}">{v:+.2f}%</span>')
+            h+=(f"<tr><td style='text-align:left{bold}'>{s['sector']}</td>"
+                f"<td>{_c(s.get('mtd'))}</td><td>{_c(s.get('ytd'))}</td></tr>")
+        st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    with cR:
+        st.markdown(f'<div style="color:{TEXT2};font-family:Consolas;font-size:12px;">Net positioning '
+                    '(markets long vs short, by sector)</div>', unsafe_allow_html=True)
+        secs={}
+        for m in mk:
+            s=secs.setdefault(m["sector"],[0,0])
+            if m["position"].lower().startswith("l"): s[0]+=1
+            else: s[1]+=1
+        hh=["Sector","Long","Short","Net"]
+        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+        for sec,(lo,sh) in sorted(secs.items(), key=lambda x:-(x[1][0]-x[1][1])):
+            net=lo-sh; nc=GREEN if net>0 else (RED if net<0 else TEXT2)
+            h+=(f"<tr><td style='text-align:left'>{sec}</td>"
+                f"<td style='color:{GREEN}'>{lo}</td><td style='color:{RED}'>{sh}</td>"
+                f"<td style='color:{nc};font-weight:700'>{net:+d}</td></tr>")
+        st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    # ── Per-market positioning (grouped by sector) ──
+    with st.expander(f"📋 Full market positioning — {len(mk)} markets (long/short · days held · P&L)", expanded=True):
+        secpick=st.multiselect("Filter sectors", sorted({m["sector"] for m in mk}),
+                               default=sorted({m["sector"] for m in mk}), key=k+"_secf")
+        hh=["Market","Sector","Position","Days held","Daily","MTD","YTD"]
+        h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+        def _c(v): return (f'<span style="color:{TEXT3}">—</span>' if v is None
+                           else f'<span style="color:{GREEN if v>=0 else RED}">{v:+.2f}%</span>')
+        for m in sorted(mk, key=lambda x:(x["sector"], x["market"])):
+            if m["sector"] not in secpick: continue
+            pc=GREEN if m["position"].lower().startswith("l") else RED
+            h+=(f"<tr><td style='text-align:left'>{m['market']}</td>"
+                f"<td style='color:{TEXT3}'>{m['sector']}</td>"
+                f"<td style='color:{pc};font-weight:700'>{m['position']}</td>"
+                f"<td>{m['days']}</td><td>{_c(m.get('daily'))}</td>"
+                f"<td>{_c(m.get('mtd'))}</td><td>{_c(m.get('ytd'))}</td></tr>")
+        st.markdown(h+"</table></div>", unsafe_allow_html=True)
+        st.caption("**Position** = current trend signal (long/short). **Days held** = trading days in the "
+                   "position. **Daily/MTD/YTD** = that market's contribution to the index's P&L (%). "
+                   "Positive = the trend made money.")
+        dl(pd.DataFrame(mk), "Export positioning", "JAWS_sg_trend_positioning.xlsx", k+"_mdl")
+    # ── Recent position changes ──
+    tr=d.get("trades",[])
+    if tr:
+        with st.expander(f"🔄 Recent position changes ({len(tr)} most recent)"):
+            hh=["Date","Market","Sector","New position"]
+            h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in hh)+"</tr>"
+            for t in tr:
+                pc=GREEN if t["position"].lower().startswith("l") else RED
+                h+=(f"<tr><td>{t['date']}</td><td style='text-align:left'>{t['market']}</td>"
+                    f"<td style='color:{TEXT3}'>{t['sector']}</td>"
+                    f"<td style='color:{pc};font-weight:700'>{t['position']}</td></tr>")
+            st.markdown(h+"</table></div>", unsafe_allow_html=True)
+    # ── Performance history (rebased index levels) ──
+    nav=d.get("nav",{})
+    if nav.get("dates") and nav.get("series"):
+        _idx=pd.to_datetime(nav["dates"])
+        def _navprov(lab):
+            arr=nav["series"].get(lab)
+            if not arr: return None
+            return pd.Series(arr, index=_idx).dropna()
+        history_explorer(k+"_hx", _navprov, nav["names"],
+                         default_sel=[n for n in nav["names"] if n!="SG CTA Index"],
+                         unit="index", title="SG Trend — index performance (rebased)",
+                         basis="price", rebase_default=True,
+                         ranges=["1Y","3Y","5Y","10Y","All"], range_index=1)
+    st.caption("Source: **Société Générale** SG Trend Indicator daily report (public). The SG Trend Indicator "
+               "is a hypothetical, rules-based model shown for transparency — not investment advice.")
+
 # ── Global sovereign rates (daily where available; see data/global_rates.json) ──
 _GR_ORDER=["Policy","1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","25Y","30Y","40Y"]
 # country code → (BIS area code for cb_rate_series, central-bank label)
@@ -6520,6 +6632,7 @@ _sec("MACRO","Macro & Recession Dashboard (growth · curve · financial conditio
 _sec("VOL","Implied vs Realized Volatility (equity: VIX vs realized · rates: MOVE vs realized)", panel_vol_monitor, "secvol")
 _sec("BRDTH","Market Breadth (S&P 500 internals — % above MA · new highs/lows · adv/decl)", panel_breadth, "secbrdth")
 _sec("COT","Futures Positioning — CFTC Commitments of Traders (net speculative)", panel_cot, "seccot")
+_sec("SGTR","SG Trend Indicator — CTA positioning & performance (Société Générale)", panel_sg_trend, "secsgtr")
 _sec("COMP","Index Composition (GICS sectors / credit quality)", panel_composition, "seccomp")
 _sec("DIST","Return Distribution (histogram + move/probability calculator)", panel_return_dist, "secdist")
 _sec("RMTX","Monthly Return Matrix (compare assets)", panel_return_matrix, "secrmtx")
