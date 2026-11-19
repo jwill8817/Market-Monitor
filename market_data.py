@@ -358,6 +358,24 @@ SECTORS = {
 # (HFRI / Pivotal Path proprietary indices are subscription-only, not free; these
 #  tradeable vehicles are the closest freely-available read on HF strategy returns.)
 HEDGE_FUNDS = {
+    # ── Tracked (pinned to top) ──
+    "iShares Systematic Alts (IALT)":     "IALT",
+    "iShares Managed Futures (ISMF)":     "ISMF",
+    "AHL Trend ETF (AHLT)":               "AHLT",
+    "American Beacon AHL Mgd Fut (AHLYX)":"AHLYX",
+    "Man EM Alternative (MEMA)":          "MEMA",
+    "iShares Macro AlphaBeta (GMIX)":     "GMIX",   # launched Nov 2026 — history builds as it trades
+    "Blackstone Alt Multi-Strat (BXMIX)": "BXMIX",
+    "Catastrophe Bond / ILS (ILS)":       "ILS",
+    "Cambria Tail Risk (TAIL)":           "TAIL",
+    "Amplify BlackSwan (SWAN)":           "SWAN",
+    "Alpha Architect Tail Risk (CAOS)":   "CAOS",
+    "Unlimited Multi-Strategy (HFND)":    "HFND",
+    "Pershing Square USA (PSUS)":         "PSUS",
+    "PIMCO StocksPLUS (SPLS)":            "SPLS",
+    "PIMCO Commodity+Bond (CMDT)":        "CMDT",
+    "AB Select US Long/Short (ASYLX)":    "ASYLX",
+    # ── Benchmarks & replication ──
     "HFRI-style Composite (HDG)": "HDG",   # tracks a model designed to mirror HFRI Fund Wtd Composite
     "HF Multi-Strategy Bmk (QAI)":"QAI",   # IQ Hedge Multi-Strategy replication
     "Merger Arb (MNA)":          "MNA",
