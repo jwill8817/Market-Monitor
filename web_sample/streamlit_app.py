@@ -2386,15 +2386,25 @@ def panel_rolling_returns(k):
     avg_for=b1.multiselect("Show average for", labels, default=labels, key=k+"_avg")
     sd_for=b2.multiselect("Show ±2σ bands for", labels, default=labels, key=k+"_sd")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); lo,hi=date_window(k,cutoff); fig=go.Figure(); exp={}
+    _bars=(win==1)                 # single-period returns read better as bars than a line
     for i,(label,c) in enumerate(series.items()):
         if use_monthly: c=c.resample("ME").last().dropna()
         rr=(c.pct_change(win).dropna())*100; rr=rr[(rr.index>=lo)&(rr.index<=hi)]
         if rr.empty: continue
         col=PALETTE[i%len(PALETTE)]
-        fig.add_trace(go.Scatter(x=rr.index,y=rr.values,mode="lines",name=label,
-            line=dict(color=col,width=1.6))); exp[label]=rr
-        add_stat_bands(fig, rr.values, col, label, label in avg_for, label in sd_for); add_today_marker(fig, rr, col)
+        if _bars:
+            # one series → color each bar by sign; multiple → keep the series color
+            mc=([GREEN if v>=0 else RED for v in rr.values] if len(series)==1 else col)
+            fig.add_trace(go.Bar(x=rr.index,y=rr.values,name=label,marker_color=mc,
+                                 marker_line_width=0,opacity=0.9 if len(series)==1 else 0.6))
+        else:
+            fig.add_trace(go.Scatter(x=rr.index,y=rr.values,mode="lines",name=label,
+                line=dict(color=col,width=1.6)))
+        exp[label]=rr
+        add_stat_bands(fig, rr.values, col, label, label in avg_for, label in sd_for)
+        if not _bars: add_today_marker(fig, rr, col)
     fig.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+    if _bars: fig.update_layout(barmode="overlay", bargap=0.1)
     _ttl=("Daily return (%)" if (not use_monthly and win==1) else
           ("Monthly return (%)" if (use_monthly and win==1) else f"Rolling {win}-{unit} total return (%)"))
     yr=yaxis_range_controls(k); fig=base_layout(fig,_ttl,"%",h=440); apply_yrange(fig,yr)
