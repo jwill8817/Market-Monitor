@@ -2382,11 +2382,13 @@ def panel_rolling_returns(k):
         win=int(c2.number_input("Window (days)", min_value=1, max_value=756, value=63, step=1, key=k+"_wd")); unit="day"
     yrs=c3.select_slider("Lookback (years)",[1,2,3,5,10,15,20,25],value=5,key=k+"_yr")
     labels=list(series.keys())
-    b1,b2=st.columns(2)
+    b1,b2,b3=st.columns([1.2,1.2,1])
     avg_for=b1.multiselect("Show average for", labels, default=labels, key=k+"_avg")
     sd_for=b2.multiselect("Show ±2σ bands for", labels, default=labels, key=k+"_sd")
+    cstyle=b3.radio("Chart",["Auto","Line","Bars"],horizontal=True,key=k+"_style",
+                    help="Auto = bars for 1-period (daily/single) returns, line for rolling windows.")
     cutoff=pd.Timestamp(datetime.today()-relativedelta(years=yrs)); lo,hi=date_window(k,cutoff); fig=go.Figure(); exp={}
-    _bars=(win==1)                 # single-period returns read better as bars than a line
+    _bars=(cstyle=="Bars") or (cstyle=="Auto" and win==1)
     for i,(label,c) in enumerate(series.items()):
         if use_monthly: c=c.resample("ME").last().dropna()
         rr=(c.pct_change(win).dropna())*100; rr=rr[(rr.index>=lo)&(rr.index<=hi)]
