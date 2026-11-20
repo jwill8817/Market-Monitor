@@ -889,12 +889,17 @@ def _session_movers():
     return out[:10]
 
 def render_futures_strip():
-    """Compact futures / implied-open + pre/post-market movers bars, between title and tickers."""
+    """Scrolling pre/post-market ticker (futures implied open + movers), styled like the QUOTES
+    tape. Hidden during regular hours — it's only for the pre-market / after-hours sessions."""
     import html as _html
+    sess,scol=_market_session()
+    if sess=="Regular hours":                      # blank while the cash market is live
+        return
     try: rows=_futures_quotes()
     except Exception: rows=[]
-    sess,scol=_market_session()
-    if not rows and not _session_movers(): return
+    try: mv=_session_movers()
+    except Exception: mv=[]
+    if not rows and not mv: return
     def _fp(v):
         try: v=float(v)
         except Exception: return "—"
@@ -902,37 +907,45 @@ def render_futures_strip():
         if abs(v)>=100:  return f"{v:,.1f}"
         return f"{v:,.2f}"
     cells=[]
+    def _item(nm, price, cs, col):
+        return (f'<span class="qi"><b>{nm}</b> <span class="qp">{price}</span> '
+                f'<span style="color:{col}">{cs}</span></span><span class="qsep">·</span>')
     for r in rows:
         nm=_html.escape(r["name"]); chg=r.get("chg"); up=(chg or 0)>=0
         col=GREEN if up else RED; arr="▲" if up else "▼"
         if r["unit"]=="bps":
-            price=f'{_fp(r["last"])}%'
-            cs=(f"{arr}{chg:+.0f}bp" if isinstance(chg,(int,float)) else "")
+            price=f'{_fp(r["last"])}%'; cs=(f"{arr}{chg:+.0f}bp" if isinstance(chg,(int,float)) else "")
         else:
             price=_fp(r["last"]); cs=(f"{arr}{chg:+.2f}%" if isinstance(chg,(int,float)) else "")
-        cells.append(f'<span class="fi"><b>{nm}</b> <span class="fp">{price}</span> '
-                     f'<span style="color:{col}">{_html.escape(cs)}</span></span>')
-    # Pre/post-market movers (label adapts to the session).
-    mv=_session_movers()
-    _mvlab={"Pre-market":"PRE-MARKET MOVERS","After-hours":"AFTER-HOURS MOVERS"}.get(sess,"MOVERS")
-    mcells=[]
-    for t,last,chg in mv:
-        up=chg>=0; col=GREEN if up else RED; arr="▲" if up else "▼"
-        mcells.append(f'<span class="fi"><b>{_html.escape(t)}</b> <span class="fp">{_fp(last)}</span> '
-                      f'<span style="color:{col}">{arr}{chg:+.2f}%</span></span>')
+        cells.append(_item(nm, price, cs, col))
+    if mv:
+        cells.append('<span class="qi" style="color:'+BLUE+';font-weight:700">MOVERS</span>'
+                     '<span class="qsep">·</span>')
+        for t,last,chg in mv:
+            up=chg>=0; col=GREEN if up else RED; arr="▲" if up else "▼"
+            cells.append(_item(_html.escape(t), _fp(last), f"{arr}{chg:+.2f}%", col))
+    stream="".join(cells)
+    cap={"Pre-market":"PRE-MARKET","After-hours":"AFTER-HOURS",
+         "Weekend · futures":"WEEKEND","Closed · futures":"CLOSED"}.get(sess,"PRE-MARKET")
+    dur=min(240, max(55, len(cells)*6))
     st.markdown(f"""
     <style>
-      .futbar {{ display:flex; align-items:center; flex-wrap:wrap; gap:4px 14px; background:#0b0f16;
-                 border:1px solid {BORDER}; border-radius:8px; padding:7px 12px; margin:4px 0 6px; }}
-      .futbar .cap {{ font:800 11px Consolas; letter-spacing:.5px; color:{ACCENT}; margin-right:2px; }}
-      .futbar .mcap {{ color:{BLUE}; }}
-      .futbar .sess {{ font:800 11px Consolas; padding:1px 8px; border-radius:10px;
-                       border:1px solid {BORDER}; color:{scol}; }}
-      .futbar .fi {{ font:13px/1 Consolas; color:{TEXT2}; }}
-      .futbar .fi b {{ color:{TEXT1}; }} .futbar .fp {{ color:{TEXT1}; }}
+    .jpm {{ position:relative; overflow:hidden; white-space:nowrap; background:#0b0f16;
+            border:1px solid {BORDER}; border-radius:8px; padding:6px 0; margin:4px 0 8px; padding-left:104px; }}
+    .jpm .pmcap {{ position:absolute; left:0; top:0; bottom:0; width:104px; z-index:3;
+                   display:flex; align-items:center; justify-content:center; gap:6px;
+                   background:linear-gradient(90deg,#e0a21a,#f2c94c); color:#141414;
+                   font:800 11px Consolas; letter-spacing:.5px;
+                   box-shadow:0 0 14px rgba(230,170,30,.55); }}
+    .pmtrack {{ display:inline-block; white-space:nowrap; animation: pmscroll {dur}s linear infinite; }}
+    .jpm:hover .pmtrack {{ animation-play-state:paused; }}
+    .jpm .qi {{ font:13px/1 Consolas; color:{TEXT2}; margin:0 4px; }}
+    .jpm .qi b {{ color:{TEXT1}; }} .jpm .qp {{ color:{TEXT1}; }}
+    .jpm .qsep {{ color:{BORDER}; margin:0 12px; }}
+    @keyframes pmscroll {{ 0%{{transform:translateX(0)}} 100%{{transform:translateX(-50%)}} }}
     </style>
-    {"<div class='futbar'><span class='cap'>FUTURES · IMPLIED OPEN</span><span class='sess'>● "+sess+"</span>"+''.join(cells)+"</div>" if cells else ""}
-    {"<div class='futbar'><span class='cap mcap'>"+_mvlab+"</span>"+''.join(mcells)+"</div>" if mcells else ""}
+    <div class="jpm"><div class="pmcap">{cap}</div>
+      <div class="pmtrack">{stream}{stream}</div></div>
     """, unsafe_allow_html=True)
 
 def render_price_ticker():
