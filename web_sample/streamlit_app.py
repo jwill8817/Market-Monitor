@@ -832,6 +832,109 @@ def _price_ticker_data():
     except Exception: pass
     return out
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _futures_quotes():
+    """Live index-futures quotes (last vs prior settle) — the implied-open signal — plus a few
+    macro futures. Uses yfinance fast_info so it reflects overnight/pre-market trading."""
+    import yfinance as yf
+    syms=[("S&P fut","ES=F"),("Nasdaq fut","NQ=F"),("Dow fut","YM=F"),("Russell fut","RTY=F"),
+          ("VIX","^VIX"),("WTI","CL=F"),("Gold","GC=F"),("10Y","^TNX")]
+    out=[]
+    for nm,s in syms:
+        try:
+            fi=yf.Ticker(s).fast_info
+            last=fi.get("lastPrice") if hasattr(fi,"get") else fi["lastPrice"]
+            prev=fi.get("previousClose") if hasattr(fi,"get") else fi["previousClose"]
+            last=float(last); prev=float(prev) if prev else None
+            if s=="^TNX":                                   # yield: change in bps, not % of yield
+                chg=((last-prev)*100) if prev else None; unit="bps"
+            else:
+                chg=((last/prev-1)*100) if prev else None; unit="pct"
+            out.append({"name":nm,"sym":s,"last":last,"chg":chg,"unit":unit})
+        except Exception:
+            continue
+    return out
+
+def _market_session():
+    """(label, color) for the current US equity session, from ET time."""
+    try: et=_now_et()
+    except Exception: return ("Markets", TEXT2)
+    if et.weekday()>=5: return ("Weekend · futures", TEXT3)
+    hm=et.hour*60+et.minute
+    if   4*60   <= hm < 9*60+30: return ("Pre-market", YELLOW)
+    elif 9*60+30<= hm < 16*60:   return ("Regular hours", GREEN)
+    elif 16*60  <= hm < 20*60:   return ("After-hours", BLUE)
+    return ("Closed · futures", TEXT3)
+
+# Meaningful large/active names to scan for pre/post-market moves.
+_MOVER_UNIVERSE=["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","AMD","NFLX",
+                 "JPM","LLY","UNH","XOM","WMT","COST","ORCL","CRM","PLTR","COIN","MU","DIS"]
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _session_movers():
+    """Biggest movers vs prior close across a basket of meaningful stocks — reflects pre/post-
+    market trading via fast_info. Returns top names by absolute move."""
+    import yfinance as yf
+    out=[]
+    for t in _MOVER_UNIVERSE:
+        try:
+            fi=yf.Ticker(t).fast_info
+            last=fi.get("lastPrice") if hasattr(fi,"get") else fi["lastPrice"]
+            prev=fi.get("previousClose") if hasattr(fi,"get") else fi["previousClose"]
+            last=float(last); prev=float(prev) if prev else None
+            if prev and last: out.append((t,last,(last/prev-1)*100))
+        except Exception:
+            continue
+    out.sort(key=lambda x:-abs(x[2]))
+    return out[:10]
+
+def render_futures_strip():
+    """Compact futures / implied-open + pre/post-market movers bars, between title and tickers."""
+    import html as _html
+    try: rows=_futures_quotes()
+    except Exception: rows=[]
+    sess,scol=_market_session()
+    if not rows and not _session_movers(): return
+    def _fp(v):
+        try: v=float(v)
+        except Exception: return "—"
+        if abs(v)>=1000: return f"{v:,.0f}"
+        if abs(v)>=100:  return f"{v:,.1f}"
+        return f"{v:,.2f}"
+    cells=[]
+    for r in rows:
+        nm=_html.escape(r["name"]); chg=r.get("chg"); up=(chg or 0)>=0
+        col=GREEN if up else RED; arr="▲" if up else "▼"
+        if r["unit"]=="bps":
+            price=f'{_fp(r["last"])}%'
+            cs=(f"{arr}{chg:+.0f}bp" if isinstance(chg,(int,float)) else "")
+        else:
+            price=_fp(r["last"]); cs=(f"{arr}{chg:+.2f}%" if isinstance(chg,(int,float)) else "")
+        cells.append(f'<span class="fi"><b>{nm}</b> <span class="fp">{price}</span> '
+                     f'<span style="color:{col}">{_html.escape(cs)}</span></span>')
+    # Pre/post-market movers (label adapts to the session).
+    mv=_session_movers()
+    _mvlab={"Pre-market":"PRE-MARKET MOVERS","After-hours":"AFTER-HOURS MOVERS"}.get(sess,"MOVERS")
+    mcells=[]
+    for t,last,chg in mv:
+        up=chg>=0; col=GREEN if up else RED; arr="▲" if up else "▼"
+        mcells.append(f'<span class="fi"><b>{_html.escape(t)}</b> <span class="fp">{_fp(last)}</span> '
+                      f'<span style="color:{col}">{arr}{chg:+.2f}%</span></span>')
+    st.markdown(f"""
+    <style>
+      .futbar {{ display:flex; align-items:center; flex-wrap:wrap; gap:4px 14px; background:#0b0f16;
+                 border:1px solid {BORDER}; border-radius:8px; padding:7px 12px; margin:4px 0 6px; }}
+      .futbar .cap {{ font:800 11px Consolas; letter-spacing:.5px; color:{ACCENT}; margin-right:2px; }}
+      .futbar .mcap {{ color:{BLUE}; }}
+      .futbar .sess {{ font:800 11px Consolas; padding:1px 8px; border-radius:10px;
+                       border:1px solid {BORDER}; color:{scol}; }}
+      .futbar .fi {{ font:13px/1 Consolas; color:{TEXT2}; }}
+      .futbar .fi b {{ color:{TEXT1}; }} .futbar .fp {{ color:{TEXT1}; }}
+    </style>
+    {"<div class='futbar'><span class='cap'>FUTURES · IMPLIED OPEN</span><span class='sess'>● "+sess+"</span>"+''.join(cells)+"</div>" if cells else ""}
+    {"<div class='futbar'><span class='cap mcap'>"+_mvlab+"</span>"+''.join(mcells)+"</div>" if mcells else ""}
+    """, unsafe_allow_html=True)
+
 def render_price_ticker():
     """Live quote ticker (indices, mega-caps, rates, commodities) below the news tape."""
     import html as _html
@@ -5994,6 +6097,11 @@ if _auto_min>0:
     except Exception:
         pass
 
+# Futures / implied-open + pre/post-market movers strip, right under the title.
+try:
+    render_futures_strip()
+except Exception:
+    pass
 # Ticker tapes sit just below the top controls, right above the tables.
 try:
     render_news_ticker()
