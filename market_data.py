@@ -358,8 +358,11 @@ SECTORS = {
 # (HFRI / Pivotal Path proprietary indices are subscription-only, not free; these
 #  tradeable vehicles are the closest freely-available read on HF strategy returns.)
 HEDGE_FUNDS = {
-    # ── Tracked (pinned to top) ──
+    # ── Crowding complex (pinned to very top) ──
     "JAWS Crowded Short Index (JCSI)":    "JCSI",   # app-built point-in-time index (not a vendor ticker)
+    "Crowded Longs — GS Hedge VIP (GVIP)":"GVIP",   # GS Hedge Fund VIP basket
+    "Crowding Spread: GVIP − JCSI (JCLS)":"JCLS",   # app-built long/short index
+    # ── Tracked ──
     "iShares Systematic Alts (IALT)":     "IALT",
     "iShares Managed Futures (ISMF)":     "ISMF",
     "AHL Trend ETF (AHLT)":               "AHLT",
@@ -393,7 +396,6 @@ HEDGE_FUNDS = {
     "Liquid Alts (LALT)":        "LALT",
     "Tactical (CPITX)":          "CPITX",
     # ── Positioning / crowding ──
-    "GS Hedge VIP — Crowded Longs (GVIP)": "GVIP",  # tracks GS Hedge Fund VIP basket
     "Most-Shorted / Meme (MEME)":          "MEME",  # high short-interest + retail-crowded names
     "Short Innovation (SARK)":             "SARK",  # inverse ARKK (short crowded growth)
     "Active Short / Bear (HDGE)":          "HDGE",  # actively shorts deteriorating crowded names

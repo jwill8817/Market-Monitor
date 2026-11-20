@@ -2,10 +2,11 @@
 """Point-in-time crowded-shorts index (FINRA).
 
 At every bi-monthly FINRA Consolidated Short Interest report back to 2018, take that date's
-most-shorted liquid US names, hold them equal-weight until the next report, then rebalance —
-and chain-link daily into one index. This is a genuine point-in-time basket (the names that
-were actually crowded-short at each date), not today's names projected backward. Writes
-data/crowding_shorts_index.json, read by the app's Crowded Positioning panel.
+most-crowded shorts — ranked by DAYS-TO-COVER (shares short / avg daily volume), a size- and
+liquidity-neutral crowding measure rather than raw share count — among liquid US names, hold
+them equal-weight until the next report, then rebalance, and chain-link daily into one index.
+This is a genuine point-in-time basket (the names actually crowded-short at each date), not
+today's names projected backward. Writes data/crowding_shorts_index.json, read by the app.
 
 Caveats: FINRA short interest is bi-monthly with a ~2-week settlement lag; the index holds from
 the settlement date (a real strategy would lag slightly more). Delisted names are captured as
@@ -50,7 +51,7 @@ def _finra_basket(date):
             "compareFilters": [
                 {"fieldName": "settlementDate", "compareType": "EQUAL", "fieldValue": date},
                 {"fieldName": "averageDailyVolumeQuantity", "compareType": "GTE", "fieldValue": MIN_ADV}],
-            "sortFields": ["-currentShortPositionQuantity"]}
+            "sortFields": ["-daysToCoverQuantity"]}   # size/liquidity-neutral crowding measure
     req = urllib.request.Request(
         "https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest",
         data=json.dumps(body).encode(), headers=_H, method="POST")
@@ -112,7 +113,7 @@ def main():
     out = {
         "asof": dates[-1],
         "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "top_n": TOP_N, "min_adv": MIN_ADV, "n_reports": len(dates),
+        "rank_by": "days_to_cover", "top_n": TOP_N, "min_adv": MIN_ADV, "n_reports": len(dates),
         "latest_basket": baskets[dates[-1]],
         "dates": [d.date().isoformat() for d in idx_dates],
         "level": idx_vals,

@@ -342,8 +342,8 @@ def macro_labels():
 def jaws_index_store():
     """App-built synthetic indices (not on any data vendor) as pseudo-instruments so they work
     everywhere md_history is used. Currently the JAWS Crowded Short Index (JCSI) — a point-in-time
-    equal-weight basket of the most-shorted FINRA names, rebalanced each report (data/
-    crowding_shorts_index.json, built by the daily job)."""
+    equal-weight basket of the most-crowded shorts (by days-to-cover) at each FINRA report,
+    rebalanced each report (data/crowding_shorts_index.json, built by the daily job)."""
     import os, json
     here=os.path.dirname(os.path.abspath(__file__))
     out={}
@@ -357,6 +357,21 @@ def jaws_index_store():
                 if not s.empty:
                     out["JCSI"]={"name":"JAWS Crowded Short Index","prices":s.sort_index()}
                 break
+        except Exception: pass
+    # Crowding long/short index (JCLS): long GVIP (crowded longs), short JCSI (crowded shorts),
+    # rebalanced daily, rebased to 100 — the crowded longs-vs-shorts spread as a price index.
+    if "JCSI" in out:
+        try:
+            import market_data as _md
+            gvip=_md.price_history("GVIP")      # direct (avoids the md_history jaws hook → no recursion)
+            if gvip is not None and not gvip.empty:
+                g=gvip.copy(); g.index=pd.to_datetime(g.index)
+                df=pd.concat([g.rename("g"), out["JCSI"]["prices"].rename("s")],
+                             axis=1, join="inner").dropna()
+                if len(df)>2:
+                    dr=(df["g"].pct_change()-df["s"].pct_change()).fillna(0.0)
+                    ls=(1.0+dr).cumprod()*100.0
+                    out["JCLS"]={"name":"JAWS Crowding L/S (GVIP − shorts)","prices":ls}
         except Exception: pass
     return out
 
@@ -3988,12 +4003,13 @@ def panel_crowding(k):
                 base_layout(f2,f"Crowding spread — crowded longs vs shorts (now {cur:+.1f}% over {lb})","%",h=300)
                 st.plotly_chart(f2,use_container_width=True,key=k+"_sprd")
                 if _pit:
-                    st.caption("**Crowding spread** = crowded longs (**GVIP**) vs a **point-in-time** crowded-shorts "
-                               "index — the names actually most-shorted at each bi-monthly FINRA report, held equal-"
-                               "weight and rebalanced each report (back to 2018). **Falling = crowded longs "
-                               "underperforming shorts** → hedge-fund **de-grossing / short squeeze**; rising = "
-                               "crowding paying off. Equal-weight, no costs; delisted names captured as far as the "
-                               "price feed has data.")
+                    st.caption("**Crowding spread** = crowded longs (**GVIP**) vs the **JAWS Crowded Short Index** — "
+                               "a **point-in-time** basket of the most-crowded shorts at each bi-monthly FINRA report, "
+                               "ranked by **days-to-cover** (shares short ÷ avg volume — size/liquidity-neutral, not "
+                               "raw share count), held equal-weight and rebalanced each report back to 2018. "
+                               "**Falling = crowded longs underperforming shorts** → hedge-fund **de-grossing / short "
+                               "squeeze**; rising = crowding paying off. Equal-weight, no costs; delisted names "
+                               "captured as far as the price feed has data.")
                 else:
                     st.caption("**Crowding spread** = crowded longs (GVIP) vs an equal-weight basket of **today's** "
                                "most-shorted names projected back (proxy — the point-in-time index file isn't built "
