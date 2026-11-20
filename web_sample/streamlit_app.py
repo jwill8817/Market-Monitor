@@ -877,23 +877,32 @@ def _price_ticker_data():
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _futures_quotes():
-    """Live index-futures quotes (last vs prior settle) — the implied-open signal — plus a few
-    macro futures. Uses yfinance fast_info so it reflects overnight/pre-market trading."""
-    import yfinance as yf
+    """Index & commodity futures move since the last US equity close (4pm ET) — the overnight /
+    implied-open signal, NOT the full day's move vs prior settle. Batched extended-hours 5-min
+    bars (one call). Only overnight-trading futures are shown (VIX/UST excluded)."""
+    import yfinance as yf, datetime as _dt
     syms=[("S&P fut","ES=F"),("Nasdaq fut","NQ=F"),("Dow fut","YM=F"),("Russell fut","RTY=F"),
-          ("VIX","^VIX"),("WTI","CL=F"),("Gold","GC=F"),("10Y","^TNX")]
+          ("WTI","CL=F"),("Gold","GC=F")]
+    codes=[s for _,s in syms]
+    try:
+        mins=yf.download(codes, period="2d", interval="5m", prepost=True, group_by="ticker",
+                         threads=True, progress=False)
+    except Exception:
+        return []
     out=[]
     for nm,s in syms:
         try:
-            fi=yf.Ticker(s).fast_info
-            last=fi.get("lastPrice") if hasattr(fi,"get") else fi["lastPrice"]
-            prev=fi.get("previousClose") if hasattr(fi,"get") else fi["previousClose"]
-            last=float(last); prev=float(prev) if prev else None
-            if s=="^TNX":                                   # yield: change in bps, not % of yield
-                chg=((last-prev)*100) if prev else None; unit="bps"
-            else:
-                chg=((last/prev-1)*100) if prev else None; unit="pct"
-            out.append({"name":nm,"sym":s,"last":last,"chg":chg,"unit":unit})
+            c=mins[s]["Close"].dropna()
+            if c.empty: continue
+            et=c.index.tz_convert("America/New_York")
+            last_t=et[-1]; last_px=float(c.iloc[-1])
+            ref_date=last_t.date() if last_t.time()>=_dt.time(16,0) else next(
+                (d for d in sorted({x.date() for x in et}, reverse=True) if d<last_t.date()), last_t.date())
+            mask=[(x.date()==ref_date and x.time()<=_dt.time(16,0)) for x in et]
+            ser=c[pd.Series(mask, index=c.index).values]
+            if ser.empty: continue
+            ref=float(ser.iloc[-1])
+            out.append({"name":nm,"sym":s,"last":last_px,"chg":(last_px/ref-1)*100,"unit":"pct"})
         except Exception:
             continue
     return out
