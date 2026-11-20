@@ -359,6 +359,7 @@ SECTORS = {
 #  tradeable vehicles are the closest freely-available read on HF strategy returns.)
 HEDGE_FUNDS = {
     # ── Tracked (pinned to top) ──
+    "JAWS Crowded Short Index (JCSI)":    "JCSI",   # app-built point-in-time index (not a vendor ticker)
     "iShares Systematic Alts (IALT)":     "IALT",
     "iShares Managed Futures (ISMF)":     "ISMF",
     "AHL Trend ETF (AHLT)":               "AHLT",

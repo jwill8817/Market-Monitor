@@ -338,12 +338,40 @@ def macro_labels():
     """{display_label: PSEUDO_SYM} for pickers/search."""
     return {f"{v['name']} [macro]": s for s,v in macro_price_store().items()}
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def jaws_index_store():
+    """App-built synthetic indices (not on any data vendor) as pseudo-instruments so they work
+    everywhere md_history is used. Currently the JAWS Crowded Short Index (JCSI) — a point-in-time
+    equal-weight basket of the most-shorted FINRA names, rebalanced each report (data/
+    crowding_shorts_index.json, built by the daily job)."""
+    import os, json
+    here=os.path.dirname(os.path.abspath(__file__))
+    out={}
+    for p in ("data/crowding_shorts_index.json",
+              os.path.join(here,"..","data","crowding_shorts_index.json"),
+              os.path.join(here,"data","crowding_shorts_index.json")):
+        try:
+            if os.path.exists(p):
+                with open(p,encoding="utf-8") as f: d=json.load(f)
+                s=pd.Series(d.get("level",[]), index=pd.to_datetime(d.get("dates",[]))).dropna()
+                if not s.empty:
+                    out["JCSI"]={"name":"JAWS Crowded Short Index","prices":s.sort_index()}
+                break
+        except Exception: pass
+    return out
+
 def md_history(sym, start=None, adjusted=True):
-    """Price history. User-uploaded customs and academic factors take precedence
-    over remote (yfinance) sources."""
+    """Price history. User-uploaded customs, academic factors and app-built indices take
+    precedence over remote (yfinance) sources."""
     cs=custom_store()
     if sym in cs:
         s=cs[sym]["prices"]
+        if start is not None:
+            s=s[s.index>=pd.Timestamp(start)]
+        return s.copy()
+    jx=jaws_index_store()
+    if sym in jx:
+        s=jx[sym]["prices"]
         if start is not None:
             s=s[s.index>=pd.Timestamp(start)]
         return s.copy()
@@ -1543,6 +1571,30 @@ def _panel_returns_calendar(catkey, label, k, absolute):
         rows.append(base)
     dl(pd.DataFrame(rows), "Export", f"JAWS_{catkey}_calendar.xlsx", k+"_caldl")
 
+def _synthetic_returns(s, absolute=False):
+    """Compute the standard returns-table dict (price, 1D, WTD…10Y) from a local price series,
+    matching fetch_returns' anchoring — for app-built instruments not on any vendor (e.g. JCSI)."""
+    import datetime as _dt
+    s=pd.Series(s).dropna().sort_index()
+    if s.empty: return {"price":None,"change_1d":None,"returns":{},"basis":"TR"}
+    cur=float(s.iloc[-1]); prev=float(s.iloc[-2]) if len(s)>1 else cur
+    pct=lambda a,b: (round((b/a-1)*100,2) if (a and a!=0) else None)
+    ann=lambda a,b,y: (round(((b/a)**(1/y)-1)*100,2) if (a and a!=0 and y>0) else None)
+    t=_dt.date.today()
+    todate={"WTD":t-_dt.timedelta(days=t.weekday()),"MTD":t.replace(day=1),
+            "QTD":_dt.date(t.year,3*((t.month-1)//3)+1,1),"YTD":_dt.date(t.year,1,1)}
+    rets={}
+    for p,sd in todate.items():
+        sdt=pd.Timestamp(sd); prior=s[s.index<sdt]
+        base=(float(prior.iloc[-1]) if not prior.empty
+              else (float(s[s.index>=sdt].iloc[0]) if not s[s.index>=sdt].empty else None))
+        rets[p]=pct(base,cur) if base else None
+    for p,yy in [("1Y",1),("3Y",3),("5Y",5),("10Y",10)]:
+        sub=s[s.index>=pd.Timestamp(t-relativedelta(years=yy))]
+        rets[p]=((ann(float(sub.iloc[0]),cur,yy) if yy>1 else pct(float(sub.iloc[0]),cur))
+                 if not sub.empty else None)
+    return {"price":cur,"change_1d":pct(prev,cur),"returns":rets,"basis":"TR"}
+
 def panel_returns(catkey, label, k):
     absolute = catkey in ("rates","funding")
     if st.radio("View",["Standard","Calendar"],horizontal=True,key=k+"_view",
@@ -1557,6 +1609,11 @@ def panel_returns(catkey, label, k):
         st.warning(f"{label} data is temporarily unavailable (the market-data source may be rate-limiting). "
                    "Try again in a moment or reboot the app."); return
     data={n:i for n,i in data.items() if isinstance(i, dict)}   # drop any failed/None entries
+    # Fill app-built synthetic instruments (e.g. JAWS Crowded Short Index) that aren't on a vendor.
+    _jx=jaws_index_store()
+    for _nm,_sym in tmap.items():
+        if _sym in _jx and (data.get(_nm) is None or data[_nm].get("price") is None):
+            data[_nm]=_synthetic_returns(_jx[_sym]["prices"], absolute=absolute)
     if not data:
         st.warning(f"No {label} rows available right now — data source hiccup. Try again shortly."); return
     fc=f_abs if absolute else f_pct
@@ -3787,11 +3844,27 @@ def finra_most_shorted(min_adv, top_n, rank):
         return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def _load_crowding_shorts():
+    """Point-in-time crowded-shorts index built by the daily job (data/crowding_shorts_index.json)."""
+    import os, json
+    here=os.path.dirname(os.path.abspath(__file__))
+    for p in ("data/crowding_shorts_index.json",
+              os.path.join(here,"..","data","crowding_shorts_index.json"),
+              os.path.join(here,"data","crowding_shorts_index.json")):
+        try:
+            if os.path.exists(p):
+                with open(p,encoding="utf-8") as f: return json.load(f)
+        except Exception: pass
+    return None
+
+_CROWD_LB_DAYS={"6M":182,"1Y":365,"2Y":730,"3Y":1095,"5Y":1825,"All":36500}
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def _crowding_perf(short_syms, lb):
     """Rebased (=100) total-return paths for crowded longs (GVIP), an equal-weight basket of the
     current most-shorted names, and SPY — over the chosen lookback. Returns (longs, shorts, spx, n)."""
     import market_data as _md
-    _yrs={"6M":0.5,"1Y":1,"2Y":2,"3Y":3,"5Y":5}[lb]
+    _yrs={"6M":0.5,"1Y":1,"2Y":2,"3Y":3,"5Y":5,"All":100}[lb]
     start=(date.today()-relativedelta(days=int(_yrs*365)))
     px=_md.price_histories(list(short_syms)+["GVIP","SPY"], start=start.isoformat())
     def reb(s):
@@ -3867,23 +3940,34 @@ def panel_crowding(k):
     st.markdown(f'<div style="margin-top:12px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
                 'Crowded longs vs shorts — relative performance &amp; the crowding spread</div>',
                 unsafe_allow_html=True)
-    lb=st.columns([1,3])[0].selectbox("Lookback", ["6M","1Y","2Y","3Y","5Y"], index=1, key=k+"_plb")
+    lb=st.columns([1,3])[0].selectbox("Lookback", ["6M","1Y","2Y","3Y","5Y","All"], index=1, key=k+"_plb")
+    start=pd.Timestamp(date.today()-timedelta(days=_CROWD_LB_DAYS[lb]))
     _ssyms=tuple(x.get("symbolCode","").strip() for x in (si["rows"] if si and si.get("rows") else [])
                  if x.get("symbolCode"))[:max(nrows,20)]
     try:
-        longs_idx,shorts_idx,spx_idx,nsh=_crowding_perf(_ssyms, lb)
+        longs_idx,shorts_proxy,spx_idx,nsh=_crowding_perf(_ssyms, lb)
     except Exception:
-        longs_idx=shorts_idx=spx_idx=None; nsh=0
+        longs_idx=shorts_proxy=spx_idx=None; nsh=0
+    # Prefer the point-in-time historical crowded-shorts index (built by the daily job).
+    sj=_load_crowding_shorts(); shorts_idx=None; shorts_name=""; _pit=False
+    if sj and sj.get("dates"):
+        _s=pd.Series(sj["level"], index=pd.to_datetime(sj["dates"])).dropna()
+        _s=_s[_s.index>=start]
+        if len(_s)>1:
+            shorts_idx=_s/float(_s.iloc[0])*100.0; _pit=True
+            shorts_name=f"Crowded shorts — point-in-time (top {sj.get('top_n',20)})"
+    if shorts_idx is None and shorts_proxy is not None:
+        shorts_idx=shorts_proxy; shorts_name=f"Crowded shorts — today's top {nsh} (proxy)"
     if longs_idx is None and shorts_idx is None:
-        st.caption("Performance proxy unavailable right now (price feed) — hit ↻ Refresh.")
+        st.caption("Performance unavailable right now (price feed) — hit ↻ Refresh.")
     else:
         fig=go.Figure()
         if longs_idx is not None:
             fig.add_trace(go.Scatter(x=longs_idx.index,y=longs_idx.values,name="Crowded longs (GVIP)",
                                      line=dict(color=GREEN,width=1.9)))
         if shorts_idx is not None:
-            fig.add_trace(go.Scatter(x=shorts_idx.index,y=shorts_idx.values,
-                                     name=f"Crowded shorts (top {nsh} EW)",line=dict(color=RED,width=1.9)))
+            fig.add_trace(go.Scatter(x=shorts_idx.index,y=shorts_idx.values,name=shorts_name,
+                                     line=dict(color=RED,width=1.9)))
         if spx_idx is not None:
             fig.add_trace(go.Scatter(x=spx_idx.index,y=spx_idx.values,name="S&P 500 (SPY)",
                                      line=dict(color=TEXT3,width=1.2,dash="dot")))
@@ -3892,8 +3976,9 @@ def panel_crowding(k):
         if longs_idx is not None and shorts_idx is not None:
             pair=pd.concat([longs_idx.rename("L"),shorts_idx.rename("S")],axis=1,join="inner").dropna()
             if len(pair)>1:
-                sprd=(pair["L"]/pair["S"]-1.0)*100.0
-                cur=float(sprd.iloc[-1])
+                # re-normalize both legs to 100 at the first common date for a clean spread
+                L=pair["L"]/float(pair["L"].iloc[0])*100.0; S=pair["S"]/float(pair["S"].iloc[0])*100.0
+                sprd=(L/S-1.0)*100.0; cur=float(sprd.iloc[-1])
                 f2=go.Figure()
                 f2.add_trace(go.Scatter(x=sprd.index,y=sprd.values,mode="lines",name="Longs − Shorts",
                     line=dict(color=ACCENT,width=1.9),fill="tozeroy",
@@ -3902,14 +3987,19 @@ def panel_crowding(k):
                 add_today_marker(f2,sprd)
                 base_layout(f2,f"Crowding spread — crowded longs vs shorts (now {cur:+.1f}% over {lb})","%",h=300)
                 st.plotly_chart(f2,use_container_width=True,key=k+"_sprd")
-                st.caption("**Crowding spread** = relative total return of crowded longs (GVIP) vs an equal-weight "
-                           "basket of today's most-shorted names, since the window start. **Falling = crowded longs "
-                           "underperforming crowded shorts** — the classic hedge-fund **de-grossing / unwind** tell "
-                           "(crowded shorts squeezing); **rising = crowding is paying off.** The short basket uses "
-                           "*today's* names applied back over the window (no rebalancing), so read it as a proxy, "
-                           "not a tradeable index.")
-                dl(pd.DataFrame({"Date":sprd.index,"CrowdedLongs_idx":pair["L"].values,
-                                 "CrowdedShorts_idx":pair["S"].values,"Spread_pct":sprd.values}),
+                if _pit:
+                    st.caption("**Crowding spread** = crowded longs (**GVIP**) vs a **point-in-time** crowded-shorts "
+                               "index — the names actually most-shorted at each bi-monthly FINRA report, held equal-"
+                               "weight and rebalanced each report (back to 2018). **Falling = crowded longs "
+                               "underperforming shorts** → hedge-fund **de-grossing / short squeeze**; rising = "
+                               "crowding paying off. Equal-weight, no costs; delisted names captured as far as the "
+                               "price feed has data.")
+                else:
+                    st.caption("**Crowding spread** = crowded longs (GVIP) vs an equal-weight basket of **today's** "
+                               "most-shorted names projected back (proxy — the point-in-time index file isn't built "
+                               "yet). Falling = crowded longs underperforming shorts (de-grossing / squeeze).")
+                dl(pd.DataFrame({"Date":sprd.index,"CrowdedLongs_idx":L.values,
+                                 "CrowdedShorts_idx":S.values,"Spread_pct":sprd.values}),
                    "Export spread","JAWS_crowding_spread.xlsx",k+"_sdl")
 
 def panel_skew(k):
