@@ -915,17 +915,35 @@ _MOVER_UNIVERSE=["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","AMD",
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _session_movers():
-    """Biggest movers vs prior close across a basket of meaningful stocks — reflects pre/post-
-    market trading via fast_info. Returns top names by absolute move."""
-    import yfinance as yf
+    """Biggest *extended-hours* movers across a basket of meaningful stocks — the move since the
+    official regular close (post-market), or since the prior close (pre-market). Uses batched
+    extended-hours 5-min bars + daily closes (2 calls), so it captures what's happening AFTER the
+    close, not the regular-session move. Returns top names by absolute move."""
+    import yfinance as yf, datetime as _dt
+    uni=_MOVER_UNIVERSE
+    try:
+        mins=yf.download(uni, period="2d", interval="5m", prepost=True, group_by="ticker",
+                         threads=True, progress=False)
+        days=yf.download(uni, period="7d", interval="1d", group_by="ticker", threads=True, progress=False)
+    except Exception:
+        return []
     out=[]
-    for t in _MOVER_UNIVERSE:
+    for s in uni:
         try:
-            fi=yf.Ticker(t).fast_info
-            last=fi.get("lastPrice") if hasattr(fi,"get") else fi["lastPrice"]
-            prev=fi.get("previousClose") if hasattr(fi,"get") else fi["previousClose"]
-            last=float(last); prev=float(prev) if prev else None
-            if prev and last: out.append((t,last,(last/prev-1)*100))
+            c=mins[s]["Close"].dropna(); dc=days[s]["Close"].dropna()
+            if c.empty or dc.empty: continue
+            et=c.index.tz_convert("America/New_York")
+            last_t=et[-1]; last_px=float(c.iloc[-1])
+            dcd={d.date():float(v) for d,v in dc.items()}
+            if last_t.time()>=_dt.time(16,0):            # after-hours → vs today's regular close
+                ref=dcd.get(last_t.date())
+            elif last_t.time()<_dt.time(9,30):           # pre-market → vs prior trading day's close
+                prior=[d for d in sorted(dcd) if d<last_t.date()]
+                ref=dcd.get(prior[-1]) if prior else None
+            else:
+                continue                                  # regular hours (strip is hidden then)
+            if not ref: continue
+            out.append((s, last_px, (last_px/ref-1)*100))
         except Exception:
             continue
     out.sort(key=lambda x:-abs(x[2]))
