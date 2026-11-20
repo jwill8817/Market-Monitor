@@ -3786,6 +3786,22 @@ def finra_most_shorted(min_adv, top_n, rank):
     except Exception:
         return None
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _crowding_perf(short_syms, lb):
+    """Rebased (=100) total-return paths for crowded longs (GVIP), an equal-weight basket of the
+    current most-shorted names, and SPY — over the chosen lookback. Returns (longs, shorts, spx, n)."""
+    import market_data as _md
+    _yrs={"6M":0.5,"1Y":1,"2Y":2,"3Y":3,"5Y":5}[lb]
+    start=(date.today()-relativedelta(days=int(_yrs*365)))
+    px=_md.price_histories(list(short_syms)+["GVIP","SPY"], start=start.isoformat())
+    def reb(s):
+        if s is None: return None
+        s=s.dropna(); s=s[s.index>=pd.Timestamp(start)]
+        return (s/float(s.iloc[0])*100) if (len(s)>1 and float(s.iloc[0])) else None
+    cols=[reb(px.get(t)).rename(t) for t in short_syms if reb(px.get(t)) is not None]
+    shorts=pd.concat(cols,axis=1).dropna(how="all").mean(axis=1) if cols else None
+    return reb(px.get("GVIP")), shorts, reb(px.get("SPY")), len(cols)
+
 def panel_crowding(k):
     # Shared controls row above BOTH tables so the two columns start at the same height
     # and show the same number of rows (perfect left/right symmetry).
@@ -3846,6 +3862,55 @@ def panel_crowding(k):
                      "Export longs & shorts","JAWS_crowding.xlsx",k+"_dl")
     except Exception:
         pass
+
+    # ── Performance index: crowded longs vs crowded shorts + the crowding spread ──
+    st.markdown(f'<div style="margin-top:12px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                'Crowded longs vs shorts — relative performance &amp; the crowding spread</div>',
+                unsafe_allow_html=True)
+    lb=st.columns([1,3])[0].selectbox("Lookback", ["6M","1Y","2Y","3Y","5Y"], index=1, key=k+"_plb")
+    _ssyms=tuple(x.get("symbolCode","").strip() for x in (si["rows"] if si and si.get("rows") else [])
+                 if x.get("symbolCode"))[:max(nrows,20)]
+    try:
+        longs_idx,shorts_idx,spx_idx,nsh=_crowding_perf(_ssyms, lb)
+    except Exception:
+        longs_idx=shorts_idx=spx_idx=None; nsh=0
+    if longs_idx is None and shorts_idx is None:
+        st.caption("Performance proxy unavailable right now (price feed) — hit ↻ Refresh.")
+    else:
+        fig=go.Figure()
+        if longs_idx is not None:
+            fig.add_trace(go.Scatter(x=longs_idx.index,y=longs_idx.values,name="Crowded longs (GVIP)",
+                                     line=dict(color=GREEN,width=1.9)))
+        if shorts_idx is not None:
+            fig.add_trace(go.Scatter(x=shorts_idx.index,y=shorts_idx.values,
+                                     name=f"Crowded shorts (top {nsh} EW)",line=dict(color=RED,width=1.9)))
+        if spx_idx is not None:
+            fig.add_trace(go.Scatter(x=spx_idx.index,y=spx_idx.values,name="S&P 500 (SPY)",
+                                     line=dict(color=TEXT3,width=1.2,dash="dot")))
+        base_layout(fig,f"Crowded longs vs shorts — total return, rebased to 100 ({lb})","index",h=340)
+        st.plotly_chart(fig,use_container_width=True,key=k+"_perf")
+        if longs_idx is not None and shorts_idx is not None:
+            pair=pd.concat([longs_idx.rename("L"),shorts_idx.rename("S")],axis=1,join="inner").dropna()
+            if len(pair)>1:
+                sprd=(pair["L"]/pair["S"]-1.0)*100.0
+                cur=float(sprd.iloc[-1])
+                f2=go.Figure()
+                f2.add_trace(go.Scatter(x=sprd.index,y=sprd.values,mode="lines",name="Longs − Shorts",
+                    line=dict(color=ACCENT,width=1.9),fill="tozeroy",
+                    fillcolor="rgba(63,185,80,.10)" if cur>=0 else "rgba(248,81,73,.10)"))
+                f2.add_hline(y=0,line=dict(color=TEXT3,dash="dash"))
+                add_today_marker(f2,sprd)
+                base_layout(f2,f"Crowding spread — crowded longs vs shorts (now {cur:+.1f}% over {lb})","%",h=300)
+                st.plotly_chart(f2,use_container_width=True,key=k+"_sprd")
+                st.caption("**Crowding spread** = relative total return of crowded longs (GVIP) vs an equal-weight "
+                           "basket of today's most-shorted names, since the window start. **Falling = crowded longs "
+                           "underperforming crowded shorts** — the classic hedge-fund **de-grossing / unwind** tell "
+                           "(crowded shorts squeezing); **rising = crowding is paying off.** The short basket uses "
+                           "*today's* names applied back over the window (no rebalancing), so read it as a proxy, "
+                           "not a tradeable index.")
+                dl(pd.DataFrame({"Date":sprd.index,"CrowdedLongs_idx":pair["L"].values,
+                                 "CrowdedShorts_idx":pair["S"].values,"Spread_pct":sprd.values}),
+                   "Export spread","JAWS_crowding_spread.xlsx",k+"_sdl")
 
 def panel_skew(k):
     c1,c2=st.columns([1,1])
