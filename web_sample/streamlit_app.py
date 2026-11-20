@@ -1610,6 +1610,18 @@ def _synthetic_returns(s, absolute=False):
                  if not sub.empty else None)
     return {"price":cur,"change_1d":pct(prev,cur),"returns":rets,"basis":"TR"}
 
+import re as _re_fresh
+def _fresh_badge(sym):
+    """(label, color) for how often a row refreshes, from the symbol — no network.
+    '' = intraday (ETFs/stocks/indices/FX/futures, ~15-min delayed)."""
+    if not isinstance(sym, str) or not sym:
+        return ("", None)
+    if sym in ("JCSI","JCLS") or sym.startswith("FRED:"):
+        return ("EOD", BLUE)                         # once daily, end of day (our nightly job / FRED)
+    if _re_fresh.fullmatch(r"[A-Z]{4}X", sym):         # US open-end mutual fund ticker (5 letters, ends X)
+        return ("NAV", YELLOW)                        # priced once daily at NAV after the close
+    return ("", None)
+
 def panel_returns(catkey, label, k):
     absolute = catkey in ("rates","funding")
     if st.radio("View",["Standard","Calendar"],horizontal=True,key=k+"_view",
@@ -1641,12 +1653,15 @@ def panel_returns(catkey, label, k):
     _items=(_sorted_return_items(data, sortcol, desc)
             if sortcol in _RET_SORT else list(data.items()))
     h='<div class="tbl-wrap"><table class="jaws"><tr>'+"".join(f"<th>{c}</th>" for c in RET_HDR)+"</tr>"
-    _has_pr=False
+    _has_pr=False; _fresh_seen=set()
     for name,info in _items:
         r=info.get("returns",{})
         _pr=(info.get("basis")=="PR")
         _has_pr=_has_pr or _pr
+        _fl,_fcol=_fresh_badge(tmap.get(name,""))
+        if _fl: _fresh_seen.add(_fl)
         _nm=name+(f' <sup style="color:{YELLOW};font-size:9px;">PR</sup>' if _pr else "")
+        if _fl: _nm+=f' <sup style="color:{_fcol};font-size:8.5px;">{_fl}</sup>'
         h+=("<tr>"f"<td>{_nm}</td><td style='color:{TEXT3}'>{tmap.get(name,'')}</td>"
             f"<td>{f_price(info.get('price'),name)}</td><td>{fc(info.get('change_1d'))}</td>"
             f"<td>{fc(r.get('WTD'))}</td><td>{fc(r.get('MTD'))}</td><td>{fc(r.get('QTD'))}</td>"
@@ -1662,6 +1677,17 @@ def panel_returns(catkey, label, k):
         st.caption("All rows are **total return** — dividend/distribution-adjusted (ETF adjusted close or "
                    "mutual-fund NAV) — so ETFs and mutual funds are directly comparable. Newly launched funds "
                    "show blank longer-period columns until they build history.", unsafe_allow_html=True)
+    # Refresh-cadence legend (only the non-intraday tags that actually appear in this table).
+    if _fresh_seen:
+        bits=[]
+        if "NAV" in _fresh_seen:
+            bits.append(f'<span style="color:{YELLOW}">NAV</span> = **mutual fund**, priced once a day at '
+                        "NAV after the close (lags during the session)")
+        if "EOD" in _fresh_seen:
+            bits.append(f'<span style="color:{BLUE}">EOD</span> = **end-of-day** series (updated once daily '
+                        'by the nightly job / FRED)')
+        st.caption(" · ".join(bits) + ". All untagged rows are **ETFs / stocks / indices** quoted **intraday** "
+                   "(~15-min delayed); FX & crypto update continuously.", unsafe_allow_html=True)
     c1,c2,c3=st.columns([1,1,1])
     c1.date_input("Custom start", value=cs, key=k+"_cs", min_value=date(1900,1,1))
     c2.date_input("Custom end", value=ce, key=k+"_ce", min_value=date(1900,1,1))
@@ -4005,11 +4031,13 @@ def panel_crowding(k):
                 if _pit:
                     st.caption("**Crowding spread** = crowded longs (**GVIP**) vs the **JAWS Crowded Short Index** — "
                                "a **point-in-time** basket of the most-crowded shorts at each bi-monthly FINRA report, "
-                               "ranked by **days-to-cover** (shares short ÷ avg volume — size/liquidity-neutral, not "
-                               "raw share count), held equal-weight and rebalanced each report back to 2018. "
+                               "ranked by **days-to-cover** (shares short ÷ avg volume — size-neutral), then "
+                               "**liquidity-floored** (avg vol ≥2M sh & ≥$10M/day) so it isn't dominated by one "
+                               "illiquid name — which also spreads it across sectors. Equal-weight, top 25, "
+                               "rebalanced each report back to 2018. "
                                "**Falling = crowded longs underperforming shorts** → hedge-fund **de-grossing / short "
-                               "squeeze**; rising = crowding paying off. Equal-weight, no costs; delisted names "
-                               "captured as far as the price feed has data.")
+                               "squeeze**; rising = crowding paying off. Delisted names captured as far as the price "
+                               "feed has data.")
                 else:
                     st.caption("**Crowding spread** = crowded longs (GVIP) vs an equal-weight basket of **today's** "
                                "most-shorted names projected back (proxy — the point-in-time index file isn't built "
