@@ -151,38 +151,60 @@ def build(key, cfg):
 
 
 def _append_correlation(key, closes, weights, asof):
-    """Realized average correlation of an index's constituents over time — the realized analog of
-    CBOE's implied-correlation index, via the variance-decomposition identity
-        rho = (var_portfolio - sum wi^2 var_i) / ((sum wi*sigma_i)^2 - sum wi^2 var_i)
-    using cap weights. Writes 21d & 63d rolling series to data/realized_corr_<key>.csv."""
+    """Realized average correlation of an index's constituents over time, via the variance-
+    decomposition identity  rho = (var_p - sum wi^2 var_i) / ((sum wi*sigma_i)^2 - sum wi^2 var_i).
+    Computes TWO weightings at 21d & 63d:
+      cw_* = cap-weighted  — the apples-to-apples match for CBOE implied correlation (COR1M/3M)
+      ew_* = equal-weight  — ~average pairwise, needs NO weights (robust for deep history)
+    MERGES onto any existing data/realized_corr_<key>.csv so a long one-time seed is preserved
+    while the nightly run only refreshes the recent tail."""
     import numpy as np
     syms = [s for s in closes if s in weights and weights[s]]
     if len(syms) < 20:                 # enough for a meaningful average (Dow has 30)
         return
     px = pd.DataFrame({s: closes[s] for s in syms}).sort_index()
     R = px.pct_change()
-    w = np.array([weights[s] for s in syms], dtype=float)
-    w = w / w.sum()
-    rp = R[syms].mul(w, axis=1).sum(axis=1, min_count=max(1, int(len(syms) * 0.8)))  # cap-wtd index return
+    mp_names = max(1, int(len(syms) * 0.8))
+    cw = np.array([weights[s] for s in syms], float); cw = cw / cw.sum()
+    ew = np.full(len(syms), 1.0 / len(syms))
     out = {}
-    for W, lbl in [(21, "corr_21d"), (63, "corr_63d")]:
-        mp = int(W * 0.8)
-        var_p = rp.rolling(W, min_periods=mp).var()
-        var_i = R[syms].rolling(W, min_periods=mp).var()
-        std_i = R[syms].rolling(W, min_periods=mp).std()
-        sw2v = var_i.mul(w ** 2, axis=1).sum(axis=1)
-        swsig = std_i.mul(w, axis=1).sum(axis=1)
-        denom = swsig ** 2 - sw2v
-        rho = (var_p - sw2v) / denom.where(denom.abs() > 1e-12)
-        out[lbl] = rho.clip(-1, 1)
-    df = pd.DataFrame(out).dropna(how="all").tail(600)
-    if df.empty:
+    for wname, w in [("cw", cw), ("ew", ew)]:
+        rp = R[syms].mul(w, axis=1).sum(axis=1, min_count=mp_names)
+        for W, tag in [(21, "21d"), (63, "63d")]:
+            mp = int(W * 0.8)
+            var_p = rp.rolling(W, min_periods=mp).var()
+            var_i = R[syms].rolling(W, min_periods=mp).var()
+            std_i = R[syms].rolling(W, min_periods=mp).std()
+            sw2v = var_i.mul(w ** 2, axis=1).sum(axis=1)
+            swsig = std_i.mul(w, axis=1).sum(axis=1)
+            denom = swsig ** 2 - sw2v
+            out[f"{wname}_{tag}"] = ((var_p - sw2v) / denom.where(denom.abs() > 1e-12)).clip(-1, 1)
+    new = pd.DataFrame(out).dropna(how="all").round(4)
+    if new.empty:
         return
-    df = df.round(4)
-    df.insert(0, "date", pd.to_datetime(df.index).strftime("%Y-%m-%d"))
-    (OUTDIR / f"realized_corr_{key}.csv").write_text(df.to_csv(index=False), encoding="utf-8")
+    new.index = pd.to_datetime(new.index)
+    # Merge with any existing (seeded) history — new rows win on overlapping dates.
+    path = OUTDIR / f"realized_corr_{key}.csv"
+    if path.exists():
+        try:
+            old = pd.read_csv(path); old.index = pd.to_datetime(old["date"]); old = old.drop(columns=["date"])
+            new = pd.concat([old, new])
+            new = new[~new.index.duplicated(keep="last")].sort_index()
+        except Exception:
+            pass
+    new = new.tail(6000)
+    # Cap-weighted uses TODAY's weights, so only trust it where current weights are a fair proxy;
+    # beyond ~5y the mega-cap weight drift distorts it. Equal-weight (weight-free) keeps full history.
+    cw_cut = pd.Timestamp.today().normalize() - pd.Timedelta(days=int(5 * 365.25))
+    for col in ("cw_21d", "cw_63d"):
+        if col in new.columns:
+            new.loc[new.index < cw_cut, col] = np.nan
+    df = new.reset_index(); df = df.rename(columns={df.columns[0]: "date"})
+    df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    path.write_text(df.to_csv(index=False), encoding="utf-8")
     last = df.iloc[-1]
-    print(f"realized corr [{key}]: {len(df)} days, latest 21d={last['corr_21d']}, 63d={last['corr_63d']}")
+    print(f"realized corr [{key}]: {len(df)} days ({df['date'].iloc[0]}..{df['date'].iloc[-1]}), "
+          f"latest cw63={last.get('cw_63d')} ew63={last.get('ew_63d')}")
 
 
 def _append_breadth(closes, asof):

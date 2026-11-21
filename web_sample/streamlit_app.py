@@ -6041,37 +6041,43 @@ def panel_corr_monitor(k):
     prov={}
     if df is not None and not df.empty:
         idx=pd.to_datetime(df["date"])
-        if "corr_21d" in df: prov["Realized 21d"]=pd.Series((df["corr_21d"]*100).values,index=idx).dropna()
-        if "corr_63d" in df: prov["Realized 63d"]=pd.Series((df["corr_63d"]*100).values,index=idx).dropna()
+        _cols={"cw_63d":"Realized cap-wt 63d","cw_21d":"Realized cap-wt 21d",
+               "ew_63d":"Realized eq-wt 63d","ew_21d":"Realized eq-wt 21d"}
+        for c,lab in _cols.items():
+            if c in df.columns:
+                s=pd.Series((df[c]*100).values, index=idx).dropna()
+                if not s.empty: prov[lab]=s
     for lbl,s in imp.items(): prov[lbl]=s
     if not prov:
         st.info(f"No correlation data for **{idxlabel}** yet — the daily job computes realized correlation "
                 "from its constituents after the close (starts after the next run)."); return
     _last=lambda s:(float(s.iloc[-1]) if (s is not None and len(s)) else None)
-    r63=_last(prov.get("Realized 63d")); r21=_last(prov.get("Realized 21d")); i1=_last(prov.get("Implied 1M (CBOE)"))
-    prem=(i1-r63) if (i1 is not None and r63 is not None) else None
+    rcw=_last(prov.get("Realized cap-wt 63d")); rew=_last(prov.get("Realized eq-wt 63d"))
+    i1=_last(prov.get("Implied 1M (CBOE)")); prem=(i1-rcw) if (i1 is not None and rcw is not None) else None
     def tile(c,label,val,color=TEXT1):
         c.markdown(f'<div style="font-family:Consolas;line-height:1.25"><span style="color:{TEXT2};font-size:11px">'
                    f'{label}</span><br><span style="color:{color};font-size:23px;font-weight:700">'
                    f'{("—" if val is None else f"{val:.0f}")}</span></div>', unsafe_allow_html=True)
     cc=st.columns(4)
-    tile(cc[0],"Realized 63d", r63, BLUE)
-    tile(cc[1],"Realized 21d", r21, BLUE)
+    tile(cc[0],"Realized cap-wt 63d", rcw, BLUE)
+    tile(cc[1],"Realized eq-wt 63d", rew, GREEN)
     tile(cc[2],"Implied 1M (CBOE)", i1, ACCENT)
-    tile(cc[3],"Risk premium (impl − real)", prem, (GREEN if (prem or 0)>=0 else RED))
-    history_explorer(k+"_hx", lambda lab: prov.get(lab), list(prov),
-                     default_sel=[x for x in ["Realized 63d","Implied 1M (CBOE)"] if x in prov] or list(prov)[:1],
+    tile(cc[3],"Premium (impl − cap-wt)", prem, (GREEN if (prem or 0)>=0 else RED))
+    _dsel=[x for x in ["Realized cap-wt 63d","Realized eq-wt 63d","Implied 1M (CBOE)"] if x in prov] or list(prov)[:1]
+    history_explorer(k+"_hx", lambda lab: prov.get(lab), list(prov), default_sel=_dsel,
                      unit="corr (×100)", title=f"{idxlabel} average stock correlation — realized vs implied",
-                     ranges=["3M","6M","1Y","2Y","All"], range_index=2)
-    _impnote=("**Implied** (coral) is **CBOE's Implied Correlation** (COR1M/3M), the option market's forward "
-              "estimate — **implied above realized = a correlation risk premium** (normal, like the vol premium). "
-              if ikey=="sp500" else
-              "Implied correlation (CBOE) is published for the **S&P 500 only**, so this index shows realized only. ")
-    st.caption(f"**Average pairwise correlation of {idxlabel} stocks**, on a 0–100 scale (100 = move in lockstep). "
-               "**Realized** (blue) is computed from constituent daily returns via the variance-decomposition "
-               "identity (cap-weighted, 21- & 63-day windows), rebuilt daily from the heatmap job. "
-               + _impnote +
-               "Realized spiking toward 100 means a broad, correlated sell-off (diversification stops working).")
+                     ranges=["1Y","2Y","3Y","5Y","10Y","All"], range_index=3)
+    _impnote=("**Implied** (coral) is **CBOE's Implied Correlation** (COR1M/3M) — the option market's forward, "
+              "cap-weighted estimate, so compare it to the **cap-weighted** realized line; implied above realized "
+              "= a correlation **risk premium** (normal, like vol). " if ikey=="sp500" else
+              "Implied correlation (CBOE) is S&P 500 only, so this index shows realized only. ")
+    st.caption(f"**Average correlation of {idxlabel} stocks**, 0–100 (100 = lockstep). Two realized measures from "
+               "constituent returns (variance-decomposition): **cap-weighted** (blue) matches how CBOE builds "
+               "implied correlation but uses *today's* weights, so it's shown only for the last **~5 years** (where "
+               "that's a fair proxy); **equal-weight** (green, ≈ average pairwise) needs **no weights** and runs the "
+               f"full **~20-year** history. " + _impnote +
+               "Both use today's constituents (survivorship-biased in the deep past). Spikes toward 100 = broad "
+               "correlated sell-offs (diversification stops working).")
 
 # ── Global sovereign rates (daily where available; see data/global_rates.json) ──
 _GR_ORDER=["Policy","1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","25Y","30Y","40Y"]
