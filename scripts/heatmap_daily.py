@@ -130,6 +130,42 @@ def build(key, cfg):
     print(f"{cfg['label']}: {len(rows)} names -> data/heatmap_{key}.json")
     if key == "sp500":
         _append_breadth(_closes, asof)
+        _append_correlation(_closes, {r["t"]: r["mktcap"] for r in rows if r.get("mktcap")}, asof)
+
+
+def _append_correlation(closes, weights, asof):
+    """Realized average correlation of S&P 500 constituents over time — the realized analog of
+    CBOE's implied-correlation index, via the variance-decomposition identity
+        rho = (var_portfolio - sum wi^2 var_i) / ((sum wi*sigma_i)^2 - sum wi^2 var_i)
+    using cap weights. Writes 21d & 63d rolling series to data/realized_corr_sp500.csv."""
+    import numpy as np
+    syms = [s for s in closes if s in weights and weights[s]]
+    if len(syms) < 50:
+        return
+    px = pd.DataFrame({s: closes[s] for s in syms}).sort_index()
+    R = px.pct_change()
+    w = np.array([weights[s] for s in syms], dtype=float)
+    w = w / w.sum()
+    rp = R[syms].mul(w, axis=1).sum(axis=1, min_count=max(1, int(len(syms) * 0.8)))  # cap-wtd index return
+    out = {}
+    for W, lbl in [(21, "corr_21d"), (63, "corr_63d")]:
+        mp = int(W * 0.8)
+        var_p = rp.rolling(W, min_periods=mp).var()
+        var_i = R[syms].rolling(W, min_periods=mp).var()
+        std_i = R[syms].rolling(W, min_periods=mp).std()
+        sw2v = var_i.mul(w ** 2, axis=1).sum(axis=1)
+        swsig = std_i.mul(w, axis=1).sum(axis=1)
+        denom = swsig ** 2 - sw2v
+        rho = (var_p - sw2v) / denom.where(denom.abs() > 1e-12)
+        out[lbl] = rho.clip(-1, 1)
+    df = pd.DataFrame(out).dropna(how="all").tail(260)
+    if df.empty:
+        return
+    df = df.round(4)
+    df.insert(0, "date", pd.to_datetime(df.index).strftime("%Y-%m-%d"))
+    (OUTDIR / "realized_corr_sp500.csv").write_text(df.to_csv(index=False), encoding="utf-8")
+    last = df.iloc[-1]
+    print(f"realized corr: {len(df)} days, latest 21d={last['corr_21d']}, 63d={last['corr_63d']}")
 
 
 def _append_breadth(closes, asof):

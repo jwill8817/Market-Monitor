@@ -6008,6 +6008,64 @@ def panel_sg_trend(k):
     st.caption("Source: **Société Générale** SG Trend Indicator daily report (public). The SG Trend Indicator "
                "is a hypothetical, rules-based model shown for transparency — not investment advice.")
 
+# ── S&P 500 average correlation — realized (computed) vs implied (CBOE) ──
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_realized_corr():
+    import os
+    here=os.path.dirname(os.path.abspath(__file__))
+    for p in ("data/realized_corr_sp500.csv", os.path.join(here,"..","data","realized_corr_sp500.csv"),
+              os.path.join(here,"data","realized_corr_sp500.csv")):
+        try:
+            if os.path.exists(p):
+                df=pd.read_csv(p); df["date"]=pd.to_datetime(df["date"]); return df.sort_values("date")
+        except Exception: pass
+    return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _implied_corr():
+    out={}
+    for lbl,sym in [("Implied 1M (CBOE)","^COR1M"),("Implied 3M (CBOE)","^COR3M")]:
+        try:
+            s=md_history(sym)
+            if s is not None and not s.empty:
+                s=s.copy(); s.index=pd.to_datetime(s.index); out[lbl]=s.dropna()
+        except Exception: pass
+    return out
+
+def panel_corr_monitor(k):
+    df=_load_realized_corr(); imp=_implied_corr()
+    prov={}
+    if df is not None and not df.empty:
+        idx=pd.to_datetime(df["date"])
+        if "corr_21d" in df: prov["Realized 21d"]=pd.Series((df["corr_21d"]*100).values,index=idx).dropna()
+        if "corr_63d" in df: prov["Realized 63d"]=pd.Series((df["corr_63d"]*100).values,index=idx).dropna()
+    for lbl,s in imp.items(): prov[lbl]=s
+    if not prov:
+        st.info("No correlation data yet — the daily job computes realized correlation from S&P 500 "
+                "constituents after the close (implied needs the CBOE feed)."); return
+    _last=lambda s:(float(s.iloc[-1]) if (s is not None and len(s)) else None)
+    r63=_last(prov.get("Realized 63d")); r21=_last(prov.get("Realized 21d")); i1=_last(prov.get("Implied 1M (CBOE)"))
+    prem=(i1-r63) if (i1 is not None and r63 is not None) else None
+    def tile(c,label,val,color=TEXT1):
+        c.markdown(f'<div style="font-family:Consolas;line-height:1.25"><span style="color:{TEXT2};font-size:11px">'
+                   f'{label}</span><br><span style="color:{color};font-size:23px;font-weight:700">'
+                   f'{("—" if val is None else f"{val:.0f}")}</span></div>', unsafe_allow_html=True)
+    cc=st.columns(4)
+    tile(cc[0],"Realized 63d", r63, BLUE)
+    tile(cc[1],"Realized 21d", r21, BLUE)
+    tile(cc[2],"Implied 1M (CBOE)", i1, ACCENT)
+    tile(cc[3],"Risk premium (impl − real)", prem, (GREEN if (prem or 0)>=0 else RED))
+    history_explorer(k+"_hx", lambda lab: prov.get(lab), list(prov),
+                     default_sel=[x for x in ["Realized 63d","Implied 1M (CBOE)"] if x in prov] or list(prov)[:1],
+                     unit="corr (×100)", title="S&P 500 average stock correlation — realized vs implied",
+                     ranges=["3M","6M","1Y","All"], range_index=2)
+    st.caption("**Average pairwise correlation of S&P 500 stocks**, on a 0–100 scale (100 = move in lockstep). "
+               "**Realized** (blue) is computed from constituent daily returns via the variance-decomposition "
+               "identity (cap-weighted, 21- & 63-day windows) — rebuilt daily from the heatmap job. **Implied** "
+               "(coral) is **CBOE's Implied Correlation** (COR1M/3M), the option-market's forward estimate. "
+               "**Implied above realized = a correlation risk premium** (normal — like the vol premium); realized "
+               "spiking toward 100 means a broad, correlated sell-off (diversification stops working).")
+
 # ── Global sovereign rates (daily where available; see data/global_rates.json) ──
 _GR_ORDER=["Policy","1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","25Y","30Y","40Y"]
 # country code → (BIS area code for cb_rate_series, central-bank label)
@@ -6991,6 +7049,7 @@ _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return
 # Return-distribution explorer sits up top (full-width), above the curves grid.
 _sec("MACRO","Macro & Recession Dashboard (growth · curve · financial conditions — now vs problematic)", panel_macro_nowcast, "secmacro")
 _sec("VOL","Implied vs Realized Volatility (equity: VIX vs realized · rates: MOVE vs realized)", panel_vol_monitor, "secvol")
+_sec("CORR","Average Stock Correlation — Realized vs Implied (S&P 500)", panel_corr_monitor, "seccorr")
 _sec("BRDTH","Market Breadth (S&P 500 internals — % above MA · new highs/lows · adv/decl)", panel_breadth, "secbrdth")
 _sec("COT","Futures Positioning — CFTC Commitments of Traders (net speculative)", panel_cot, "seccot")
 _sec("SGTR","SG Trend Indicator — CTA positioning & performance (Société Générale)", panel_sg_trend, "secsgtr")
