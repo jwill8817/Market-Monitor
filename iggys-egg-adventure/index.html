@@ -283,6 +283,13 @@ window.addEventListener('keydown', e => {
   keys[e.code]=true;
   if (['Space','ArrowUp','ArrowLeft','ArrowRight','ArrowDown'].includes(e.code)) e.preventDefault();
   if ((e.code==='KeyP'||e.code==='Escape') && state==='playing') paused=!paused;
+  // Mash jump to escape Herrerasaurus grab
+  if (player.grabbed && (e.code==='ArrowUp'||e.code==='KeyW'||e.code==='Space')) {
+    if (!player.mashCooldown || player.mashCooldown <= 0) {
+      player.mashCount = (player.mashCount||0) + 1;
+      player.mashCooldown = 6;
+    }
+  }
 });
 window.addEventListener('keyup', e => keys[e.code]=false);
 
@@ -322,6 +329,8 @@ function buildLevel(lvl) {
   if (lvl === 21) { buildYantuLevel();      return; }
   if (lvl === 22) { buildMegaloLevel();     return; }
   if (lvl === 23) { buildTRexLevel();       return; }
+  if (lvl === 24) { buildHerreraLevel();    return; }
+  if (lvl === 25) { buildMamenchLevel();    return; }
 
   // Ground
   for (let x=0; x<WORLD_W; x+=80)
@@ -545,6 +554,37 @@ function buildCarnoLevel() {
     speechBubble:true, speechText:'CHARGE!!!', defeatTimer:0, frustratedBubble:false };
 }
 
+function buildHerreraLevel() {
+  const ARENA_W = 1400;
+  for (let x=0; x<ARENA_W; x+=80)
+    platforms.push({x, y:H-60, w:80, h:60, color:'#8d6e63'});
+  [{x:120,y:330,w:110},{x:310,y:270,w:100},{x:510,y:315,w:110},
+   {x:710,y:260,w:100},{x:910,y:300,w:110},{x:1110,y:255,w:100},{x:1270,y:280,w:110}]
+    .forEach(p => platforms.push({...p, h:20, color:'#a1887f'}));
+  [{x:140,y:310},{x:330,y:250},{x:530,y:295},{x:730,y:240},{x:930,y:280},{x:1130,y:235}]
+    .forEach(e => eggs.push({x:e.x, y:e.y, w:24, h:30, collected:false, color:'#ffd700', bobOffset:Math.random()*Math.PI*2}));
+  boss = { x:960, y:H-175, w:110, h:135, hp:5, maxHp:5, vx:-1.5, facing:-1,
+    frame:0, frameTimer:0, state:'intro', stateTimer:190, invincible:0,
+    chargeSpeed:5, ARENA_W, type:'herra',
+    speechBubble:true, speechText:'*SCREEECH!*', defeatTimer:0, frustratedBubble:false };
+}
+
+function buildMamenchLevel() {
+  const ARENA_W = 1600;
+  for (let x=0; x<ARENA_W; x+=80)
+    platforms.push({x, y:H-60, w:80, h:60, color:'#4e6b3c'});
+  [{x:100,y:340,w:120},{x:310,y:280,w:110},{x:530,y:325,w:120},
+   {x:740,y:265,w:110},{x:950,y:310,w:120},{x:1170,y:260,w:110},{x:1380,y:290,w:120}]
+    .forEach(p => platforms.push({...p, h:20, color:'#66bb6a'}));
+  [{x:120,y:320},{x:330,y:260},{x:550,y:305},{x:760,y:245},{x:970,y:290},{x:1190,y:240}]
+    .forEach(e => eggs.push({x:e.x, y:e.y, w:24, h:30, collected:false, color:'#ffd700', bobOffset:Math.random()*Math.PI*2}));
+  boss = { x:1100, y:H-210, w:120, h:160, hp:6, maxHp:6, vx:-1.0, facing:-1,
+    frame:0, frameTimer:0, state:'intro', stateTimer:200, invincible:0,
+    chargeSpeed:2.5, ARENA_W, type:'mamench',
+    speechBubble:true, speechText:'*GROOOAAN!!!*', defeatTimer:0, frustratedBubble:false,
+    neckExtend:0, snatching:false };
+}
+
 function buildTRexLevel() {
   const ARENA_W = 1400;
   for (let x=0; x<ARENA_W; x+=80)
@@ -731,6 +771,19 @@ function update(ts) {
   const right = keys['ArrowRight'] || keys['KeyD'] || touchRight;
   const jump  = keys['ArrowUp']    || keys['KeyW'] || keys['Space'] || touchJump;
 
+  // While grabbed by Herrerasaurus, block normal movement; count jump-button mashes
+  if (player.grabbed) {
+    if (jump && (!player._prevJump)) { // rising edge
+      if (!player.mashCooldown || player.mashCooldown <= 0) {
+        player.mashCount = (player.mashCount||0) + 1;
+        player.mashCooldown = 6;
+      }
+    }
+    player._prevJump = jump;
+    return;
+  }
+  player._prevJump = jump;
+
   player.vx = left ? -SPEED : right ? SPEED : 0;
   if (left)  player.facing = -1;
   if (right) player.facing =  1;
@@ -847,7 +900,7 @@ function updateBoss(dt) {
     boss.defeatTimer -= dt;
     if (boss.defeatTimer <= 0 && state==='playing') {
       const nextLevel = level + 1;
-      if (nextLevel > 23) {
+      if (nextLevel > 25) {
         state='win';
         showMessage('🏆 ULTIMATE CHAMPION!',
           `Iggy defeated ALL the bosses!\n\nYou are the greatest dinosaur\nadventurer EVER!\n\nScore: ${score} 🥚`, 'Play Again! 🦖');
@@ -877,6 +930,8 @@ function updateBoss(dt) {
           21: ['🏔️ Mountain Summit!',   'YANTUANOSAURUS rules the peaks!\nJump on its head 6 times!\nWatch for the boulder rockslide!',             'Climb! 🏔️'],
           22: ['🪨 Underground Lair!',  'MEGALOSAURUS lurks in the dark!\nJump on its head 5 times!\nDodge the ground-shaking STOMP!',             'Dig In! 🪨'],
           23: ['💀 FINAL BOSS!',        'THE T-REX — King of them all!\nJump on its head 7 times!\nBeware the ROAR!',                              'Face It! 🦖'],
+          24: ['🦎 Triassic Terror!',   'HERRERASAURUS will GRAB you!\nJump on its head 5 times!\nMash JUMP to escape its jaws!',                   'Escape! 🦎'],
+          25: ['🦕 Long Neck Danger!',  'MAMENCHIASAURUS snaps with that giant neck!\nJump on its head 6 times!\nDodge the lunging snatch!',          'Duck! 🦕'],
         };
         const w = warns[level];
         showMessage(w[0], w[1], w[2]);
@@ -1176,6 +1231,16 @@ function updateBoss(dt) {
         boss.state='breach'; boss.stateTimer=80;
         boss.vy = -11;
         fireBlob(); fireBlob();
+      } else if (boss.type === 'herra' && roll < 0.45 * aggression) {
+        // Grab lunge!
+        boss.state='grab'; boss.stateTimer=90;
+        boss.facing = px > bx ? 1 : -1;
+        boss.grabHit = false;
+      } else if (boss.type === 'mamench' && roll < 0.5 * aggression) {
+        // Neck snatch!
+        boss.state='snatch'; boss.stateTimer=100;
+        boss.neckExtend=0; boss.snatching=true;
+        boss.facing = px > bx ? 1 : -1;
       } else if (boss.type === 'trex' && roll < 0.35 * aggression) {
         // Roar!
         boss.state='roar'; boss.stateTimer=55;
@@ -1254,6 +1319,86 @@ function updateBoss(dt) {
   // ── Megalosaurus: stomp shockwave ──
   if (boss.state === 'stomp' && boss.type === 'megalo') {
     if (boss.stateTimer <= 0) { boss.state='patrol'; boss.stateTimer=100; }
+  }
+
+  // ── Herrerasaurus: grab lunge ──
+  if (boss.state === 'grab') {
+    // Boss lunges toward player
+    if (boss.stateTimer > 55) {
+      boss.x += boss.facing * boss.chargeSpeed * 1.6 * dt;
+      if (boss.x <= WALL_L) boss.x = WALL_L;
+      if (boss.x >= WALL_R) boss.x = WALL_R;
+    }
+    // During lunge window, check for catch
+    if (!boss.grabHit && boss.stateTimer <= 70 && boss.stateTimer > 30) {
+      if (px+player.w > bx && px < bx+boss.w && player.y+player.h > boss.y && player.y < boss.y+boss.h) {
+        boss.grabHit = true;
+        player.grabbed = true;
+        player.grabTimer = 90;
+        player.mashCount = 0;
+        player.mashCooldown = 0;
+      }
+    }
+    // Handle grabbed player
+    if (player.grabbed) {
+      player.grabTimer -= dt;
+      if (player.mashCooldown > 0) player.mashCooldown -= dt;
+      // Lock player to boss mouth
+      player.x = boss.x + (boss.facing > 0 ? boss.w - 20 : -player.w + 20);
+      player.y = boss.y - player.h * 0.5;
+      player.vx = 0; player.vy = 0;
+      // Escape if mashed enough
+      if (player.mashCount >= 5) {
+        player.grabbed = false; player.grabTimer = 0;
+        player.vy = -10; player.vx = -boss.facing * 8;
+        player.invincible = 60;
+        spawnParticles(player.x+player.w/2, player.y+player.h/2, '#ffd700', 14);
+        boss.state='stun'; boss.stateTimer=70; boss.grabHit=false;
+      } else if (player.grabTimer <= 0) {
+        player.grabbed = false;
+        player.vy = JUMP_FORCE * 0.4;
+        player.vx = -boss.facing * 5;
+        if (!easyMode) {
+          player.invincible = 70; lives--;
+          document.getElementById('lives').textContent = '🥚'.repeat(Math.max(0,lives));
+          spawnParticles(player.x+player.w/2, player.y+player.h/2, '#ff4444', 16);
+          if (lives <= 0) { state='dead'; showMessage('💀 Eaten!','Iggy got eaten!\n\nPress Play Again to retry!','Play Again! 🦖'); }
+        } else { player.invincible = 70; }
+        boss.state='stun'; boss.stateTimer=50; boss.grabHit=false;
+      }
+    }
+    if (boss.stateTimer <= 0 && !player.grabbed) {
+      boss.state='patrol'; boss.stateTimer=110; boss.grabHit=false;
+    }
+  }
+
+  // ── Mamenchiasaurus: neck snatch ──
+  if (boss.state === 'snatch') {
+    const half = 50;
+    if (boss.stateTimer > half) {
+      // Extending neck
+      boss.neckExtend = Math.min(1, boss.neckExtend + 0.04 * dt);
+    } else {
+      // Retracting neck
+      boss.neckExtend = Math.max(0, boss.neckExtend - 0.04 * dt);
+    }
+    // Check bite at full extension
+    if (boss.neckExtend > 0.75 && player.invincible <= 0) {
+      const neckTip = boss.facing > 0
+        ? bx + boss.w + boss.neckExtend * 220
+        : bx - boss.neckExtend * 220;
+      if (Math.abs((px + player.w/2) - neckTip) < 55 && player.y < boss.y + boss.h * 0.3) {
+        player.vx = boss.facing * 7;
+        player.vy = JUMP_FORCE * 0.6;
+        if (!easyMode) {
+          player.invincible = 70; lives--;
+          document.getElementById('lives').textContent = '🥚'.repeat(Math.max(0,lives));
+          spawnParticles(px+player.w/2, player.y, '#ff7043', 14);
+          if (lives <= 0) { state='dead'; showMessage('💀 Snatched!','Iggy got snatched!\n\nPress Play Again to retry!','Play Again! 🦖'); }
+        } else { player.invincible = 70; spawnParticles(px+player.w/2, player.y, '#ffd700', 10); }
+      }
+    }
+    if (boss.stateTimer <= 0) { boss.neckExtend=0; boss.snatching=false; boss.state='patrol'; boss.stateTimer=120; }
   }
 
   // ── Yantuanosaurus: rockfall (boulders already queued via setTimeout) ──
@@ -2119,7 +2264,7 @@ function _showMainMenu(showCharBtn=false) {
     `Playing as: <b>${sel.name}</b> (${sel.desc})\n\n` +
     '⬅️ ➡️ Arrow Keys to run  •  ⬆️ SPACE to jump\n' +
     '🥚 Collect eggs  •  👹 Stomp red dinos\n' +
-    '⚠️ Defeat 19 bosses across 23 levels!\n\n' +
+    '⚠️ Defeat 21 bosses across 25 levels!\n\n' +
     '🟢 <b>Normal</b> — full challenge, 3 lives\n' +
     '⭐ <b>Easy Mode</b> — no damage, just fun!',
     'Normal Mode 🦖', true, true);
@@ -3554,6 +3699,255 @@ function drawYantuanosaurus(b) {
     ctx.fillStyle=b.frustratedBubble?'#880e4f':'#3a1a08';
     ctx.font=`bold ${b.frustratedBubble?14:13}px Comic Sans MS`;
     ctx.textAlign='center'; ctx.fillText(bubbleText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
+  }
+}
+
+function drawHerrerasaurus(b) {
+  if (!b || b.hp<=0) return;
+  const sx = b.x - cameraX;
+  if (sx+b.w < -20 || sx > W+20) return;
+  if (b.invincible>0 && b.state!=='defeated' && Math.floor(b.invincible/5)%2===0) return;
+
+  ctx.save();
+  ctx.translate(sx + b.w/2, b.y + b.h*0.55);
+  ctx.scale(b.facing, 1);
+  ctx.scale(2.0, 2.0);
+
+  const breathe = Math.sin(Date.now()/400)*1.5;
+  const legSwing = Math.sin(b.frame*1.5)*9;
+  const grabbing = b.state === 'grab';
+  const defeated = b.state === 'defeated';
+  const jawOpen = grabbing ? Math.abs(Math.sin(Date.now()/120))*18 : 0;
+
+  // Tail
+  ctx.beginPath();
+  ctx.moveTo(-15, 16+breathe);
+  ctx.bezierCurveTo(-38,22,-60,24,-76,16);
+  ctx.bezierCurveTo(-62,10,-38,10,-15,10);
+  ctx.fillStyle='#8d4e1a'; ctx.fill();
+
+  // Body
+  ctx.beginPath(); ctx.ellipse(6,14+breathe,28,18,0,0,Math.PI*2);
+  const bodyG = ctx.createRadialGradient(2,10+breathe,2,2,12+breathe,28);
+  bodyG.addColorStop(0,'#c4784e'); bodyG.addColorStop(1,'#8d4e1a');
+  ctx.fillStyle=bodyG; ctx.fill(); ctx.strokeStyle='#5d2f0a'; ctx.lineWidth=2; ctx.stroke();
+  // Belly stripe
+  ctx.beginPath(); ctx.ellipse(2,18+breathe,18,10,0.1,0,Math.PI*2);
+  ctx.fillStyle='#e8b48a'; ctx.fill();
+
+  // Neck
+  ctx.beginPath(); ctx.moveTo(20,2+breathe);
+  ctx.bezierCurveTo(32,-3,38,-9,44,-16);
+  ctx.bezierCurveTo(38,-7,30,2,24,10+breathe);
+  ctx.fillStyle='#a05828'; ctx.fill();
+
+  // Head
+  ctx.beginPath(); ctx.ellipse(50,-20,18,13,0,0,Math.PI*2);
+  const headG = ctx.createRadialGradient(46,-22,1,48,-20,18);
+  headG.addColorStop(0,'#c4784e'); headG.addColorStop(1,'#8d4e1a');
+  ctx.fillStyle=headG; ctx.fill(); ctx.strokeStyle='#5d2f0a'; ctx.lineWidth=2; ctx.stroke();
+  // Upper jaw
+  ctx.beginPath();
+  ctx.moveTo(36,-12+jawOpen*0.3); ctx.bezierCurveTo(55,-12+jawOpen*0.3,78,-15+jawOpen*0.3,88,-14+jawOpen*0.3);
+  ctx.bezierCurveTo(88,-9+jawOpen*0.3,55,-8+jawOpen*0.3,36,-9+jawOpen*0.3); ctx.closePath();
+  ctx.fillStyle='#a05828'; ctx.fill(); ctx.strokeStyle='#5d2f0a'; ctx.lineWidth=1.5; ctx.stroke();
+  // Lower jaw
+  ctx.beginPath();
+  ctx.moveTo(37,-9-jawOpen*0.7); ctx.bezierCurveTo(56,-7-jawOpen*0.7,78,-7-jawOpen*0.7,88,-11-jawOpen*0.7);
+  ctx.bezierCurveTo(88,-5-jawOpen*0.7,56,-3-jawOpen*0.7,37,-4-jawOpen*0.7); ctx.closePath();
+  ctx.fillStyle='#8d4e1a'; ctx.fill();
+  if (jawOpen > 5) {
+    // Mouth interior + teeth
+    ctx.beginPath(); ctx.moveTo(39,-10); ctx.lineTo(87,-13); ctx.lineTo(87,-7); ctx.lineTo(39,-5); ctx.closePath();
+    ctx.fillStyle='#c0392b'; ctx.fill();
+    ctx.fillStyle='#fffde7';
+    for(let i=0;i<5;i++){
+      ctx.beginPath(); ctx.moveTo(40+i*9,-9+jawOpen*0.3); ctx.lineTo(42+i*9,-14+jawOpen*0.3); ctx.lineTo(45+i*9,-9+jawOpen*0.3); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(41+i*9,-5-jawOpen*0.7); ctx.lineTo(43+i*9,0-jawOpen*0.7); ctx.lineTo(46+i*9,-5-jawOpen*0.7); ctx.fill();
+    }
+  }
+  // Eye
+  ctx.beginPath(); ctx.arc(42,-26,6,0,Math.PI*2); ctx.fillStyle='#fff9c4'; ctx.fill();
+  ctx.beginPath(); ctx.arc(42,-26,4,0,Math.PI*2); ctx.fillStyle=grabbing?'#e53935':'#5d2f0a'; ctx.fill();
+  ctx.beginPath(); ctx.arc(43,-27,1.5,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+
+  // Legs
+  ctx.fillStyle='#8d4e1a';
+  ctx.beginPath(); ctx.ellipse(-2,30+breathe+legSwing,7,16,0.1,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(10,30+breathe-legSwing,7,16,-0.1,0,Math.PI*2); ctx.fill();
+  // Feet
+  ctx.fillStyle='#5d2f0a';
+  ctx.beginPath(); ctx.ellipse(-2,42+breathe+legSwing,10,5,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(10,42+breathe-legSwing,10,5,0,0,Math.PI*2); ctx.fill();
+  // Arms
+  ctx.strokeStyle='#8d4e1a'; ctx.lineWidth=5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(16,8+breathe); ctx.lineTo(28,20+breathe); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(20,8+breathe); ctx.lineTo(10,20+breathe); ctx.stroke();
+
+  if (defeated) {
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(38,-30); ctx.lineTo(46,-22); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(46,-30); ctx.lineTo(38,-22); ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // Speech bubble
+  const herraBubText = b.speechBubble ? b.speechText : b.frustratedBubble ? 'MY GRIP!! IMPOSSIBLE!!' : null;
+  if (herraBubText) {
+    const bubX = sx + (b.facing > 0 ? b.w + 10 : -220);
+    const bubY = b.y - 65;
+    const bw = 200, bh = 46;
+    drawRoundRect(bubX, bubY, bw, bh, 10, 'white', b.frustratedBubble ? '#a0522d' : '#333');
+    const tailX = b.facing > 0 ? bubX - 1 : bubX + bw + 1;
+    ctx.beginPath();
+    ctx.moveTo(tailX,bubY+bh*0.6); ctx.lineTo(tailX+(b.facing>0?-18:18),bubY+bh*0.8); ctx.lineTo(tailX,bubY+bh*0.9);
+    ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#a0522d':'#333'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=b.frustratedBubble?'#7a3e00':'#222';
+    ctx.font=`bold 14px Comic Sans MS`;
+    ctx.textAlign='center'; ctx.fillText(herraBubText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
+  }
+
+  // "MASH JUMP!" prompt while grabbing
+  if (b.state === 'grab' && player.grabbed) {
+    ctx.save();
+    ctx.font = 'bold 15px Comic Sans MS';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff700';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    const px2 = sx + b.w/2;
+    ctx.strokeText('MASH JUMP! ' + (player.mashCount||0) + '/5', px2, b.y - 20);
+    ctx.fillText('MASH JUMP! ' + (player.mashCount||0) + '/5', px2, b.y - 20);
+    ctx.restore();
+  }
+}
+
+function drawMamenchiasaurus(b) {
+  if (!b || b.hp<=0) return;
+  const sx = b.x - cameraX;
+  if (sx+b.w < -100 || sx > W+300) return;
+  if (b.invincible>0 && b.state!=='defeated' && Math.floor(b.invincible/5)%2===0) return;
+
+  ctx.save();
+  ctx.translate(sx + b.w/2, b.y + b.h*0.6);
+  ctx.scale(b.facing, 1);
+  ctx.scale(2.2, 2.2);
+
+  const breathe = Math.sin(Date.now()/500)*2;
+  const tailWag = Math.sin(b.frame*0.8)*8;
+  const defeated = b.state === 'defeated';
+  const ne = b.neckExtend || 0; // 0..1
+  const mouthOpen = (b.state==='snatch') ? Math.abs(Math.sin(Date.now()/150))*20 : 2;
+
+  // Tail — long and sweeping
+  ctx.beginPath();
+  ctx.moveTo(-25, 20+breathe);
+  ctx.bezierCurveTo(-60+tailWag,30,-100+tailWag*2,28,-130+tailWag*2,16);
+  ctx.bezierCurveTo(-110,8,-68,10,-25,12);
+  ctx.fillStyle='#4a7c3f'; ctx.fill();
+
+  // Body — large barrel shape
+  ctx.beginPath(); ctx.ellipse(0,16+breathe,42,28,0,0,Math.PI*2);
+  const bodyG = ctx.createRadialGradient(-4,10+breathe,3,-4,13+breathe,42);
+  bodyG.addColorStop(0,'#6aaa5a'); bodyG.addColorStop(1,'#3a6e30');
+  ctx.fillStyle=bodyG; ctx.fill(); ctx.strokeStyle='#2a5020'; ctx.lineWidth=2.5; ctx.stroke();
+  // Belly
+  ctx.beginPath(); ctx.ellipse(-2,22+breathe,28,18,0.05,0,Math.PI*2);
+  ctx.fillStyle='#b8d8a0'; ctx.fill();
+  // Spots
+  ctx.fillStyle='rgba(42,80,32,0.3)';
+  for(let i=0;i<6;i++) ctx.beginPath(), ctx.arc(-20+i*8,8+breathe+(i%2)*6,5,0,Math.PI*2), ctx.fill();
+
+  // Legs — thick sauropod pillars
+  ctx.fillStyle='#3a6e30';
+  ctx.beginPath(); ctx.rect(-24,36+breathe,16,24); ctx.fill();
+  ctx.beginPath(); ctx.rect(10,36+breathe,16,24); ctx.fill();
+  ctx.fillStyle='#2a5020';
+  ctx.beginPath(); ctx.ellipse(-16,60+breathe,12,6,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(18,60+breathe,12,6,0,0,Math.PI*2); ctx.fill();
+
+  // Neck — very long, extends toward player
+  const neckBaseX = 30;
+  const neckBaseY = 0 + breathe;
+  const neckLen = 55 + ne * 110; // base length + extended
+  const neckAngle = -0.3 - ne * 0.15; // tilts more as it extends
+  const neckTipX = neckBaseX + Math.cos(neckAngle) * neckLen;
+  const neckTipY = neckBaseY + Math.sin(neckAngle) * neckLen;
+
+  ctx.beginPath();
+  ctx.moveTo(neckBaseX, neckBaseY);
+  ctx.bezierCurveTo(
+    neckBaseX + neckLen*0.3, neckBaseY - 10,
+    neckTipX - 20, neckTipY - 8,
+    neckTipX, neckTipY
+  );
+  ctx.lineWidth = 14 - ne*4;
+  ctx.strokeStyle = '#4a7c3f';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  // Neck highlight
+  ctx.beginPath();
+  ctx.moveTo(neckBaseX+2, neckBaseY-3);
+  ctx.bezierCurveTo(
+    neckBaseX + neckLen*0.3+2, neckBaseY - 13,
+    neckTipX - 18, neckTipY - 11,
+    neckTipX+2, neckTipY-3
+  );
+  ctx.lineWidth = 6 - ne*2;
+  ctx.strokeStyle = '#6aaa5a';
+  ctx.stroke();
+
+  // Head at neck tip
+  ctx.save();
+  ctx.translate(neckTipX, neckTipY);
+  ctx.rotate(neckAngle - 0.1);
+  // Head shape
+  ctx.beginPath(); ctx.ellipse(10,-4,14,9,0,0,Math.PI*2);
+  ctx.fillStyle='#5a9450'; ctx.fill(); ctx.strokeStyle='#2a5020'; ctx.lineWidth=1.5; ctx.stroke();
+  // Upper jaw
+  ctx.beginPath();
+  ctx.moveTo(0,-2+mouthOpen*0.3); ctx.lineTo(28,-4+mouthOpen*0.3); ctx.lineTo(28,-1+mouthOpen*0.3); ctx.lineTo(0,-1+mouthOpen*0.3); ctx.closePath();
+  ctx.fillStyle='#4a7c3f'; ctx.fill();
+  // Lower jaw
+  ctx.beginPath();
+  ctx.moveTo(0,-1-mouthOpen*0.7); ctx.lineTo(28,-3-mouthOpen*0.7); ctx.lineTo(28,2-mouthOpen*0.7); ctx.lineTo(0,2-mouthOpen*0.7); ctx.closePath();
+  ctx.fillStyle='#3a6e30'; ctx.fill();
+  if (mouthOpen > 4) {
+    ctx.beginPath(); ctx.rect(1,-1+mouthOpen*0.3,27,1-mouthOpen); ctx.fillStyle='#c0392b'; ctx.fill();
+    // Teeth
+    ctx.fillStyle='#fffde7';
+    for(let i=0;i<5;i++){
+      ctx.beginPath(); ctx.moveTo(3+i*5,-1+mouthOpen*0.3); ctx.lineTo(5+i*5,-5+mouthOpen*0.3); ctx.lineTo(7+i*5,-1+mouthOpen*0.3); ctx.fill();
+    }
+  }
+  // Eye
+  ctx.beginPath(); ctx.arc(8,-8,4,0,Math.PI*2); ctx.fillStyle='#fff9c4'; ctx.fill();
+  ctx.beginPath(); ctx.arc(8,-8,2.5,0,Math.PI*2); ctx.fillStyle=b.state==='snatch'?'#e53935':'#2a5020'; ctx.fill();
+  ctx.restore();
+
+  if (defeated) {
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(neckTipX-6,neckTipY-15); ctx.lineTo(neckTipX+2,neckTipY-7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(neckTipX+2,neckTipY-15); ctx.lineTo(neckTipX-6,neckTipY-7); ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // Speech bubble
+  const mamBubText = b.speechBubble ? b.speechText : b.frustratedBubble ? 'MY NECK!! NOOOO!!' : null;
+  if (mamBubText) {
+    const bubX = sx + (b.facing > 0 ? b.w + 10 : -220);
+    const bubY = b.y - 65;
+    const bw = 200, bh = 46;
+    drawRoundRect(bubX, bubY, bw, bh, 10, 'white', b.frustratedBubble ? '#a0522d' : '#333');
+    const tailX = b.facing > 0 ? bubX - 1 : bubX + bw + 1;
+    ctx.beginPath();
+    ctx.moveTo(tailX,bubY+bh*0.6); ctx.lineTo(tailX+(b.facing>0?-18:18),bubY+bh*0.8); ctx.lineTo(tailX,bubY+bh*0.9);
+    ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#a0522d':'#333'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=b.frustratedBubble?'#7a3e00':'#222';
+    ctx.font='bold 14px Comic Sans MS';
+    ctx.textAlign='center'; ctx.fillText(mamBubText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
   }
 }
 
@@ -6079,6 +6473,69 @@ function drawBackground() {
     return;
   }
 
+  if (level === 24) {
+    // ── Triassic Badlands — Herrerasaurus ──
+    const tGrad = ctx.createLinearGradient(0,0,0,H);
+    tGrad.addColorStop(0,'#c0510f'); tGrad.addColorStop(0.5,'#a04010'); tGrad.addColorStop(1,'#6b2808');
+    ctx.fillStyle=tGrad; ctx.fillRect(0,0,W,H);
+    // Heat haze
+    ctx.save(); ctx.globalAlpha=0.1+Math.sin(Date.now()/600)*0.05;
+    ctx.fillStyle='#ff8c42'; ctx.fillRect(0,H-130,W,130);
+    ctx.restore();
+    // Rock formations
+    ctx.fillStyle='rgba(80,25,0,0.6)';
+    [70,220,400,620,840,1060].forEach((rx,i)=>{
+      const rpx=(rx-(cameraX*0.22))%WORLD_W;
+      if(rpx>-120&&rpx<W+120){
+        const rh=50+i%3*35;
+        ctx.beginPath(); ctx.moveTo(rpx-40,H-64); ctx.lineTo(rpx-55,H-64-rh); ctx.lineTo(rpx,H-64-rh*1.2); ctx.lineTo(rpx+55,H-64-rh); ctx.lineTo(rpx+40,H-64); ctx.fill();
+      }
+    });
+    // Dusty clouds
+    ctx.fillStyle='rgba(170,90,20,0.3)';
+    clouds.forEach(c=>{
+      const cx=c.x-(cameraX*0.28)%WORLD_W;
+      ctx.beginPath(); ctx.arc(cx,c.y,28,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx+22,c.y-9,20,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx+44,c.y,25,0,Math.PI*2); ctx.fill();
+    });
+    ctx.fillStyle='#6b2808'; ctx.fillRect(0,H-64,W,8);
+    return;
+  }
+
+  if (level === 25) {
+    // ── Ancient Forest — Mamenchiasaurus ──
+    const aGrad = ctx.createLinearGradient(0,0,0,H);
+    aGrad.addColorStop(0,'#1a3d14'); aGrad.addColorStop(0.6,'#2e5a24'); aGrad.addColorStop(1,'#1a4010');
+    ctx.fillStyle=aGrad; ctx.fillRect(0,0,W,H);
+    // Giant tree silhouettes
+    ctx.fillStyle='#143010';
+    [0,180,370,560,740,930,1120,1300].forEach((tx,i)=>{
+      const ph=100+i%3*50;
+      const tpx=(tx-(cameraX*0.2))%WORLD_W;
+      if(tpx>-100&&tpx<W+100){
+        ctx.fillRect(tpx-10,H-64-ph,20,ph);
+        ctx.beginPath(); ctx.arc(tpx,H-64-ph,40+i%2*20,0,Math.PI*2); ctx.fill();
+      }
+    });
+    // Mist
+    ctx.save(); ctx.globalAlpha=0.15;
+    const mGrad2=ctx.createLinearGradient(0,H-120,0,H);
+    mGrad2.addColorStop(0,'rgba(180,255,180,0)'); mGrad2.addColorStop(1,'rgba(180,255,180,1)');
+    ctx.fillStyle=mGrad2; ctx.fillRect(0,H-120,W,120);
+    ctx.restore();
+    // Canopy light rays
+    ctx.save(); ctx.globalAlpha=0.06;
+    ctx.fillStyle='#aaffaa';
+    for(let i=0;i<5;i++){
+      const lx=100+i*200-(cameraX*0.1)%WORLD_W;
+      ctx.beginPath(); ctx.moveTo(lx-20,0); ctx.lineTo(lx+20,0); ctx.lineTo(lx+40,H); ctx.lineTo(lx-40,H); ctx.fill();
+    }
+    ctx.restore();
+    ctx.fillStyle='#1a4010'; ctx.fillRect(0,H-64,W,8);
+    return;
+  }
+
   if (level === 7) {
     const rGrad = ctx.createLinearGradient(0,0,0,H);
     rGrad.addColorStop(0,'#1a1a2e'); rGrad.addColorStop(1,'#2d3a2d');
@@ -6273,7 +6730,9 @@ function drawBossHUD() {
     14:'🌿 NEOVENATOR',      15:'❄️ CRYOLOPHOSAURUS',  16:'🦇 ALBERTOSAURUS',
     17:'🌌 KRONOSAURUS',     18:'🏔️ GIGANOTOSAURUS',   19:'🟤 TARBOSAURUS',
     20:'🌋 CARNOTAURUS',     21:'🏔️ YANTUANOSAURUS',   22:'🪨 MEGALOSAURUS',
-    23:'🦖 T-REX — FINAL BOSS'
+    23:'🦖 T-REX — FINAL BOSS',
+    24:'🦎 HERRERASAURUS',
+    25:'🦕 MAMENCHIASAURUS'
   };
   ctx.fillStyle='#fff'; ctx.font='bold 13px Comic Sans MS';
   ctx.textAlign='center'; ctx.fillText(bossNames[level]||'BOSS', W/2, by+bh-5);
@@ -6355,6 +6814,8 @@ function draw() {
     else if (level===21) drawYantuanosaurus(boss);
     else if (level===22) drawMegalosaurus(boss);
     else if (level===23) drawTRex(boss);
+    else if (level===24) drawHerrerasaurus(boss);
+    else if (level===25) drawMamenchiasaurus(boss);
   }
   bossProjectiles.forEach(drawBossProjectile);
   // Shockwaves (T-Rex roar)
@@ -6474,7 +6935,8 @@ const LEVEL_NAMES = {
   13:'🌊 Mosasaurus', 14:'🌿 Neovenator', 15:'❄️ Cryolophosaurus',
   16:'🦇 Albertosaurus', 17:'🌌 Kronosaurus', 18:'🏔️ Giganotosaurus',
   19:'🟤 Tarbosaurus', 20:'🌋 Carnotaurus', 21:'🏔️ Yantuanosaurus',
-  22:'🪨 Megalosaurus', 23:'💀 T-Rex FINAL'
+  22:'🪨 Megalosaurus', 23:'💀 T-Rex FINAL',
+  24:'🦎 Herrerasaurus', 25:'🦕 Mamenchiasaurus'
 };
 const LEVEL_SUBS = {
   1:'Sunny Meadow', 2:'Prehistoric Forest', 3:'Ancient Badlands', 4:'Arid Savanna',
@@ -6482,14 +6944,15 @@ const LEVEL_SUBS = {
   9:'Toxic Swamp', 10:'Lake', 11:'Stormy Lake', 12:'Stormy River',
   13:'Sea', 14:'Swamp', 15:'Antarctic Ice', 16:'Dark Cave',
   17:'Twilight Zone', 18:'Rocky Cliffs', 19:'Mud Pit', 20:'Volcanic Land',
-  21:'Mountain Summit', 22:'Underground Lair', 23:'Dark Jungle'
+  21:'Mountain Summit', 22:'Underground Lair', 23:'Dark Jungle',
+  24:'Triassic Badlands', 25:'Ancient Forest'
 };
 
 function openLevelSelect() {
   document.getElementById('message').style.display='none';
   const grid = document.getElementById('lvl-grid');
   grid.innerHTML = '';
-  for (let i=1; i<=23; i++) {
+  for (let i=1; i<=25; i++) {
     const btn = document.createElement('button');
     btn.className = 'lvl-btn';
     btn.innerHTML = `<span class="lvl-num">Level ${i}</span>${LEVEL_NAMES[i]||''}`;
