@@ -137,6 +137,12 @@
     background: #f44336; color: white; border: none; border-radius: 10px;
     cursor: pointer; box-shadow: 0 3px 0 #b71c1c;
   }
+  #char-select-btn {
+    display: none; margin-top: 10px; padding: 10px 28px; font-size: 18px;
+    font-family: inherit; background: #6a1b9a; color: white;
+    border: none; border-radius: 12px; cursor: pointer;
+    box-shadow: 0 4px 0 #4a0072;
+  }
 </style>
 </head>
 <body>
@@ -154,6 +160,7 @@
     <button id="msg-btn">Let's Go! 🦖</button>
     <button id="easy-btn" style="display:none; margin-top:10px; padding:10px 28px; font-size:18px; font-family:inherit; background:#ff9800; color:white; border:none; border-radius:12px; cursor:pointer; box-shadow:0 4px 0 #e65100;">⭐ Easy Mode (no damage)</button>
     <button id="lvl-select-btn" style="display:none; margin-top:10px; padding:10px 28px; font-size:18px; font-family:inherit; background:#1565c0; color:white; border:none; border-radius:12px; cursor:pointer; box-shadow:0 4px 0 #0d47a1;">🗺️ Level Select</button>
+    <button id="char-select-btn">🦕 Choose Character</button>
   </div>
   <div id="level-select">
     <h2>🗺️ Choose Your Level</h2>
@@ -185,6 +192,16 @@ const GRAVITY = 0.55, JUMP_FORCE = -13.5, SPEED = 4;
 // ── State ──────────────────────────────────────────────────
 let state = 'menu';
 let easyMode = false;
+let selectedCharacter = 'iggy';
+let charSelectHover = -1;
+
+const CHARACTERS = [
+  { id:'iggy',    name:'Iggy',    desc:'Velociraptor',       color:'#ff6d00' },
+  { id:'padrock', name:'Padrock', desc:'Dilophosaurus',      color:'#388e3c' },
+  { id:'perry',   name:'Perry',   desc:'Parasaurolophus',    color:'#0288d1' },
+  { id:'terry',   name:'Terry',   desc:'Pteranodon',         color:'#7b1fa2' },
+  { id:'patrick', name:'Patrick', desc:'Pachycephalosaurus', color:'#8d6e63' },
+];
 let score = 0, lives = 3, level = 1;
 let eggs = [], platforms = [], enemies = [], particles = [];
 let boss = null, bossProjectiles = [], bossShockwaves = [];
@@ -241,14 +258,7 @@ function goToMenu() {
   state = 'menu';
   boss = null; bossProjectiles = []; bossShockwaves = [];
   eggs = []; platforms = []; enemies = []; particles = [];
-  showMessage('🦖 Iggy\'s Egg Adventure!',
-    'Help Iggy the orange velociraptor collect all the eggs!\n\n' +
-    '⬅️ ➡️ Arrow Keys to run  •  ⬆️ SPACE to jump\n' +
-    '🥚 Collect eggs  •  👹 Stomp red dinos\n' +
-    '⚠️ Defeat 19 bosses across 20 levels!\n\n' +
-    '🟢 <b>Normal</b> — full challenge, 3 lives\n' +
-    '⭐ <b>Easy Mode</b> — no damage, just fun!',
-    'Normal Mode 🦖', true, true);
+  _showMainMenu(true);
 }
 
 document.getElementById('btn-home').addEventListener('click', showMenuConfirm);
@@ -1575,6 +1585,545 @@ function drawIggy(x, y, facing, frame, invincible) {
   });
 
   ctx.restore();
+}
+
+// ── Draw: Padrock (Dilophosaurus) ──────────────────────────
+function drawPadrock(x, y, facing, frame, invincible) {
+  if (invincible>0 && Math.floor(invincible/6)%2===0) return;
+  ctx.save();
+  ctx.translate(x+24, y+30);
+  ctx.scale(facing, 1);
+  const run  = Math.sin(frame*1.7)*10;
+  const run2 = Math.cos(frame*1.7)*10;
+  ctx.rotate(0.2);
+
+  // Long whip tail
+  ctx.beginPath();
+  ctx.moveTo(-10,8);
+  ctx.bezierCurveTo(-32,5,-58,2,-76,6+Math.sin(frame*0.8)*4);
+  ctx.bezierCurveTo(-68,13,-34,15,-10,14);
+  ctx.fillStyle='#2e7d32'; ctx.fill();
+
+  // Body
+  ctx.beginPath(); ctx.ellipse(0,8,20,13,0,0,Math.PI*2);
+  ctx.fillStyle='#388e3c'; ctx.fill(); ctx.strokeStyle='#1b5e20'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(-2,12,12,8,0.1,0,Math.PI*2);
+  ctx.fillStyle='#c8e6c9'; ctx.fill();
+
+  // Arms
+  ctx.save(); ctx.translate(10,14); ctx.rotate(-0.5+run*0.02);
+  drawRoundRect(0,0,8,12,3,'#388e3c','#1b5e20');
+  ctx.fillStyle='#1b5e20';
+  ctx.beginPath(); ctx.moveTo(1,12); ctx.lineTo(-2,18); ctx.lineTo(4,13); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(6,12); ctx.lineTo(5,18);  ctx.lineTo(9,13); ctx.fill();
+  ctx.restore();
+
+  // Neck
+  ctx.beginPath();
+  ctx.moveTo(14,2); ctx.bezierCurveTo(24,-6,32,-14,36,-24);
+  ctx.bezierCurveTo(32,-16,22,-6,10,4);
+  ctx.fillStyle='#388e3c'; ctx.fill();
+
+  // Head
+  ctx.beginPath(); ctx.ellipse(38,-30,15,10,-0.15,0,Math.PI*2);
+  ctx.fillStyle='#388e3c'; ctx.fill(); ctx.strokeStyle='#1b5e20'; ctx.lineWidth=1.5; ctx.stroke();
+
+  // ── Signature: Double head crests ──
+  ctx.beginPath(); ctx.moveTo(28,-34); ctx.bezierCurveTo(32,-46,42,-52,46,-46);
+  ctx.bezierCurveTo(44,-42,36,-38,34,-34); ctx.closePath();
+  ctx.fillStyle='#e53935'; ctx.fill(); ctx.strokeStyle='#b71c1c'; ctx.lineWidth=1; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(22,-32); ctx.bezierCurveTo(26,-44,34,-50,38,-44);
+  ctx.bezierCurveTo(36,-40,28,-36,26,-32); ctx.closePath();
+  ctx.fillStyle='#ff7043'; ctx.fill(); ctx.strokeStyle='#e53935'; ctx.lineWidth=1; ctx.stroke();
+
+  // Snout
+  ctx.beginPath(); ctx.moveTo(28,-26); ctx.bezierCurveTo(40,-28,60,-30,70,-28);
+  ctx.bezierCurveTo(70,-24,56,-22,40,-23); ctx.lineTo(28,-23); ctx.closePath();
+  ctx.fillStyle='#43a047'; ctx.fill(); ctx.strokeStyle='#1b5e20'; ctx.lineWidth=1.2; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(30,-23); ctx.bezierCurveTo(44,-22,60,-22,70,-23);
+  ctx.bezierCurveTo(70,-19,56,-17,42,-18); ctx.lineTo(30,-19); ctx.closePath();
+  ctx.fillStyle='#388e3c'; ctx.fill();
+  ctx.fillStyle='#f1f8e9';
+  for (let i=0;i<5;i++){
+    ctx.beginPath(); ctx.moveTo(36+i*6,-23); ctx.lineTo(38+i*6,-27); ctx.lineTo(40+i*6,-23); ctx.fill();
+  }
+
+  // Eye
+  ctx.beginPath(); ctx.arc(32,-33,5,0,Math.PI*2); ctx.fillStyle='#fff9c4'; ctx.fill();
+  ctx.beginPath(); ctx.arc(32,-33,3.5,0,Math.PI*2); ctx.fillStyle='#f9a825'; ctx.fill();
+  ctx.beginPath(); ctx.arc(32,-33,2,0,Math.PI*2); ctx.fillStyle='#212121'; ctx.fill();
+  ctx.beginPath(); ctx.arc(33,-34,1,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+
+  // Legs
+  ctx.save(); ctx.translate(-10,16); ctx.rotate(-run*0.04);
+  drawRoundRect(-5,0,12,16,4,'#1b5e20','#0d4b13');
+  ctx.save(); ctx.translate(0,16); ctx.rotate(run*0.06);
+  drawRoundRect(-4,0,10,12,4,'#2e7d32','#1b5e20');
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,30,10,4,0,0,Math.PI*2); ctx.fillStyle='#1b5e20'; ctx.fill();
+  ctx.restore();
+  ctx.save(); ctx.translate(2,18); ctx.rotate(run2*0.04);
+  drawRoundRect(-5,0,12,16,4,'#2e7d32','#1b5e20');
+  ctx.save(); ctx.translate(0,16); ctx.rotate(-run2*0.06);
+  drawRoundRect(-4,0,10,12,4,'#388e3c','#2e7d32');
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,30,10,4,0,0,Math.PI*2); ctx.fillStyle='#2e7d32'; ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// ── Draw: Perry (Parasaurolophus) ──────────────────────────
+function drawPerry(x, y, facing, frame, invincible) {
+  if (invincible>0 && Math.floor(invincible/6)%2===0) return;
+  ctx.save();
+  ctx.translate(x+24, y+30);
+  ctx.scale(facing, 1);
+  const run  = Math.sin(frame*1.5)*9;
+  const run2 = Math.cos(frame*1.5)*9;
+  ctx.rotate(0.12);
+
+  // Thick tail
+  ctx.beginPath();
+  ctx.moveTo(-10,8);
+  ctx.bezierCurveTo(-28,5,-50,3,-66,7+Math.sin(frame*0.8)*3);
+  ctx.bezierCurveTo(-58,14,-30,16,-10,14);
+  ctx.fillStyle='#01579b'; ctx.fill();
+
+  // Stout body
+  ctx.beginPath(); ctx.ellipse(2,8,24,16,0,0,Math.PI*2);
+  ctx.fillStyle='#0288d1'; ctx.fill(); ctx.strokeStyle='#01579b'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(-1,14,16,11,0.1,0,Math.PI*2);
+  ctx.fillStyle='#b3e5fc'; ctx.fill();
+
+  // Short arms
+  ctx.save(); ctx.translate(12,12); ctx.rotate(-0.4+run*0.02);
+  drawRoundRect(0,0,8,11,3,'#0288d1','#01579b');
+  ctx.restore();
+
+  // Neck
+  ctx.beginPath();
+  ctx.moveTo(16,2); ctx.bezierCurveTo(24,-4,30,-10,34,-16);
+  ctx.bezierCurveTo(30,-10,22,-4,12,4);
+  ctx.fillStyle='#0277bd'; ctx.fill();
+
+  // ── Signature: Long backward tube crest ──
+  ctx.beginPath();
+  ctx.moveTo(30,-28); ctx.bezierCurveTo(20,-40,-12,-40,-20,-34);
+  ctx.bezierCurveTo(-18,-28,10,-28,24,-24); ctx.closePath();
+  ctx.fillStyle='#01579b'; ctx.fill(); ctx.strokeStyle='#003c8f'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(28,-26); ctx.bezierCurveTo(18,-37,-10,-37,-18,-32);
+  ctx.strokeStyle='#4fc3f7'; ctx.lineWidth=2; ctx.stroke();
+
+  // Head
+  ctx.beginPath(); ctx.ellipse(38,-20,16,13,-0.1,0,Math.PI*2);
+  ctx.fillStyle='#0288d1'; ctx.fill(); ctx.strokeStyle='#01579b'; ctx.lineWidth=1.5; ctx.stroke();
+
+  // Duck bill
+  ctx.beginPath(); ctx.moveTo(26,-16); ctx.bezierCurveTo(38,-18,56,-18,64,-16);
+  ctx.bezierCurveTo(64,-12,54,-10,38,-11); ctx.lineTo(26,-11); ctx.closePath();
+  ctx.fillStyle='#0277bd'; ctx.fill(); ctx.strokeStyle='#01579b'; ctx.lineWidth=1.2; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(28,-11); ctx.bezierCurveTo(42,-10,56,-10,64,-11);
+  ctx.bezierCurveTo(64,-8,52,-6,38,-7); ctx.lineTo(28,-7); ctx.closePath();
+  ctx.fillStyle='#039be5'; ctx.fill();
+  ctx.strokeStyle='rgba(1,87,155,0.4)'; ctx.lineWidth=1;
+  for (let i=0;i<3;i++){ ctx.beginPath(); ctx.moveTo(38+i*7,-18); ctx.lineTo(38+i*7,-11); ctx.stroke(); }
+
+  // Eye
+  ctx.beginPath(); ctx.arc(30,-22,5,0,Math.PI*2); ctx.fillStyle='#e1f5fe'; ctx.fill();
+  ctx.beginPath(); ctx.arc(30,-22,3.5,0,Math.PI*2); ctx.fillStyle='#0288d1'; ctx.fill();
+  ctx.beginPath(); ctx.arc(30,-22,2,0,Math.PI*2); ctx.fillStyle='#212121'; ctx.fill();
+  ctx.beginPath(); ctx.arc(31,-23,1,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+
+  // Thick legs
+  ctx.save(); ctx.translate(-8,18); ctx.rotate(-run*0.04);
+  drawRoundRect(-6,0,14,18,5,'#01579b','#003c8f');
+  ctx.save(); ctx.translate(0,18); ctx.rotate(run*0.06);
+  drawRoundRect(-5,0,12,14,4,'#0277bd','#01579b');
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,34,13,5,0,0,Math.PI*2); ctx.fillStyle='#01579b'; ctx.fill();
+  ctx.restore();
+  ctx.save(); ctx.translate(6,20); ctx.rotate(run2*0.04);
+  drawRoundRect(-6,0,14,18,5,'#0288d1','#01579b');
+  ctx.save(); ctx.translate(0,18); ctx.rotate(-run2*0.06);
+  drawRoundRect(-5,0,12,14,4,'#029ae6','#0277bd');
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,34,13,5,0,0,Math.PI*2); ctx.fillStyle='#0288d1'; ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// ── Draw: Terry (Pteranodon) ────────────────────────────────
+function drawTerry(x, y, facing, frame, invincible) {
+  if (invincible>0 && Math.floor(invincible/6)%2===0) return;
+  ctx.save();
+  ctx.translate(x+24, y+30);
+  ctx.scale(facing, 1);
+  const run      = Math.sin(frame*1.8)*10;
+  const run2     = Math.cos(frame*1.8)*10;
+  const wingFlap = Math.sin(frame*1.8)*14;
+  ctx.rotate(0.14);
+
+  // Short tail (pterosaur)
+  ctx.beginPath();
+  ctx.moveTo(-10,8);
+  ctx.bezierCurveTo(-22,5,-32,4,-38,7);
+  ctx.bezierCurveTo(-32,12,-18,12,-10,12);
+  ctx.fillStyle='#6a1b9a'; ctx.fill();
+
+  // Body
+  ctx.beginPath(); ctx.ellipse(2,6,18,12,0,0,Math.PI*2);
+  ctx.fillStyle='#7b1fa2'; ctx.fill(); ctx.strokeStyle='#4a0072'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0,10,11,8,0.1,0,Math.PI*2);
+  ctx.fillStyle='#ce93d8'; ctx.fill();
+
+  // ── Signature: Wing membranes ──
+  ctx.beginPath();
+  ctx.moveTo(-2,2);
+  ctx.bezierCurveTo(-12,-10+wingFlap*0.6,-32,-18+wingFlap,-50,-10+wingFlap*0.8);
+  ctx.bezierCurveTo(-36,2,-18,10,-4,10); ctx.closePath();
+  ctx.fillStyle='rgba(123,31,162,0.72)'; ctx.fill(); ctx.strokeStyle='#4a0072'; ctx.lineWidth=1; ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(8,0);
+  ctx.bezierCurveTo(18,-12+wingFlap*0.5,38,-20+wingFlap,56,-12+wingFlap*0.8);
+  ctx.bezierCurveTo(42,2,22,8,4,8); ctx.closePath();
+  ctx.fillStyle='rgba(149,36,186,0.72)'; ctx.fill(); ctx.strokeStyle='#6a1b9a'; ctx.lineWidth=1; ctx.stroke();
+  // Wing ribbing
+  ctx.strokeStyle='rgba(206,147,216,0.45)'; ctx.lineWidth=1;
+  [[8,0,56,-12+wingFlap*0.8],[-2,2,-50,-10+wingFlap*0.8]].forEach(([sx,sy,ex,ey])=>{
+    for (let i=0.2;i<0.9;i+=0.22){
+      ctx.beginPath(); ctx.moveTo(sx+(ex-sx)*i,sy+(ey-sy)*i); ctx.lineTo(sx+(ex-sx)*i+2,sy+(ey-sy)*i+10); ctx.stroke();
+    }
+  });
+
+  // Neck
+  ctx.beginPath();
+  ctx.moveTo(14,0); ctx.bezierCurveTo(22,-6,28,-12,32,-20);
+  ctx.bezierCurveTo(28,-12,20,-5,10,4);
+  ctx.fillStyle='#7b1fa2'; ctx.fill();
+
+  // Head
+  ctx.beginPath(); ctx.ellipse(36,-26,14,10,-0.15,0,Math.PI*2);
+  ctx.fillStyle='#7b1fa2'; ctx.fill(); ctx.strokeStyle='#4a0072'; ctx.lineWidth=1.5; ctx.stroke();
+
+  // ── Signature: Backward pointed crest ──
+  ctx.beginPath();
+  ctx.moveTo(26,-30); ctx.bezierCurveTo(10,-42,-16,-44,-22,-38);
+  ctx.bezierCurveTo(-16,-32,8,-36,24,-28); ctx.closePath();
+  ctx.fillStyle='#6a1b9a'; ctx.fill(); ctx.strokeStyle='#4a0072'; ctx.lineWidth=1.2; ctx.stroke();
+
+  // Long toothless beak
+  ctx.beginPath(); ctx.moveTo(26,-24); ctx.bezierCurveTo(38,-26,56,-26,68,-24);
+  ctx.bezierCurveTo(68,-20,54,-19,38,-20); ctx.lineTo(26,-20); ctx.closePath();
+  ctx.fillStyle='#8e24aa'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(28,-20); ctx.bezierCurveTo(44,-19,58,-19,68,-20);
+  ctx.bezierCurveTo(68,-17,52,-15,38,-16); ctx.lineTo(28,-16); ctx.closePath();
+  ctx.fillStyle='#7b1fa2'; ctx.fill();
+
+  // Eye
+  ctx.beginPath(); ctx.arc(28,-28,5,0,Math.PI*2); ctx.fillStyle='#f3e5f5'; ctx.fill();
+  ctx.beginPath(); ctx.arc(28,-28,3.5,0,Math.PI*2); ctx.fillStyle='#9c27b0'; ctx.fill();
+  ctx.beginPath(); ctx.arc(28,-28,2,0,Math.PI*2); ctx.fillStyle='#212121'; ctx.fill();
+  ctx.beginPath(); ctx.arc(29,-29,1,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+
+  // Legs
+  ctx.save(); ctx.translate(-8,14); ctx.rotate(-run*0.05);
+  drawRoundRect(-4,0,10,16,4,'#6a1b9a','#4a0072');
+  ctx.save(); ctx.translate(0,16); ctx.rotate(run*0.07);
+  drawRoundRect(-4,0,9,12,4,'#7b1fa2','#6a1b9a');
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,30,10,4,0,0,Math.PI*2); ctx.fillStyle='#6a1b9a'; ctx.fill();
+  ctx.restore();
+  ctx.save(); ctx.translate(2,14); ctx.rotate(-run*0.05);
+  drawRoundRect(-4,0,10,16,4,'#7b1fa2','#6a1b9a');
+  ctx.save(); ctx.translate(0,16); ctx.rotate(-run*0.07);
+  drawRoundRect(-4,0,9,12,4,'#8e24aa','#7b1fa2');
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,30,10,4,0,0,Math.PI*2); ctx.fillStyle='#7b1fa2'; ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// ── Draw: Patrick (Pachycephalosaurus) ─────────────────────
+function drawPatrick(x, y, facing, frame, invincible) {
+  if (invincible>0 && Math.floor(invincible/6)%2===0) return;
+  ctx.save();
+  ctx.translate(x+24, y+30);
+  ctx.scale(facing, 1);
+  const run  = Math.sin(frame*1.6)*9;
+  const run2 = Math.cos(frame*1.6)*9;
+  ctx.rotate(0.1);
+
+  // Tail with knob
+  ctx.beginPath();
+  ctx.moveTo(-10,8);
+  ctx.bezierCurveTo(-28,5,-50,4,-62,8+Math.sin(frame*0.8)*3);
+  ctx.bezierCurveTo(-54,14,-26,16,-10,14);
+  ctx.fillStyle='#5d4037'; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-64,10,8,6,0,0,Math.PI*2);
+  ctx.fillStyle='#4e342e'; ctx.fill();
+
+  // Stocky body
+  ctx.beginPath(); ctx.ellipse(2,8,22,17,0,0,Math.PI*2);
+  ctx.fillStyle='#8d6e63'; ctx.fill(); ctx.strokeStyle='#5d4037'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='rgba(78,52,46,0.4)';
+  [[-4,2,6,4],[4,6,8,5],[-8,10,5,4]].forEach(([ex,ey,ew,eh])=>{
+    ctx.beginPath(); ctx.ellipse(ex,ey,ew,eh,0,0,Math.PI*2); ctx.fill();
+  });
+  ctx.beginPath(); ctx.ellipse(-2,14,15,10,0.1,0,Math.PI*2);
+  ctx.fillStyle='#ffccbc'; ctx.fill();
+
+  // Short arms
+  ctx.save(); ctx.translate(10,12); ctx.rotate(-0.6+run*0.02);
+  drawRoundRect(0,0,8,10,3,'#8d6e63','#5d4037');
+  ctx.fillStyle='#4e342e';
+  ctx.beginPath(); ctx.moveTo(1,10); ctx.lineTo(-2,15); ctx.lineTo(4,11); ctx.fill();
+  ctx.restore();
+
+  // Neck
+  ctx.beginPath();
+  ctx.moveTo(14,2); ctx.bezierCurveTo(20,-2,26,-6,28,-12);
+  ctx.bezierCurveTo(24,-7,18,-2,10,4);
+  ctx.fillStyle='#8d6e63'; ctx.fill();
+
+  // ── Signature: Massive bone dome ──
+  ctx.beginPath(); ctx.ellipse(30,-28,16,20,-0.1,0,Math.PI*2);
+  ctx.fillStyle='#6d4c41'; ctx.fill(); ctx.strokeStyle='#4e342e'; ctx.lineWidth=2; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(26,-34,8,10,-0.2,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,204,188,0.25)'; ctx.fill();
+  ctx.fillStyle='#4e342e';
+  for (let i=0;i<6;i++){
+    const a=-Math.PI*0.9+i*(Math.PI*0.3);
+    ctx.beginPath(); ctx.arc(30+Math.cos(a)*16,-28+Math.sin(a)*20,2.5,0,Math.PI*2); ctx.fill();
+  }
+
+  // Head
+  ctx.beginPath(); ctx.ellipse(32,-14,12,10,-0.1,0,Math.PI*2);
+  ctx.fillStyle='#8d6e63'; ctx.fill(); ctx.strokeStyle='#5d4037'; ctx.lineWidth=1.5; ctx.stroke();
+
+  // Snout (short, boxy)
+  ctx.beginPath(); ctx.moveTo(22,-10); ctx.bezierCurveTo(32,-12,46,-12,52,-10);
+  ctx.bezierCurveTo(52,-6,44,-5,32,-6); ctx.lineTo(22,-6); ctx.closePath();
+  ctx.fillStyle='#795548'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(24,-6); ctx.bezierCurveTo(36,-5,46,-5,52,-6);
+  ctx.bezierCurveTo(52,-3,44,-1,34,-2); ctx.lineTo(24,-2); ctx.closePath();
+  ctx.fillStyle='#8d6e63'; ctx.fill();
+  ctx.fillStyle='#fff9f0';
+  for (let i=0;i<4;i++){
+    ctx.beginPath(); ctx.moveTo(28+i*5,-6); ctx.lineTo(29+i*5,-10); ctx.lineTo(31+i*5,-6); ctx.fill();
+  }
+
+  // Eye
+  ctx.beginPath(); ctx.arc(26,-16,5,0,Math.PI*2); ctx.fillStyle='#fff9e7'; ctx.fill();
+  ctx.beginPath(); ctx.arc(26,-16,3.5,0,Math.PI*2); ctx.fillStyle='#8d6e63'; ctx.fill();
+  ctx.beginPath(); ctx.arc(26,-16,2,0,Math.PI*2); ctx.fillStyle='#212121'; ctx.fill();
+  ctx.beginPath(); ctx.arc(27,-17,1,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+
+  // Stout legs
+  ctx.save(); ctx.translate(-10,20); ctx.rotate(-run*0.04);
+  drawRoundRect(-6,0,15,18,5,'#5d4037','#4e342e');
+  ctx.save(); ctx.translate(0,18); ctx.rotate(run*0.06);
+  drawRoundRect(-5,0,13,14,4,'#6d4c41','#5d4037');
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,34,13,5,0,0,Math.PI*2); ctx.fillStyle='#5d4037'; ctx.fill();
+  ctx.restore();
+  ctx.save(); ctx.translate(4,22); ctx.rotate(run2*0.04);
+  drawRoundRect(-6,0,15,18,5,'#6d4c41','#5d4037');
+  ctx.save(); ctx.translate(0,18); ctx.rotate(-run2*0.06);
+  drawRoundRect(-5,0,13,14,4,'#795548','#6d4c41');
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(0,34,13,5,0,0,Math.PI*2); ctx.fillStyle='#6d4c41'; ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// ── Player dispatcher ───────────────────────────────────────
+function drawPlayer(x, y, facing, frame, invincible) {
+  switch (selectedCharacter) {
+    case 'padrock': drawPadrock(x, y, facing, frame, invincible); break;
+    case 'perry':   drawPerry(x, y, facing, frame, invincible);   break;
+    case 'terry':   drawTerry(x, y, facing, frame, invincible);   break;
+    case 'patrick': drawPatrick(x, y, facing, frame, invincible); break;
+    default:        drawIggy(x, y, facing, frame, invincible);    break;
+  }
+}
+
+// ── Character Select Screen (canvas-rendered) ───────────────
+function drawCharSelect() {
+  ctx.fillStyle='rgba(0,0,20,0.94)';
+  ctx.fillRect(0,0,W,H);
+
+  ctx.textAlign='center';
+  ctx.fillStyle='#ffd700';
+  ctx.font='bold 30px Comic Sans MS, cursive';
+  ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=8;
+  ctx.fillText('🦕  Choose Your Dino!  🦕', W/2, 52);
+  ctx.shadowBlur=0;
+
+  const cardW=140, cardH=205, gap=10;
+  const totalW=5*cardW+4*gap;
+  const startX=(W-totalW)/2;
+  const cardY=68;
+  const animF=Date.now()/120;
+
+  CHARACTERS.forEach((char,i)=>{
+    const cx=startX+i*(cardW+gap);
+    const isSel=selectedCharacter===char.id;
+    const isHov=charSelectHover===i;
+
+    // Card BG
+    ctx.save();
+    if (isSel){ ctx.shadowColor='#ffd700'; ctx.shadowBlur=18; }
+    const r=12;
+    ctx.beginPath();
+    ctx.moveTo(cx+r,cardY); ctx.lineTo(cx+cardW-r,cardY);
+    ctx.arcTo(cx+cardW,cardY,cx+cardW,cardY+r,r);
+    ctx.lineTo(cx+cardW,cardY+cardH-r);
+    ctx.arcTo(cx+cardW,cardY+cardH,cx+cardW-r,cardY+cardH,r);
+    ctx.lineTo(cx+r,cardY+cardH);
+    ctx.arcTo(cx,cardY+cardH,cx,cardY+cardH-r,r);
+    ctx.lineTo(cx,cardY+r);
+    ctx.arcTo(cx,cardY,cx+r,cardY,r);
+    ctx.closePath();
+    ctx.fillStyle=isSel?'rgba(255,215,0,0.14)':isHov?'rgba(255,255,255,0.09)':'rgba(255,255,255,0.05)';
+    ctx.fill();
+    ctx.strokeStyle=isSel?'#ffd700':isHov?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.18)';
+    ctx.lineWidth=isSel?3:1.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // Character preview
+    ctx.save();
+    ctx.translate(cx+cardW/2, cardY+118);
+    ctx.scale(0.88,0.88);
+    // clip to card area so wings don't spill out
+    ctx.beginPath(); ctx.rect(-cardW/2/0.88,-118/0.88,cardW/0.88,160/0.88); ctx.clip();
+    switch(char.id){
+      case 'iggy':    drawIggy   (-24,-30,1,animF,0); break;
+      case 'padrock': drawPadrock(-24,-30,1,animF,0); break;
+      case 'perry':   drawPerry  (-24,-30,1,animF,0); break;
+      case 'terry':   drawTerry  (-24,-30,1,animF,0); break;
+      case 'patrick': drawPatrick(-24,-30,1,animF,0); break;
+    }
+    ctx.restore();
+
+    // Name
+    ctx.textAlign='center';
+    ctx.fillStyle=isSel?'#ffd700':'#fff';
+    ctx.font=`bold ${isSel?16:14}px Comic Sans MS, cursive`;
+    ctx.fillText(char.name, cx+cardW/2, cardY+cardH-26);
+    ctx.fillStyle=isSel?'#ffe57f':'rgba(255,255,255,0.55)';
+    ctx.font='10px Comic Sans MS, cursive';
+    ctx.fillText(char.desc, cx+cardW/2, cardY+cardH-12);
+    if (isSel){
+      ctx.fillStyle='#ffd700'; ctx.font='14px sans-serif';
+      ctx.fillText('★ Selected ★', cx+cardW/2, cardY+cardH+10);
+    }
+  });
+
+  // Play button
+  const sel=CHARACTERS.find(c=>c.id===selectedCharacter);
+  const btnW=230,btnH=44,btnX=(W-btnW)/2,btnY=295;
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=8;
+  ctx.fillStyle='#43a047';
+  ctx.beginPath();
+  ctx.moveTo(btnX+10,btnY); ctx.lineTo(btnX+btnW-10,btnY);
+  ctx.arcTo(btnX+btnW,btnY,btnX+btnW,btnY+10,10);
+  ctx.lineTo(btnX+btnW,btnY+btnH-10);
+  ctx.arcTo(btnX+btnW,btnY+btnH,btnX+btnW-10,btnY+btnH,10);
+  ctx.lineTo(btnX+10,btnY+btnH);
+  ctx.arcTo(btnX,btnY+btnH,btnX,btnY+btnH-10,10);
+  ctx.lineTo(btnX,btnY+10);
+  ctx.arcTo(btnX,btnY,btnX+10,btnY,10);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.fillStyle='#fff'; ctx.font='bold 18px Comic Sans MS, cursive'; ctx.textAlign='center';
+  ctx.fillText(`▶  Play as ${sel.name}!`, W/2, btnY+29);
+  ctx.restore();
+
+  // Back button
+  ctx.fillStyle='rgba(255,255,255,0.14)';
+  ctx.beginPath(); ctx.moveTo(20,10); ctx.lineTo(90,10);
+  ctx.arcTo(100,10,100,20,10); ctx.lineTo(100,36); ctx.arcTo(100,46,90,46,10);
+  ctx.lineTo(20,46); ctx.arcTo(10,46,10,36,10); ctx.lineTo(10,20); ctx.arcTo(10,10,20,10,10);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Comic Sans MS, cursive'; ctx.textAlign='center';
+  ctx.fillText('← Back', 55, 32);
+
+  ctx.textAlign='left';
+
+  // Store hit-rects for click/touch handling
+  window._charSelectUI = {
+    cards: CHARACTERS.map((_,i)=>({x:startX+i*(cardW+gap),y:cardY,w:cardW,h:cardH})),
+    playBtn:{x:btnX,y:btnY,w:btnW,h:btnH},
+    backBtn:{x:10,y:10,w:90,h:36}
+  };
+}
+
+// ── Char-select canvas input ────────────────────────────────
+canvas.addEventListener('mousemove', e=>{
+  if (state!=='charselect') return;
+  const rect=canvas.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)*(W/rect.width);
+  const my=(e.clientY-rect.top)*(H/rect.height);
+  if (!window._charSelectUI) return;
+  charSelectHover=window._charSelectUI.cards.findIndex(
+    c=>mx>=c.x&&mx<=c.x+c.w&&my>=c.y&&my<=c.y+c.h
+  );
+});
+
+canvas.addEventListener('click', e=>{
+  if (state!=='charselect') return;
+  const rect=canvas.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)*(W/rect.width);
+  const my=(e.clientY-rect.top)*(H/rect.height);
+  const ui=window._charSelectUI; if (!ui) return;
+  ui.cards.forEach((c,i)=>{
+    if (mx>=c.x&&mx<=c.x+c.w&&my>=c.y&&my<=c.y+c.h) selectedCharacter=CHARACTERS[i].id;
+  });
+  if (mx>=ui.playBtn.x&&mx<=ui.playBtn.x+ui.playBtn.w&&my>=ui.playBtn.y&&my<=ui.playBtn.y+ui.playBtn.h){
+    state='menu'; _showMainMenu(true);
+  }
+  if (mx>=ui.backBtn.x&&mx<=ui.backBtn.x+ui.backBtn.w&&my>=ui.backBtn.y&&my<=ui.backBtn.y+ui.backBtn.h){
+    state='menu'; _showMainMenu(true);
+  }
+});
+
+canvas.addEventListener('touchstart', e=>{
+  if (state!=='charselect') return;
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  const t=e.touches[0];
+  const mx=(t.clientX-rect.left)*(W/rect.width);
+  const my=(t.clientY-rect.top)*(H/rect.height);
+  const ui=window._charSelectUI; if (!ui) return;
+  ui.cards.forEach((c,i)=>{
+    if (mx>=c.x&&mx<=c.x+c.w&&my>=c.y&&my<=c.y+c.h) selectedCharacter=CHARACTERS[i].id;
+  });
+  if (mx>=ui.playBtn.x&&mx<=ui.playBtn.x+ui.playBtn.w&&my>=ui.playBtn.y&&my<=ui.playBtn.y+ui.playBtn.h){
+    state='menu'; _showMainMenu(true);
+  }
+  if (mx>=ui.backBtn.x&&mx<=ui.backBtn.x+ui.backBtn.w&&my>=ui.backBtn.y&&my<=ui.backBtn.y+ui.backBtn.h){
+    state='menu'; _showMainMenu(true);
+  }
+},{passive:false});
+
+function _showMainMenu(showCharBtn=false) {
+  const sel=CHARACTERS.find(c=>c.id===selectedCharacter);
+  showMessage('🦖 Iggy\'s Egg Adventure!',
+    `Playing as: <b>${sel.name}</b> (${sel.desc})\n\n` +
+    '⬅️ ➡️ Arrow Keys to run  •  ⬆️ SPACE to jump\n' +
+    '🥚 Collect eggs  •  👹 Stomp red dinos\n' +
+    '⚠️ Defeat 19 bosses across 23 levels!\n\n' +
+    '🟢 <b>Normal</b> — full challenge, 3 lives\n' +
+    '⭐ <b>Easy Mode</b> — no damage, just fun!',
+    'Normal Mode 🦖', true, true);
+  if (showCharBtn) document.getElementById('char-select-btn').style.display='inline-block';
 }
 
 // ── Draw: Spinosaurus Boss ──────────────────────────────────
@@ -5767,6 +6316,7 @@ function drawBossProjectile(pb) {
 
 // ── Main Draw ──────────────────────────────────────────────
 function draw() {
+  if (state==='charselect') { drawCharSelect(); return; }
   ctx.clearRect(0,0,W,H);
   drawBackground();
   platforms.forEach(drawPlatform);
@@ -5820,7 +6370,7 @@ function draw() {
   ctx.restore();
 
   if (state==='playing'||state==='dead')
-    drawIggy(player.x-cameraX, player.y, player.facing, player.frame, player.invincible);
+    drawPlayer(player.x-cameraX, player.y, player.facing, player.frame, player.invincible);
 
   // Particles
   ctx.save();
@@ -5966,15 +6516,21 @@ function closeLevelSelect() {
 document.getElementById('lvl-select-btn').addEventListener('click', openLevelSelect);
 document.getElementById('lvl-select-close').addEventListener('click', closeLevelSelect);
 
+document.getElementById('char-select-btn').addEventListener('click', ()=>{
+  document.getElementById('message').style.display='none';
+  state='charselect';
+});
+
 // ── Boot ───────────────────────────────────────────────────
 showMessage('🦖 Iggy\'s Egg Adventure!',
-  'Help Iggy the orange velociraptor collect all the eggs!\n\n' +
+  'Playing as: <b>Iggy</b> (Velociraptor)\n\n' +
   '⬅️ ➡️ Arrow Keys to run  •  ⬆️ SPACE to jump\n' +
   '🥚 Collect eggs  •  👹 Stomp red dinos\n' +
-  '⚠️ Defeat 10 bosses across 11 levels!\n\n' +
+  '⚠️ Defeat 19 bosses across 23 levels!\n\n' +
   '🟢 <b>Normal</b> — full challenge, 3 lives\n' +
   '⭐ <b>Easy Mode</b> — no damage, just fun!',
   "Normal Mode 🦖", true, true);
+document.getElementById('char-select-btn').style.display='inline-block';
 
 loop(0);
 </script>
