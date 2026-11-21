@@ -6010,11 +6010,11 @@ def panel_sg_trend(k):
 
 # ── S&P 500 average correlation — realized (computed) vs implied (CBOE) ──
 @st.cache_data(ttl=3600, show_spinner=False)
-def _load_realized_corr():
+def _load_realized_corr(key="sp500"):
     import os
     here=os.path.dirname(os.path.abspath(__file__))
-    for p in ("data/realized_corr_sp500.csv", os.path.join(here,"..","data","realized_corr_sp500.csv"),
-              os.path.join(here,"data","realized_corr_sp500.csv")):
+    for p in (f"data/realized_corr_{key}.csv", os.path.join(here,"..","data",f"realized_corr_{key}.csv"),
+              os.path.join(here,"data",f"realized_corr_{key}.csv")):
         try:
             if os.path.exists(p):
                 df=pd.read_csv(p); df["date"]=pd.to_datetime(df["date"]); return df.sort_values("date")
@@ -6032,8 +6032,12 @@ def _implied_corr():
         except Exception: pass
     return out
 
+_CORR_IDX={"S&P 500":"sp500","Nasdaq 100":"nasdaq100","Dow 30":"dow"}
 def panel_corr_monitor(k):
-    df=_load_realized_corr(); imp=_implied_corr()
+    idxlabel=st.columns([1,3])[0].selectbox("Index", list(_CORR_IDX), key=k+"_idx")
+    ikey=_CORR_IDX[idxlabel]
+    df=_load_realized_corr(ikey)
+    imp=_implied_corr() if ikey=="sp500" else {}       # CBOE implied correlation is S&P 500 only
     prov={}
     if df is not None and not df.empty:
         idx=pd.to_datetime(df["date"])
@@ -6041,8 +6045,8 @@ def panel_corr_monitor(k):
         if "corr_63d" in df: prov["Realized 63d"]=pd.Series((df["corr_63d"]*100).values,index=idx).dropna()
     for lbl,s in imp.items(): prov[lbl]=s
     if not prov:
-        st.info("No correlation data yet — the daily job computes realized correlation from S&P 500 "
-                "constituents after the close (implied needs the CBOE feed)."); return
+        st.info(f"No correlation data for **{idxlabel}** yet — the daily job computes realized correlation "
+                "from its constituents after the close (starts after the next run)."); return
     _last=lambda s:(float(s.iloc[-1]) if (s is not None and len(s)) else None)
     r63=_last(prov.get("Realized 63d")); r21=_last(prov.get("Realized 21d")); i1=_last(prov.get("Implied 1M (CBOE)"))
     prem=(i1-r63) if (i1 is not None and r63 is not None) else None
@@ -6057,14 +6061,17 @@ def panel_corr_monitor(k):
     tile(cc[3],"Risk premium (impl − real)", prem, (GREEN if (prem or 0)>=0 else RED))
     history_explorer(k+"_hx", lambda lab: prov.get(lab), list(prov),
                      default_sel=[x for x in ["Realized 63d","Implied 1M (CBOE)"] if x in prov] or list(prov)[:1],
-                     unit="corr (×100)", title="S&P 500 average stock correlation — realized vs implied",
-                     ranges=["3M","6M","1Y","All"], range_index=2)
-    st.caption("**Average pairwise correlation of S&P 500 stocks**, on a 0–100 scale (100 = move in lockstep). "
+                     unit="corr (×100)", title=f"{idxlabel} average stock correlation — realized vs implied",
+                     ranges=["3M","6M","1Y","2Y","All"], range_index=2)
+    _impnote=("**Implied** (coral) is **CBOE's Implied Correlation** (COR1M/3M), the option market's forward "
+              "estimate — **implied above realized = a correlation risk premium** (normal, like the vol premium). "
+              if ikey=="sp500" else
+              "Implied correlation (CBOE) is published for the **S&P 500 only**, so this index shows realized only. ")
+    st.caption(f"**Average pairwise correlation of {idxlabel} stocks**, on a 0–100 scale (100 = move in lockstep). "
                "**Realized** (blue) is computed from constituent daily returns via the variance-decomposition "
-               "identity (cap-weighted, 21- & 63-day windows) — rebuilt daily from the heatmap job. **Implied** "
-               "(coral) is **CBOE's Implied Correlation** (COR1M/3M), the option-market's forward estimate. "
-               "**Implied above realized = a correlation risk premium** (normal — like the vol premium); realized "
-               "spiking toward 100 means a broad, correlated sell-off (diversification stops working).")
+               "identity (cap-weighted, 21- & 63-day windows), rebuilt daily from the heatmap job. "
+               + _impnote +
+               "Realized spiking toward 100 means a broad, correlated sell-off (diversification stops working).")
 
 # ── Global sovereign rates (daily where available; see data/global_rates.json) ──
 _GR_ORDER=["Policy","1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","25Y","30Y","40Y"]

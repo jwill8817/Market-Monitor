@@ -23,21 +23,37 @@ INDEXES = {
         "url": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
         "sym_col": "Symbol", "name_col": "Security", "sector_col": "GICS Sector", "table": 0,
     },
-    "nasdaq100": {
-        "label": "Nasdaq 100",
-        "url": "https://en.wikipedia.org/wiki/Nasdaq-100",
-        "sym_col": "Ticker", "name_col": "Company", "sector_col": "GICS Sector", "table": None,
-    },
-    "dow": {
-        "label": "Dow 30",
-        "url": "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average",
-        "sym_col": "Symbol", "name_col": "Company", "sector_col": "Sector", "table": None,
-    },
+    # Wikipedia's Nasdaq-100/Dow component tables broke (JS-rendered); slickcharts is a reliable
+    # free source with a clean Symbol column (no GICS sector, so the treemap groups them as '—').
+    "nasdaq100": {"label": "Nasdaq 100", "source": "slick",
+                  "url": "https://www.slickcharts.com/nasdaq100"},
+    "dow": {"label": "Dow 30", "source": "slick",
+            "url": "https://www.slickcharts.com/dowjones"},
 }
+
+
+def _slick(cfg):
+    import urllib.request, io
+    req = urllib.request.Request(cfg["url"], headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+    html = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "replace")
+    for df in pd.read_html(io.StringIO(html)):
+        cols = {str(c): c for c in df.columns}
+        if "Symbol" in cols:
+            out = []
+            for _, r in df.iterrows():
+                sym = str(r[cols["Symbol"]]).strip().replace(".", "-")
+                nm = str(r.get(cols.get("Company", ""), sym)).strip()
+                if sym and sym.lower() != "nan" and len(sym) <= 6:
+                    out.append({"t": sym, "name": nm, "sector": "—"})
+            if out:
+                return out
+    raise RuntimeError("slickcharts: no Symbol table")
 
 
 def _wiki(cfg):
     import urllib.request, io
+    if cfg.get("source") == "slick":
+        return _slick(cfg)
     req = urllib.request.Request(cfg["url"], headers={"User-Agent": "Mozilla/5.0"})
     html = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "replace")
     tables = pd.read_html(io.StringIO(html))
@@ -86,7 +102,8 @@ def _period_returns(s):
 def build(key, cfg):
     cons = _wiki(cfg)
     syms = [c["t"] for c in cons]
-    start = (datetime.date.today() - datetime.timedelta(days=430)).isoformat()
+    start = (datetime.date.today() - datetime.timedelta(days=900)).isoformat()  # ~2.5y so the
+    # realized-correlation series has history (heatmap period returns only need the tail).
     # Batched price history for all constituents.
     hist = yf.download(syms, start=start, interval="1d", auto_adjust=True,
                        group_by="ticker", threads=True, progress=False)
@@ -130,17 +147,17 @@ def build(key, cfg):
     print(f"{cfg['label']}: {len(rows)} names -> data/heatmap_{key}.json")
     if key == "sp500":
         _append_breadth(_closes, asof)
-        _append_correlation(_closes, {r["t"]: r["mktcap"] for r in rows if r.get("mktcap")}, asof)
+    _append_correlation(key, _closes, {r["t"]: r["mktcap"] for r in rows if r.get("mktcap")}, asof)
 
 
-def _append_correlation(closes, weights, asof):
-    """Realized average correlation of S&P 500 constituents over time — the realized analog of
+def _append_correlation(key, closes, weights, asof):
+    """Realized average correlation of an index's constituents over time — the realized analog of
     CBOE's implied-correlation index, via the variance-decomposition identity
         rho = (var_portfolio - sum wi^2 var_i) / ((sum wi*sigma_i)^2 - sum wi^2 var_i)
-    using cap weights. Writes 21d & 63d rolling series to data/realized_corr_sp500.csv."""
+    using cap weights. Writes 21d & 63d rolling series to data/realized_corr_<key>.csv."""
     import numpy as np
     syms = [s for s in closes if s in weights and weights[s]]
-    if len(syms) < 50:
+    if len(syms) < 20:                 # enough for a meaningful average (Dow has 30)
         return
     px = pd.DataFrame({s: closes[s] for s in syms}).sort_index()
     R = px.pct_change()
@@ -158,14 +175,14 @@ def _append_correlation(closes, weights, asof):
         denom = swsig ** 2 - sw2v
         rho = (var_p - sw2v) / denom.where(denom.abs() > 1e-12)
         out[lbl] = rho.clip(-1, 1)
-    df = pd.DataFrame(out).dropna(how="all").tail(260)
+    df = pd.DataFrame(out).dropna(how="all").tail(600)
     if df.empty:
         return
     df = df.round(4)
     df.insert(0, "date", pd.to_datetime(df.index).strftime("%Y-%m-%d"))
-    (OUTDIR / "realized_corr_sp500.csv").write_text(df.to_csv(index=False), encoding="utf-8")
+    (OUTDIR / f"realized_corr_{key}.csv").write_text(df.to_csv(index=False), encoding="utf-8")
     last = df.iloc[-1]
-    print(f"realized corr: {len(df)} days, latest 21d={last['corr_21d']}, 63d={last['corr_63d']}")
+    print(f"realized corr [{key}]: {len(df)} days, latest 21d={last['corr_21d']}, 63d={last['corr_63d']}")
 
 
 def _append_breadth(closes, asof):
