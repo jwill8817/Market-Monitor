@@ -26,10 +26,11 @@
     transform: translate(-50%,-50%);
     background: rgba(255,230,100,0.97);
     border: 5px solid #e8a000; border-radius: 20px;
-    padding: 18px 40px 20px; text-align: center;
-    font-size: 22px; color: #7a3800; z-index: 10;
+    padding: 16px 36px 18px; text-align: center;
+    font-size: 20px; color: #7a3800; z-index: 10;
     display: none; box-shadow: 0 6px 24px rgba(0,0,0,0.3);
-    max-height: 92%; overflow-y: auto; box-sizing: border-box;
+    width: 500px; max-width: 94%; max-height: 92%;
+    overflow-y: auto; box-sizing: border-box;
   }
   #message h2 { font-size: 30px; margin: 0 0 6px; }
   #message button {
@@ -7275,12 +7276,10 @@ function toggleMute(){
 
 // ── Boot ───────────────────────────────────────────────────
 showMessage('🦖 Iggy\'s Egg Adventure!',
-  'Playing as: <b>Iggy</b> (Velociraptor)\n\n' +
-  '⬅️ ➡️ Arrow Keys to run  •  ⬆️ SPACE to jump\n' +
-  '🥚 Collect eggs  •  👹 Stomp red dinos\n' +
-  '⚠️ Defeat 19 bosses across 23 levels!\n\n' +
-  '🟢 <b>Normal</b> — full challenge, 3 lives\n' +
-  '⭐ <b>Easy Mode</b> — no damage, just fun!',
+  'Playing as: <b>Iggy</b> (Velociraptor)\n' +
+  '⬅️➡️ Move &nbsp;•&nbsp; ⬆️/Space Jump &nbsp;•&nbsp; 🥚 Collect eggs &nbsp;•&nbsp; 👹 Stomp dinos\n' +
+  '⚠️ 25 levels — defeat all the dinosaur bosses!\n' +
+  '🟢 <b>Normal</b> — 3 lives &nbsp;|&nbsp; ⭐ <b>Easy</b> — no damage',
   "Normal Mode 🦖", true, true);
 document.getElementById('char-select-btn').style.display='inline-block';
 
