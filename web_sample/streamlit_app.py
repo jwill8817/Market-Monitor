@@ -6073,7 +6073,7 @@ def panel_corr_monitor(k):
     _dsel=[x for x in ["Realized cap-wt 63d","Realized eq-wt 63d","Implied 1M (CBOE)"] if x in prov] or list(prov)[:1]
     history_explorer(k+"_hx", lambda lab: prov.get(lab), list(prov), default_sel=_dsel,
                      unit="", title=f"{idxlabel} constituent correlation ×100  ·  0 = none, 100 = lockstep  ·  pick measures below",
-                     ranges=["1Y","2Y","3Y","5Y","10Y","All"], range_index=3)
+                     ranges=["YTD","1Y","2Y","3Y","5Y","10Y","All"], range_index=4)
     _impnote=("**Implied** (coral) is **CBOE's Implied Correlation** (COR1M/3M) — the option market's forward, "
               "cap-weighted estimate, so compare it to the **cap-weighted** realized line; implied above realized "
               "= a correlation **risk premium** (normal, like vol). " if ikey=="sp500" else
@@ -6113,7 +6113,7 @@ def panel_corr_monitor(k):
         _vdef=[x for x in ["Index realized vol 63d","Avg stock realized vol 63d"] if x in vprov] or list(vprov)[:1]
         history_explorer(k+"_vx", lambda lab: vprov.get(lab), list(vprov), default_sel=_vdef,
                          unit="%", title=f"{idxlabel} realized volatility — index vs average stock (annualized %)",
-                         ranges=["1Y","2Y","3Y","5Y","10Y","All"], range_index=3)
+                         ranges=["YTD","1Y","2Y","3Y","5Y","10Y","All"], range_index=4)
         st.caption("**Index realized vol** = realized vol of the actual index. **Avg stock realized vol** = the "
                    "simple average of the constituents' realized vols — always **higher** than the index, because "
                    "diversification cancels single-name moves. **The gap between them *is* the correlation** "
@@ -7039,9 +7039,11 @@ def panel_vol_monitor(k):
     d=_vol_data()
     if not d:
         st.warning("Volatility data unavailable (Yahoo)."); return
-    rng=st.selectbox("Range",["6M","1Y","2Y","3Y","5Y","All"],index=2,key=k+"_rng")
-    lo=None if rng=="All" else pd.Timestamp(date.today()-relativedelta(months=6) if rng=="6M"
-                                            else date.today()-relativedelta(years=int(rng[:-1])))
+    rng=st.selectbox("Range",["YTD","6M","1Y","2Y","3Y","5Y","All"],index=3,key=k+"_rng")
+    if rng=="All":   lo=None
+    elif rng=="YTD": lo=pd.Timestamp(date(date.today().year,1,1))
+    elif rng=="6M":  lo=pd.Timestamp(date.today()-relativedelta(months=6))
+    else:            lo=pd.Timestamp(date.today()-relativedelta(years=int(rng[:-1])))
     def _w(s): return s if (s is None or lo is None) else s[s.index>=lo]
     def _l(s): return (float(s.iloc[-1]) if s is not None and not s.empty else None)
     c1,c2=st.columns(2)
@@ -7052,7 +7054,7 @@ def panel_vol_monitor(k):
             f.add_trace(go.Scatter(x=_w(ei).index,y=_w(ei).values,mode="lines",name="Implied (VIX)",line=dict(color=BLUE,width=1.7)))
             f.add_trace(go.Scatter(x=_w(er).index,y=_w(er).values,mode="lines",name="Realized (21d)",line=dict(color=ACCENT,width=1.5)))
             vp=_l(ei)-_l(er)
-            base_layout(f,f"Equity vol — implied {_l(ei):.1f} vs realized {_l(er):.1f}  ·  premium {vp:+.1f}","vol %",h=330)
+            base_layout(f,f"Equity vol (annualized %) — implied {_l(ei):.1f} vs realized {_l(er):.1f}  ·  premium {vp:+.1f}","%",h=330)
             st.plotly_chart(f,use_container_width=True,key=k+"_eq")
         else:
             st.caption("Equity vol data unavailable.")
@@ -7063,7 +7065,7 @@ def panel_vol_monitor(k):
             f.add_trace(go.Scatter(x=_w(ri).index,y=_w(ri).values,mode="lines",name="Implied (MOVE)",line=dict(color=BLUE,width=1.7)))
             f.add_trace(go.Scatter(x=_w(rr).index,y=_w(rr).values,mode="lines",name="Realized (10Y yield)",line=dict(color=ACCENT,width=1.5)))
             vp=_l(ri)-_l(rr)
-            base_layout(f,f"Rates vol — implied {_l(ri):.0f} vs realized {_l(rr):.0f} bp  ·  premium {vp:+.0f}","bp/yr",h=330)
+            base_layout(f,f"Rates vol (bp/yr) — implied {_l(ri):.0f} vs realized {_l(rr):.0f}  ·  premium {vp:+.0f}","",h=330)
             st.plotly_chart(f,use_container_width=True,key=k+"_rt")
         else:
             st.caption("MOVE (rates implied vol) unavailable right now — equity shown at left.")
