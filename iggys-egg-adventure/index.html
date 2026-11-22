@@ -328,9 +328,9 @@ function buildLevel(lvl) {
   if (lvl === 20) { buildCarnoLevel();      return; }
   if (lvl === 21) { buildYantuLevel();      return; }
   if (lvl === 22) { buildMegaloLevel();     return; }
-  if (lvl === 23) { buildTRexLevel();       return; }
-  if (lvl === 24) { buildHerreraLevel();    return; }
-  if (lvl === 25) { buildMamenchLevel();    return; }
+  if (lvl === 23) { buildMamenchLevel();    return; }
+  if (lvl === 24) { buildMonoLevel();       return; }
+  if (lvl === 25) { buildTRexLevel();       return; }
 
   // Ground
   for (let x=0; x<WORLD_W; x+=80)
@@ -554,19 +554,19 @@ function buildCarnoLevel() {
     speechBubble:true, speechText:'CHARGE!!!', defeatTimer:0, frustratedBubble:false };
 }
 
-function buildHerreraLevel() {
+function buildMonoLevel() {
   const ARENA_W = 1400;
   for (let x=0; x<ARENA_W; x+=80)
-    platforms.push({x, y:H-60, w:80, h:60, color:'#8d6e63'});
-  [{x:120,y:330,w:110},{x:310,y:270,w:100},{x:510,y:315,w:110},
-   {x:710,y:260,w:100},{x:910,y:300,w:110},{x:1110,y:255,w:100},{x:1270,y:280,w:110}]
-    .forEach(p => platforms.push({...p, h:20, color:'#a1887f'}));
-  [{x:140,y:310},{x:330,y:250},{x:530,y:295},{x:730,y:240},{x:930,y:280},{x:1130,y:235}]
+    platforms.push({x, y:H-60, w:80, h:60, color:'#5d4037'});
+  [{x:120,y:325,w:110},{x:310,y:265,w:100},{x:510,y:310,w:110},
+   {x:710,y:255,w:100},{x:910,y:295,w:110},{x:1110,y:250,w:100},{x:1270,y:275,w:110}]
+    .forEach(p => platforms.push({...p, h:20, color:'#8d6e63'}));
+  [{x:140,y:305},{x:330,y:245},{x:530,y:290},{x:730,y:235},{x:930,y:275},{x:1130,y:230}]
     .forEach(e => eggs.push({x:e.x, y:e.y, w:24, h:30, collected:false, color:'#ffd700', bobOffset:Math.random()*Math.PI*2}));
-  boss = { x:960, y:H-175, w:110, h:135, hp:5, maxHp:5, vx:-1.5, facing:-1,
+  boss = { x:960, y:H-175, w:115, h:140, hp:5, maxHp:5, vx:-1.5, facing:-1,
     frame:0, frameTimer:0, state:'intro', stateTimer:190, invincible:0,
-    chargeSpeed:5, ARENA_W, type:'herra',
-    speechBubble:true, speechText:'*SCREEECH!*', defeatTimer:0, frustratedBubble:false };
+    chargeSpeed:4.8, ARENA_W, type:'mono',
+    speechBubble:true, speechText:'*RAAARRGH!*', defeatTimer:0, frustratedBubble:false };
 }
 
 function buildMamenchLevel() {
@@ -929,9 +929,9 @@ function updateBoss(dt) {
           20: ['🌋 Volcanic Land!',     'The CARNOTAURUS and its horns!\nJump on its head 5 times!\nIt charges FAST!',                             'Charge! 🌋'],
           21: ['🏔️ Mountain Summit!',   'YANTUANOSAURUS rules the peaks!\nJump on its head 6 times!\nWatch for the boulder rockslide!',             'Climb! 🏔️'],
           22: ['🪨 Underground Lair!',  'MEGALOSAURUS lurks in the dark!\nJump on its head 5 times!\nDodge the ground-shaking STOMP!',             'Dig In! 🪨'],
-          23: ['💀 FINAL BOSS!',        'THE T-REX — King of them all!\nJump on its head 7 times!\nBeware the ROAR!',                              'Face It! 🦖'],
-          24: ['🦎 Triassic Terror!',   'HERRERASAURUS will GRAB you!\nJump on its head 5 times!\nMash JUMP to escape its jaws!',                   'Escape! 🦎'],
-          25: ['🦕 Long Neck Danger!',  'MAMENCHIASAURUS snaps with that giant neck!\nJump on its head 6 times!\nDodge the lunging snatch!',          'Duck! 🦕'],
+          23: ['🦕 Long Neck Danger!',  'MAMENCHIASAURUS snaps with that giant neck!\nJump on its head 6 times!\nDodge the lunging snatch!',          'Duck! 🦕'],
+          24: ['🦎 Double Crested!',    'MONOLOPHOSAURUS has TWO crests and an attitude!\nJump on its head 5 times!\nDodge the crest screech blasts!', 'Charge! 🦎'],
+          25: ['💀 FINAL BOSS!',        'THE T-REX — King of them all!\nJump on its head 7 times!\nBeware the ROAR!',                                 'Face It! 🦖'],
         };
         const w = warns[level];
         showMessage(w[0], w[1], w[2]);
@@ -1231,11 +1231,13 @@ function updateBoss(dt) {
         boss.state='breach'; boss.stateTimer=80;
         boss.vy = -11;
         fireBlob(); fireBlob();
-      } else if (boss.type === 'herra' && roll < 0.45 * aggression) {
-        // Grab lunge!
-        boss.state='grab'; boss.stateTimer=90;
+      } else if (boss.type === 'mono' && roll < 0.42 * aggression) {
+        // Crest roar screech — fires spread of blobs
+        fireBlob(); fireBlob();
+        bossProjectiles.push({ x:boss.x+(boss.facing>0?boss.w:0), y:boss.y+30,
+          vx:boss.facing*4, vy:-2, life:1, size:11, color:'#ce93d8' });
+        boss.state='roar'; boss.stateTimer=55;
         boss.facing = px > bx ? 1 : -1;
-        boss.grabHit = false;
       } else if (boss.type === 'mamench' && roll < 0.5 * aggression) {
         // Neck snatch!
         boss.state='snatch'; boss.stateTimer=100;
@@ -2109,10 +2111,10 @@ function drawCharSelect() {
   ctx.fillText('🦕  Choose Your Dino!  🦕', W/2, 52);
   ctx.shadowBlur=0;
 
-  const cardW=140, cardH=205, gap=10;
+  const cardW=138, cardH=175, gap=10;
   const totalW=5*cardW+4*gap;
   const startX=(W-totalW)/2;
-  const cardY=68;
+  const cardY=62;
   const animF=Date.now()/120;
 
   CHARACTERS.forEach((char,i)=>{
@@ -2143,10 +2145,10 @@ function drawCharSelect() {
 
     // Character preview
     ctx.save();
-    ctx.translate(cx+cardW/2, cardY+118);
-    ctx.scale(0.88,0.88);
+    ctx.translate(cx+cardW/2, cardY+95);
+    ctx.scale(0.80,0.80);
     // clip to card area so wings don't spill out
-    ctx.beginPath(); ctx.rect(-cardW/2/0.88,-118/0.88,cardW/0.88,160/0.88); ctx.clip();
+    ctx.beginPath(); ctx.rect(-cardW/2/0.80,-95/0.80,cardW/0.80,135/0.80); ctx.clip();
     switch(char.id){
       case 'iggy':    drawIggy   (-24,-30,1,animF,0); break;
       case 'padrock': drawPadrock(-24,-30,1,animF,0); break;
@@ -2159,20 +2161,20 @@ function drawCharSelect() {
     // Name
     ctx.textAlign='center';
     ctx.fillStyle=isSel?'#ffd700':'#fff';
-    ctx.font=`bold ${isSel?16:14}px Comic Sans MS, cursive`;
-    ctx.fillText(char.name, cx+cardW/2, cardY+cardH-26);
+    ctx.font=`bold ${isSel?15:13}px Comic Sans MS, cursive`;
+    ctx.fillText(char.name, cx+cardW/2, cardY+cardH-22);
     ctx.fillStyle=isSel?'#ffe57f':'rgba(255,255,255,0.55)';
-    ctx.font='10px Comic Sans MS, cursive';
-    ctx.fillText(char.desc, cx+cardW/2, cardY+cardH-12);
+    ctx.font='9px Comic Sans MS, cursive';
+    ctx.fillText(char.desc, cx+cardW/2, cardY+cardH-10);
     if (isSel){
-      ctx.fillStyle='#ffd700'; ctx.font='14px sans-serif';
-      ctx.fillText('★ Selected ★', cx+cardW/2, cardY+cardH+10);
+      ctx.fillStyle='#ffd700'; ctx.font='12px sans-serif';
+      ctx.fillText('★ Selected ★', cx+cardW/2, cardY+cardH+8);
     }
   });
 
   // Play button
   const sel=CHARACTERS.find(c=>c.id===selectedCharacter);
-  const btnW=230,btnH=44,btnX=(W-btnW)/2,btnY=295;
+  const btnW=230,btnH=44,btnX=(W-btnW)/2,btnY=258;
   ctx.save();
   ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=8;
   ctx.fillStyle='#43a047';
@@ -3820,6 +3822,138 @@ function drawHerrerasaurus(b) {
     ctx.strokeText('MASH JUMP! ' + (player.mashCount||0) + '/5', px2, b.y - 20);
     ctx.fillText('MASH JUMP! ' + (player.mashCount||0) + '/5', px2, b.y - 20);
     ctx.restore();
+  }
+}
+
+function drawMonolophosaurus(b) {
+  if (!b || b.hp<=0) return;
+  const sx = b.x - cameraX;
+  if (sx+b.w < -20 || sx > W+20) return;
+  if (b.invincible>0 && b.state!=='defeated' && Math.floor(b.invincible/5)%2===0) return;
+
+  ctx.save();
+  ctx.translate(sx + b.w/2, b.y + b.h*0.55);
+  ctx.scale(b.facing, 1);
+  ctx.scale(2.0, 2.0);
+
+  const breathe = Math.sin(Date.now()/400)*1.8;
+  const legSwing = Math.sin(b.frame*1.4)*10;
+  const tailWag  = Math.sin(b.frame*1.0)*7;
+  const roaring  = b.state === 'roar';
+  const defeated = b.state === 'defeated';
+  const jawOpen  = roaring ? Math.abs(Math.sin(Date.now()/110))*16 : 2;
+
+  // Tail
+  ctx.beginPath();
+  ctx.moveTo(-18, 18+breathe);
+  ctx.bezierCurveTo(-45+tailWag,25,-72+tailWag*1.5,26,-90+tailWag*2,18);
+  ctx.bezierCurveTo(-74,10,-45,10,-18,10);
+  ctx.fillStyle='#546e7a'; ctx.fill();
+
+  // Body
+  ctx.beginPath(); ctx.ellipse(6,15+breathe,30,20,0,0,Math.PI*2);
+  const bodyG = ctx.createRadialGradient(2,11+breathe,2,2,13+breathe,30);
+  bodyG.addColorStop(0,'#78909c'); bodyG.addColorStop(1,'#455a64');
+  ctx.fillStyle=bodyG; ctx.fill(); ctx.strokeStyle='#263238'; ctx.lineWidth=2; ctx.stroke();
+  // Belly
+  ctx.beginPath(); ctx.ellipse(2,20+breathe,20,12,0.1,0,Math.PI*2);
+  ctx.fillStyle='#b0bec5'; ctx.fill();
+  // Scale texture
+  ctx.strokeStyle='rgba(38,50,56,0.3)'; ctx.lineWidth=1;
+  for(let r=0;r<3;r++) for(let c=0;c<4;c++){
+    ctx.beginPath(); ctx.arc(-10+c*10,6+r*9+breathe,3.5,0,Math.PI*2); ctx.stroke();
+  }
+
+  // Neck
+  ctx.beginPath(); ctx.moveTo(22,2+breathe);
+  ctx.bezierCurveTo(36,-4,44,-10,50,-18);
+  ctx.bezierCurveTo(44,-8,36,2,28,12+breathe);
+  ctx.fillStyle='#607d8b'; ctx.fill();
+
+  // Head base
+  ctx.beginPath(); ctx.ellipse(56,-22,20,14,0,0,Math.PI*2);
+  const headG = ctx.createRadialGradient(52,-24,1,54,-22,20);
+  headG.addColorStop(0,'#78909c'); headG.addColorStop(1,'#455a64');
+  ctx.fillStyle=headG; ctx.fill(); ctx.strokeStyle='#263238'; ctx.lineWidth=2; ctx.stroke();
+
+  // ── TWO CRESTS on top of head ──
+  // Crest 1 (front, taller)
+  ctx.beginPath();
+  ctx.moveTo(44,-30); ctx.bezierCurveTo(44,-52,52,-58,50,-30);
+  ctx.closePath();
+  ctx.fillStyle='#e040fb'; ctx.fill(); ctx.strokeStyle='#9c27b0'; ctx.lineWidth=1.5; ctx.stroke();
+  // Crest 1 highlight
+  ctx.beginPath(); ctx.moveTo(46,-32); ctx.bezierCurveTo(46,-50,50,-54,49,-32); ctx.closePath();
+  ctx.fillStyle='#f48fb1'; ctx.fill();
+
+  // Crest 2 (back, slightly shorter)
+  ctx.beginPath();
+  ctx.moveTo(56,-28); ctx.bezierCurveTo(56,-48,64,-53,62,-28);
+  ctx.closePath();
+  ctx.fillStyle='#ce93d8'; ctx.fill(); ctx.strokeStyle='#9c27b0'; ctx.lineWidth=1.5; ctx.stroke();
+  // Crest 2 highlight
+  ctx.beginPath(); ctx.moveTo(58,-30); ctx.bezierCurveTo(58,-46,62,-50,61,-30); ctx.closePath();
+  ctx.fillStyle='#f8bbd0'; ctx.fill();
+
+  // Upper jaw
+  ctx.beginPath();
+  ctx.moveTo(38,-14+jawOpen*0.3); ctx.bezierCurveTo(58,-14+jawOpen*0.3,82,-17+jawOpen*0.3,92,-16+jawOpen*0.3);
+  ctx.bezierCurveTo(92,-11+jawOpen*0.3,58,-10+jawOpen*0.3,38,-11+jawOpen*0.3); ctx.closePath();
+  ctx.fillStyle='#546e7a'; ctx.fill(); ctx.strokeStyle='#263238'; ctx.lineWidth=1.5; ctx.stroke();
+  // Lower jaw
+  ctx.beginPath();
+  ctx.moveTo(39,-11-jawOpen*0.7); ctx.bezierCurveTo(59,-9-jawOpen*0.7,82,-9-jawOpen*0.7,92,-13-jawOpen*0.7);
+  ctx.bezierCurveTo(92,-6-jawOpen*0.7,59,-4-jawOpen*0.7,39,-5-jawOpen*0.7); ctx.closePath();
+  ctx.fillStyle='#455a64'; ctx.fill();
+  if (roaring || jawOpen > 3) {
+    ctx.beginPath(); ctx.moveTo(41,-12); ctx.lineTo(91,-15); ctx.lineTo(91,-7); ctx.lineTo(41,-5); ctx.closePath();
+    ctx.fillStyle='#b71c1c'; ctx.fill();
+    ctx.fillStyle='#fffde7';
+    for(let i=0;i<5;i++){
+      ctx.beginPath(); ctx.moveTo(42+i*9,-11+jawOpen*0.3); ctx.lineTo(44+i*9,-16+jawOpen*0.3); ctx.lineTo(47+i*9,-11+jawOpen*0.3); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(43+i*9,-5-jawOpen*0.7); ctx.lineTo(45+i*9,0-jawOpen*0.7); ctx.lineTo(48+i*9,-5-jawOpen*0.7); ctx.fill();
+    }
+  }
+
+  // Eye
+  ctx.beginPath(); ctx.arc(48,-28,6,0,Math.PI*2); ctx.fillStyle='#fff9c4'; ctx.fill();
+  ctx.beginPath(); ctx.arc(48,-28,4,0,Math.PI*2); ctx.fillStyle=roaring?'#e53935':'#263238'; ctx.fill();
+  ctx.beginPath(); ctx.arc(49,-29,1.5,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+
+  // Legs
+  ctx.fillStyle='#546e7a';
+  ctx.beginPath(); ctx.ellipse(-2,30+breathe+legSwing,7,16,0.1,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(10,30+breathe-legSwing,7,16,-0.1,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#37474f';
+  ctx.beginPath(); ctx.ellipse(-2,42+breathe+legSwing,10,5,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(10,42+breathe-legSwing,10,5,0,0,Math.PI*2); ctx.fill();
+  // Arms
+  ctx.strokeStyle='#546e7a'; ctx.lineWidth=5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(16,8+breathe); ctx.lineTo(28,20+breathe); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(20,8+breathe); ctx.lineTo(10,20+breathe); ctx.stroke();
+
+  if (defeated) {
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(44,-32); ctx.lineTo(52,-24); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(52,-32); ctx.lineTo(44,-24); ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // Speech bubble
+  const monoBubText = b.speechBubble ? b.speechText : b.frustratedBubble ? 'MY CRESTS!! NOOO!!' : null;
+  if (monoBubText) {
+    const bubX = sx + (b.facing > 0 ? b.w + 10 : -210);
+    const bubY = b.y - 65;
+    const bw = 200, bh = 46;
+    drawRoundRect(bubX, bubY, bw, bh, 10, 'white', b.frustratedBubble ? '#a0522d' : '#333');
+    const tailX = b.facing > 0 ? bubX - 1 : bubX + bw + 1;
+    ctx.beginPath();
+    ctx.moveTo(tailX,bubY+bh*0.6); ctx.lineTo(tailX+(b.facing>0?-18:18),bubY+bh*0.8); ctx.lineTo(tailX,bubY+bh*0.9);
+    ctx.fillStyle='white'; ctx.fill(); ctx.strokeStyle=b.frustratedBubble?'#a0522d':'#333'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=b.frustratedBubble?'#7a3e00':'#222';
+    ctx.font='bold 14px Comic Sans MS';
+    ctx.textAlign='center'; ctx.fillText(monoBubText, bubX+bw/2, bubY+bh/2+6); ctx.textAlign='left';
   }
 }
 
@@ -6445,70 +6579,10 @@ function drawBackground() {
   }
 
   if (level === 23) {
-    // ── Dark jungle / T-Rex ──
-    const jGrad=ctx.createLinearGradient(0,0,0,H);
-    jGrad.addColorStop(0,'#1a2e0a'); jGrad.addColorStop(1,'#2e4a1a');
-    ctx.fillStyle=jGrad; ctx.fillRect(0,0,W,H);
-    // Foliage silhouettes
-    ctx.fillStyle='#1b5e20';
-    [0,100,220,350,490,620,750,W].forEach((tx,i)=>{
-      const ph=60+i%4*30;
-      ctx.beginPath(); ctx.ellipse(tx,H-60-ph/2,50+i%3*20,ph/2,0,0,Math.PI*2); ctx.fill();
-    });
-    // Eerie mist
-    ctx.save(); ctx.globalAlpha=0.12;
-    const mGrad=ctx.createLinearGradient(0,H-100,0,H);
-    mGrad.addColorStop(0,'rgba(200,255,200,0)'); mGrad.addColorStop(1,'rgba(200,255,200,1)');
-    ctx.fillStyle=mGrad; ctx.fillRect(0,H-100,W,100);
-    ctx.restore();
-    // Dim clouds
-    ctx.fillStyle='rgba(30,60,20,0.6)';
-    clouds.forEach(c=>{
-      const cx=c.x-(cameraX*0.3)%WORLD_W;
-      ctx.beginPath(); ctx.arc(cx,c.y,28,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx+22,c.y-8,20,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx+44,c.y,25,0,Math.PI*2); ctx.fill();
-    });
-    ctx.fillStyle='#1b5e20'; ctx.fillRect(0,H-64,W,8);
-    return;
-  }
-
-  if (level === 24) {
-    // ── Triassic Badlands — Herrerasaurus ──
-    const tGrad = ctx.createLinearGradient(0,0,0,H);
-    tGrad.addColorStop(0,'#c0510f'); tGrad.addColorStop(0.5,'#a04010'); tGrad.addColorStop(1,'#6b2808');
-    ctx.fillStyle=tGrad; ctx.fillRect(0,0,W,H);
-    // Heat haze
-    ctx.save(); ctx.globalAlpha=0.1+Math.sin(Date.now()/600)*0.05;
-    ctx.fillStyle='#ff8c42'; ctx.fillRect(0,H-130,W,130);
-    ctx.restore();
-    // Rock formations
-    ctx.fillStyle='rgba(80,25,0,0.6)';
-    [70,220,400,620,840,1060].forEach((rx,i)=>{
-      const rpx=(rx-(cameraX*0.22))%WORLD_W;
-      if(rpx>-120&&rpx<W+120){
-        const rh=50+i%3*35;
-        ctx.beginPath(); ctx.moveTo(rpx-40,H-64); ctx.lineTo(rpx-55,H-64-rh); ctx.lineTo(rpx,H-64-rh*1.2); ctx.lineTo(rpx+55,H-64-rh); ctx.lineTo(rpx+40,H-64); ctx.fill();
-      }
-    });
-    // Dusty clouds
-    ctx.fillStyle='rgba(170,90,20,0.3)';
-    clouds.forEach(c=>{
-      const cx=c.x-(cameraX*0.28)%WORLD_W;
-      ctx.beginPath(); ctx.arc(cx,c.y,28,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx+22,c.y-9,20,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx+44,c.y,25,0,Math.PI*2); ctx.fill();
-    });
-    ctx.fillStyle='#6b2808'; ctx.fillRect(0,H-64,W,8);
-    return;
-  }
-
-  if (level === 25) {
     // ── Ancient Forest — Mamenchiasaurus ──
     const aGrad = ctx.createLinearGradient(0,0,0,H);
     aGrad.addColorStop(0,'#1a3d14'); aGrad.addColorStop(0.6,'#2e5a24'); aGrad.addColorStop(1,'#1a4010');
     ctx.fillStyle=aGrad; ctx.fillRect(0,0,W,H);
-    // Giant tree silhouettes
     ctx.fillStyle='#143010';
     [0,180,370,560,740,930,1120,1300].forEach((tx,i)=>{
       const ph=100+i%3*50;
@@ -6518,21 +6592,72 @@ function drawBackground() {
         ctx.beginPath(); ctx.arc(tpx,H-64-ph,40+i%2*20,0,Math.PI*2); ctx.fill();
       }
     });
-    // Mist
     ctx.save(); ctx.globalAlpha=0.15;
     const mGrad2=ctx.createLinearGradient(0,H-120,0,H);
     mGrad2.addColorStop(0,'rgba(180,255,180,0)'); mGrad2.addColorStop(1,'rgba(180,255,180,1)');
     ctx.fillStyle=mGrad2; ctx.fillRect(0,H-120,W,120);
     ctx.restore();
-    // Canopy light rays
-    ctx.save(); ctx.globalAlpha=0.06;
-    ctx.fillStyle='#aaffaa';
+    ctx.save(); ctx.globalAlpha=0.06; ctx.fillStyle='#aaffaa';
     for(let i=0;i<5;i++){
       const lx=100+i*200-(cameraX*0.1)%WORLD_W;
       ctx.beginPath(); ctx.moveTo(lx-20,0); ctx.lineTo(lx+20,0); ctx.lineTo(lx+40,H); ctx.lineTo(lx-40,H); ctx.fill();
     }
     ctx.restore();
     ctx.fillStyle='#1a4010'; ctx.fillRect(0,H-64,W,8);
+    return;
+  }
+
+  if (level === 24) {
+    // ── Triassic Canyon — Monolophosaurus ──
+    const tGrad = ctx.createLinearGradient(0,0,0,H);
+    tGrad.addColorStop(0,'#b04010'); tGrad.addColorStop(0.5,'#8c3200'); tGrad.addColorStop(1,'#5a2000');
+    ctx.fillStyle=tGrad; ctx.fillRect(0,0,W,H);
+    ctx.save(); ctx.globalAlpha=0.1+Math.sin(Date.now()/650)*0.05;
+    ctx.fillStyle='#ff7043'; ctx.fillRect(0,H-130,W,130);
+    ctx.restore();
+    ctx.fillStyle='rgba(70,20,0,0.6)';
+    [60,210,390,610,830,1050].forEach((rx,i)=>{
+      const rpx=(rx-(cameraX*0.22))%WORLD_W;
+      if(rpx>-130&&rpx<W+130){
+        const rh=55+i%3*38;
+        ctx.beginPath(); ctx.moveTo(rpx-45,H-64); ctx.lineTo(rpx-60,H-64-rh); ctx.lineTo(rpx,H-64-rh*1.25); ctx.lineTo(rpx+60,H-64-rh); ctx.lineTo(rpx+45,H-64); ctx.fill();
+      }
+    });
+    // Purple crest-colored clouds to hint at the boss
+    ctx.fillStyle='rgba(150,60,180,0.2)';
+    clouds.forEach(c=>{
+      const cx=c.x-(cameraX*0.28)%WORLD_W;
+      ctx.beginPath(); ctx.arc(cx,c.y,28,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx+22,c.y-9,20,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx+44,c.y,25,0,Math.PI*2); ctx.fill();
+    });
+    ctx.fillStyle='#5a2000'; ctx.fillRect(0,H-64,W,8);
+    return;
+  }
+
+  if (level === 25) {
+    // ── Dark Jungle — T-Rex FINAL BOSS ──
+    const jGrad=ctx.createLinearGradient(0,0,0,H);
+    jGrad.addColorStop(0,'#1a2e0a'); jGrad.addColorStop(1,'#2e4a1a');
+    ctx.fillStyle=jGrad; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#1b5e20';
+    [0,100,220,350,490,620,750,W].forEach((tx,i)=>{
+      const ph=60+i%4*30;
+      ctx.beginPath(); ctx.ellipse(tx,H-60-ph/2,50+i%3*20,ph/2,0,0,Math.PI*2); ctx.fill();
+    });
+    ctx.save(); ctx.globalAlpha=0.12;
+    const mGrad=ctx.createLinearGradient(0,H-100,0,H);
+    mGrad.addColorStop(0,'rgba(200,255,200,0)'); mGrad.addColorStop(1,'rgba(200,255,200,1)');
+    ctx.fillStyle=mGrad; ctx.fillRect(0,H-100,W,100);
+    ctx.restore();
+    ctx.fillStyle='rgba(30,60,20,0.6)';
+    clouds.forEach(c=>{
+      const cx=c.x-(cameraX*0.3)%WORLD_W;
+      ctx.beginPath(); ctx.arc(cx,c.y,28,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx+22,c.y-8,20,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx+44,c.y,25,0,Math.PI*2); ctx.fill();
+    });
+    ctx.fillStyle='#1b5e20'; ctx.fillRect(0,H-64,W,8);
     return;
   }
 
@@ -6730,9 +6855,9 @@ function drawBossHUD() {
     14:'🌿 NEOVENATOR',      15:'❄️ CRYOLOPHOSAURUS',  16:'🦇 ALBERTOSAURUS',
     17:'🌌 KRONOSAURUS',     18:'🏔️ GIGANOTOSAURUS',   19:'🟤 TARBOSAURUS',
     20:'🌋 CARNOTAURUS',     21:'🏔️ YANTUANOSAURUS',   22:'🪨 MEGALOSAURUS',
-    23:'🦖 T-REX — FINAL BOSS',
-    24:'🦎 HERRERASAURUS',
-    25:'🦕 MAMENCHIASAURUS'
+    23:'🦕 MAMENCHIASAURUS',
+    24:'🦎 MONOLOPHOSAURUS',
+    25:'🦖 T-REX — FINAL BOSS'
   };
   ctx.fillStyle='#fff'; ctx.font='bold 13px Comic Sans MS';
   ctx.textAlign='center'; ctx.fillText(bossNames[level]||'BOSS', W/2, by+bh-5);
@@ -6813,9 +6938,9 @@ function draw() {
     else if (level===20) drawCarnotaurus(boss);
     else if (level===21) drawYantuanosaurus(boss);
     else if (level===22) drawMegalosaurus(boss);
-    else if (level===23) drawTRex(boss);
-    else if (level===24) drawHerrerasaurus(boss);
-    else if (level===25) drawMamenchiasaurus(boss);
+    else if (level===23) drawMamenchiasaurus(boss);
+    else if (level===24) drawMonolophosaurus(boss);
+    else if (level===25) drawTRex(boss);
   }
   bossProjectiles.forEach(drawBossProjectile);
   // Shockwaves (T-Rex roar)
@@ -6935,8 +7060,8 @@ const LEVEL_NAMES = {
   13:'🌊 Mosasaurus', 14:'🌿 Neovenator', 15:'❄️ Cryolophosaurus',
   16:'🦇 Albertosaurus', 17:'🌌 Kronosaurus', 18:'🏔️ Giganotosaurus',
   19:'🟤 Tarbosaurus', 20:'🌋 Carnotaurus', 21:'🏔️ Yantuanosaurus',
-  22:'🪨 Megalosaurus', 23:'💀 T-Rex FINAL',
-  24:'🦎 Herrerasaurus', 25:'🦕 Mamenchiasaurus'
+  22:'🪨 Megalosaurus', 23:'🦕 Mamenchiasaurus',
+  24:'🦎 Monolophosaurus', 25:'💀 T-Rex FINAL'
 };
 const LEVEL_SUBS = {
   1:'Sunny Meadow', 2:'Prehistoric Forest', 3:'Ancient Badlands', 4:'Arid Savanna',
@@ -6944,8 +7069,8 @@ const LEVEL_SUBS = {
   9:'Toxic Swamp', 10:'Lake', 11:'Stormy Lake', 12:'Stormy River',
   13:'Sea', 14:'Swamp', 15:'Antarctic Ice', 16:'Dark Cave',
   17:'Twilight Zone', 18:'Rocky Cliffs', 19:'Mud Pit', 20:'Volcanic Land',
-  21:'Mountain Summit', 22:'Underground Lair', 23:'Dark Jungle',
-  24:'Triassic Badlands', 25:'Ancient Forest'
+  21:'Mountain Summit', 22:'Underground Lair', 23:'Ancient Forest',
+  24:'Triassic Canyon', 25:'Dark Jungle'
 };
 
 function openLevelSelect() {
