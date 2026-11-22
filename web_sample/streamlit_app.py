@@ -6022,15 +6022,22 @@ def _load_realized_corr(key="sp500"):
     return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _implied_corr():
+def _cboe_corr_vol_series(pairs):
+    """{label: Series} for CBOE implied series (correlation or vol) by (label, symbol)."""
     out={}
-    for lbl,sym in [("Implied 1M (CBOE)","^COR1M"),("Implied 3M (CBOE)","^COR3M")]:
+    for lbl,sym in pairs:
         try:
             s=md_history(sym)
             if s is not None and not s.empty:
                 s=s.copy(); s.index=pd.to_datetime(s.index); out[lbl]=s.dropna()
         except Exception: pass
     return out
+
+def _implied_corr():
+    return _cboe_corr_vol_series((("Implied 1M (CBOE)","^COR1M"),("Implied 3M (CBOE)","^COR3M")))
+def _implied_vol():
+    return _cboe_corr_vol_series((("VIX (implied index vol)","^VIX"),
+                                  ("VIXEQ (implied avg-stock vol)","^VIXEQ")))
 
 _CORR_IDX={"S&P 500":"sp500","Nasdaq 100":"nasdaq100","Dow 30":"dow"}
 def panel_corr_monitor(k):
@@ -6079,6 +6086,40 @@ def panel_corr_monitor(k):
                f"full **~20-year** history. " + _impnote +
                "Both use today's constituents (survivorship-biased in the deep past). Spikes toward 100 = broad "
                "correlated sell-offs (diversification stops working).")
+
+    # ── Realized volatility companion: the market vs the average single stock ──
+    vprov={}
+    if df is not None and not df.empty:
+        vidx=pd.to_datetime(df["date"])
+        _vc={"idxvol_63d":"Index realized vol 63d","idxvol_21d":"Index realized vol 21d",
+             "avgvol_63d":"Avg stock realized vol 63d","avgvol_21d":"Avg stock realized vol 21d"}
+        for c,lab in _vc.items():
+            if c in df.columns:
+                s=pd.Series(df[c].values, index=vidx).dropna()
+                if not s.empty: vprov[lab]=s
+    if ikey=="sp500":
+        for lbl,s in _implied_vol().items(): vprov[lbl]=s
+    if vprov:
+        st.markdown(f'<div style="margin-top:12px;color:{TEXT2};font-family:Consolas;font-size:12px;">'
+                    'Realized volatility — the market vs the average single stock (the two pieces behind '
+                    'correlation)</div>', unsafe_allow_html=True)
+        iv=_last(vprov.get("Index realized vol 63d")); av=_last(vprov.get("Avg stock realized vol 63d"))
+        vx=_last(vprov.get("VIX (implied index vol)"))
+        vcc=st.columns(4)
+        tile(vcc[0],"Index realized vol 63d", iv, BLUE)
+        tile(vcc[1],"Avg stock realized vol 63d", av, GREEN)
+        tile(vcc[2],"VIX (implied)", vx, ACCENT)
+        tile(vcc[3],"Diversification gap (avg − idx)", (av-iv) if (av is not None and iv is not None) else None, YELLOW)
+        _vdef=[x for x in ["Index realized vol 63d","Avg stock realized vol 63d"] if x in vprov] or list(vprov)[:1]
+        history_explorer(k+"_vx", lambda lab: vprov.get(lab), list(vprov), default_sel=_vdef,
+                         unit="%", title=f"{idxlabel} realized volatility — index vs average stock (annualized %)",
+                         ranges=["1Y","2Y","3Y","5Y","10Y","All"], range_index=3)
+        st.caption("**Index realized vol** = realized vol of the actual index. **Avg stock realized vol** = the "
+                   "simple average of the constituents' realized vols — always **higher** than the index, because "
+                   "diversification cancels single-name moves. **The gap between them *is* the correlation** "
+                   "(corr ≈ (index vol ÷ avg-stock vol)²): a wide gap = low correlation / high dispersion, a narrow "
+                   "gap = everything moving together. Implied twins (S&P 500): **VIX** (index) and **VIXEQ** (CBOE "
+                   "average single-stock implied vol). Annualized %.")
 
 # ── Global sovereign rates (daily where available; see data/global_rates.json) ──
 _GR_ORDER=["Policy","1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","25Y","30Y","40Y"]

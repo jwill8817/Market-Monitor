@@ -147,10 +147,24 @@ def build(key, cfg):
     print(f"{cfg['label']}: {len(rows)} names -> data/heatmap_{key}.json")
     if key == "sp500":
         _append_breadth(_closes, asof)
-    _append_correlation(key, _closes, {r["t"]: r["mktcap"] for r in rows if r.get("mktcap")}, asof)
+    idx_close = None
+    isym = _CORR_INDEX_SYM.get(key)
+    if isym:
+        try:
+            ih = yf.download(isym, start=start, interval="1d", auto_adjust=True, progress=False)
+            if ih is not None and not ih.empty:
+                idx_close = pd.to_numeric(ih["Close"].squeeze(), errors="coerce").dropna()
+                if getattr(idx_close.index, "tz", None) is not None:
+                    idx_close.index = idx_close.index.tz_localize(None)
+        except Exception:
+            idx_close = None
+    _append_correlation(key, _closes, {r["t"]: r["mktcap"] for r in rows if r.get("mktcap")}, asof, idx_close)
 
 
-def _append_correlation(key, closes, weights, asof):
+_CORR_INDEX_SYM = {"sp500": "^GSPC", "nasdaq100": "^NDX", "dow": "^DJI"}
+
+
+def _append_correlation(key, closes, weights, asof, index_close=None):
     """Realized average correlation of an index's constituents over time, via the variance-
     decomposition identity  rho = (var_p - sum wi^2 var_i) / ((sum wi*sigma_i)^2 - sum wi^2 var_i).
     Computes TWO weightings at 21d & 63d:
@@ -179,6 +193,15 @@ def _append_correlation(key, closes, weights, asof):
             swsig = std_i.mul(w, axis=1).sum(axis=1)
             denom = swsig ** 2 - sw2v
             out[f"{wname}_{tag}"] = ((var_p - sw2v) / denom.where(denom.abs() > 1e-12)).clip(-1, 1)
+    # Realized volatility (annualized %), weight-free: market = actual index, avg-stock = simple
+    # mean of constituent vols. These pair with correlation (corr ~= (idxvol/avgvol)^2).
+    ann = (252 ** 0.5) * 100.0
+    ir = index_close.pct_change() if index_close is not None else None
+    for W, tag in [(21, "21d"), (63, "63d")]:
+        mp = int(W * 0.8)
+        out[f"avgvol_{tag}"] = (R[syms].rolling(W, min_periods=mp).std().mean(axis=1) * ann)
+        if ir is not None:
+            out[f"idxvol_{tag}"] = (ir.rolling(W, min_periods=mp).std() * ann).reindex(R.index)
     new = pd.DataFrame(out).dropna(how="all").round(4)
     if new.empty:
         return
