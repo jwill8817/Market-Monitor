@@ -6065,13 +6065,14 @@ def panel_corr_monitor(k):
     tile(cc[3],"Premium (impl − cap-wt)", prem, (GREEN if (prem or 0)>=0 else RED))
     _dsel=[x for x in ["Realized cap-wt 63d","Realized eq-wt 63d","Implied 1M (CBOE)"] if x in prov] or list(prov)[:1]
     history_explorer(k+"_hx", lambda lab: prov.get(lab), list(prov), default_sel=_dsel,
-                     unit="", title=f"{idxlabel} avg stock correlation ×100 (0 = none · 100 = lockstep)",
+                     unit="", title=f"{idxlabel} constituent correlation ×100  ·  0 = none, 100 = lockstep  ·  pick measures below",
                      ranges=["1Y","2Y","3Y","5Y","10Y","All"], range_index=3)
     _impnote=("**Implied** (coral) is **CBOE's Implied Correlation** (COR1M/3M) — the option market's forward, "
               "cap-weighted estimate, so compare it to the **cap-weighted** realized line; implied above realized "
               "= a correlation **risk premium** (normal, like vol). " if ikey=="sp500" else
               "Implied correlation (CBOE) is S&P 500 only, so this index shows realized only. ")
-    st.caption(f"**Average correlation of {idxlabel} stocks**, 0–100 (100 = lockstep). Two realized measures from "
+    st.caption(f"**How correlated {idxlabel} stocks are with each other**, 0–100 (100 = lockstep). Two realized "
+               "measures from "
                "constituent returns (variance-decomposition): **cap-weighted** (blue) matches how CBOE builds "
                "implied correlation but uses *today's* weights, so it's shown only for the last **~5 years** (where "
                "that's a fair proxy); **equal-weight** (green, ≈ average pairwise) needs **no weights** and runs the "
@@ -7062,7 +7063,7 @@ _sec("MAP","Market Heatmap (constituents · sized by weight · colored by return
 # Return-distribution explorer sits up top (full-width), above the curves grid.
 _sec("MACRO","Macro & Recession Dashboard (growth · curve · financial conditions — now vs problematic)", panel_macro_nowcast, "secmacro")
 _sec("VOL","Implied vs Realized Volatility (equity: VIX vs realized · rates: MOVE vs realized)", panel_vol_monitor, "secvol")
-_sec("CORR","Average Stock Correlation — Realized vs Implied (S&P 500)", panel_corr_monitor, "seccorr")
+_sec("CORR","Index Constituent Correlation — Realized (cap- & equal-weighted) vs Implied", panel_corr_monitor, "seccorr")
 _sec("BRDTH","Market Breadth (S&P 500 internals — % above MA · new highs/lows · adv/decl)", panel_breadth, "secbrdth")
 _sec("COT","Futures Positioning — CFTC Commitments of Traders (net speculative)", panel_cot, "seccot")
 _sec("SGTR","SG Trend Indicator — CTA positioning & performance (Société Générale)", panel_sg_trend, "secsgtr")
