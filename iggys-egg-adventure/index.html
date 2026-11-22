@@ -151,6 +151,7 @@
   <span>🥚 <span id="score">0</span></span>
   <span>❤️ <span id="lives">3</span></span>
   <span>🏆 Level <span id="level">1</span></span>
+  <button id="mute-btn" onclick="toggleMute()" title="Toggle music" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.3);border-radius:6px;color:#fff;cursor:pointer;font-size:14px;padding:2px 7px;line-height:1.4;">🔊</button>
 </div>
 <div style="position:relative;">
   <canvas id="game" width="800" height="480"></canvas>
@@ -765,6 +766,12 @@ function update(ts) {
   if (paused) { lastTime = ts; return; }
   const dt = Math.min((ts-lastTime)/16.67, 3);
   lastTime = ts;
+
+  // ── Music track switching ──
+  if (_ac) {
+    const wantTrack = (boss && boss.state !== 'defeated') ? 'boss' : 'level';
+    if (_seqTrack !== wantTrack && _seqTrack !== '') startMusic(wantTrack);
+  }
 
   // ── Player ──
   const left  = keys['ArrowLeft']  || keys['KeyA'] || touchLeft;
@@ -7017,6 +7024,7 @@ function loop(ts) {
 
 // ── UI ─────────────────────────────────────────────────────
 function showMessage(title, body, btnText, showEasyBtn=false, showLvlBtn=false) {
+  stopMusic();
   document.getElementById('msg-title').textContent=title;
   document.getElementById('msg-body').innerHTML=body.replace(/\n/g,'<br>');
   document.getElementById('msg-btn').textContent=btnText;
@@ -7035,12 +7043,14 @@ function startGame(easy=false) {
   document.getElementById('lives').textContent=easy ? '∞' : '3';
   document.getElementById('level').textContent='1';
   resetPlayer(); buildLevel(1); state='playing';
+  startMusic('level');
 }
 
 function nextLevel() {
   hideMessage();
   document.getElementById('level').textContent=level;
   resetPlayer(); buildLevel(level); state='playing';
+  startMusic('level');
 }
 
 document.getElementById('msg-btn').addEventListener('click', ()=>{
@@ -7091,6 +7101,7 @@ function openLevelSelect() {
       state='playing';
       closeLevelSelect();
       resetPlayer(); buildLevel(i);
+      startMusic('level');
     });
     grid.appendChild(btn);
   }
@@ -7108,6 +7119,158 @@ document.getElementById('char-select-btn').addEventListener('click', ()=>{
   document.getElementById('message').style.display='none';
   state='charselect';
 });
+
+// ── Chiptune Music Engine ──────────────────────────────────
+let _ac=null, _mGain=null, _seqTimer=null, _seqTrack='';
+let _seqMelIdx=0, _seqBassIdx=0, _seqDrumStep=0;
+let _nextMelTime=0, _nextBassTime=0, _nextDrumTime=0;
+let _musicMuted=false;
+const _LAH=0.15, _INT=50;
+
+const _F={
+  __:0,
+  C3:130.81,D3:146.83,E3:164.81,F3:174.61,G3:196.00,A3:220.00,Bb3:233.08,B3:246.94,
+  C4:261.63,D4:293.66,E4:329.63,F4:349.23,G4:392.00,A4:440.00,Bb4:466.16,B4:493.88,
+  C5:523.25,D5:587.33,Eb5:622.25,E5:659.25,F5:698.46,G5:783.99,Ab5:830.61,A5:880.00,Bb5:932.33,B5:987.77,
+  C6:1046.50
+};
+
+// Level theme — C major, 148 BPM, upbeat adventure
+const _LS=60/148/2; // 8th-note step
+const _LM=[ // melody [freq, 8th-note-beats]
+  [_F.E5,2],[_F.G5,1],[_F.E5,1],[_F.C5,2],[_F.__,2],
+  [_F.D5,2],[_F.F5,1],[_F.D5,1],[_F.B4,2],[_F.__,2],
+  [_F.C5,1],[_F.E5,1],[_F.G5,1],[_F.A5,1],[_F.G5,1],[_F.E5,1],[_F.D5,1],[_F.C5,1],
+  [_F.G5,2],[_F.F5,2],[_F.E5,4],
+  [_F.G5,2],[_F.A5,1],[_F.G5,1],[_F.F5,1],[_F.E5,1],[_F.D5,2],
+  [_F.E5,2],[_F.D5,2],[_F.C5,4],
+  [_F.E5,1],[_F.D5,1],[_F.C5,1],[_F.B4,1],[_F.C5,1],[_F.D5,1],[_F.E5,1],[_F.G5,1],
+  [_F.A5,2],[_F.G5,2],[_F.C5,4],
+];
+const _LB=[ // bass
+  [_F.C3,2],[_F.G3,2],[_F.C3,2],[_F.G3,2],
+  [_F.A3,2],[_F.E3,2],[_F.A3,2],[_F.E3,2],
+  [_F.F3,2],[_F.C3,2],[_F.F3,2],[_F.C3,2],
+  [_F.G3,2],[_F.D3,2],[_F.G3,2],[_F.D3,2],
+  [_F.C3,2],[_F.G3,2],[_F.A3,2],[_F.E3,2],
+  [_F.F3,2],[_F.C3,2],[_F.G3,2],[_F.D3,2],
+  [_F.C3,2],[_F.E3,2],[_F.G3,2],[_F.B3,2],
+  [_F.C3,2],[_F.G3,2],[_F.C3,4],
+];
+const _LD=[1,0,3,0,2,0,3,0,1,0,3,0,2,0,1,3]; // 16-step drum pattern
+
+// Boss theme — A minor, 168 BPM, intense
+const _BS=60/168/2;
+const _BM=[
+  [_F.A5,1],[_F.__,1],[_F.A5,1],[_F.C5,1],[_F.A4,2],[_F.E5,2],
+  [_F.G5,1],[_F.F5,1],[_F.E5,1],[_F.D5,1],[_F.C5,2],[_F.__,2],
+  [_F.E5,1],[_F.F5,1],[_F.G5,1],[_F.A5,1],[_F.Bb5,2],[_F.A5,2],
+  [_F.G5,2],[_F.F5,2],[_F.E5,4],
+  [_F.D5,1],[_F.E5,1],[_F.F5,1],[_F.E5,1],[_F.D5,2],[_F.C5,2],
+  [_F.B4,1],[_F.C5,1],[_F.D5,1],[_F.E5,1],[_F.F5,2],[_F.E5,2],
+  [_F.A4,1],[_F.B4,1],[_F.C5,1],[_F.D5,1],[_F.E5,1],[_F.F5,1],[_F.G5,1],[_F.A5,1],
+  [_F.Bb5,2],[_F.A5,2],[_F.E5,4],
+];
+const _BB=[
+  [_F.A3,2],[_F.A3,2],[_F.E3,2],[_F.E3,2],
+  [_F.G3,2],[_F.G3,2],[_F.D3,2],[_F.D3,2],
+  [_F.C3,2],[_F.C3,2],[_F.G3,2],[_F.G3,2],
+  [_F.D3,2],[_F.D3,2],[_F.E3,2],[_F.E3,2],
+  [_F.F3,2],[_F.F3,2],[_F.C3,2],[_F.C3,2],
+  [_F.G3,2],[_F.G3,2],[_F.D3,2],[_F.D3,2],
+  [_F.A3,2],[_F.A3,2],[_F.E3,2],[_F.E3,2],
+  [_F.A3,2],[_F.E3,2],[_F.A3,4],
+];
+const _BD=[1,3,1,3,2,3,1,3,1,3,2,3,2,3,1,3];
+
+function _patDur(pat,step){ return pat.reduce((s,[,b])=>s+b*step,0); }
+
+function _osc(freq,at,dur,wave,vol){
+  if(!_ac||!freq||_musicMuted) return;
+  const o=_ac.createOscillator(),g=_ac.createGain();
+  o.type=wave; o.frequency.value=freq;
+  g.gain.setValueAtTime(vol,at);
+  g.gain.exponentialRampToValueAtTime(0.0001,at+dur*0.88);
+  o.connect(g); g.connect(_mGain);
+  o.start(at); o.stop(at+dur);
+}
+
+function _drum(at,type){
+  if(!_ac||_musicMuted) return;
+  const dur=type==='kick'?0.14:type==='snare'?0.09:0.04;
+  const dec=type==='kick'?0.09:type==='snare'?0.035:0.012;
+  if(type==='kick'){
+    const o=_ac.createOscillator(),g=_ac.createGain();
+    o.frequency.setValueAtTime(150,at); o.frequency.exponentialRampToValueAtTime(50,at+0.1);
+    g.gain.setValueAtTime(0.35,at); g.gain.exponentialRampToValueAtTime(0.001,at+0.13);
+    o.connect(g); g.connect(_ac.destination); o.start(at); o.stop(at+0.15);
+  }
+  const buf=_ac.createBuffer(1,Math.ceil(_ac.sampleRate*dur),_ac.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/(_ac.sampleRate*dec));
+  const src=_ac.createBufferSource(),g=_ac.createGain();
+  src.buffer=buf; g.gain.value=type==='kick'?0.25:type==='snare'?0.18:0.07;
+  src.connect(g); g.connect(_ac.destination); src.start(at);
+}
+
+function _initAudio(){
+  if(_ac) return;
+  _ac=new(window.AudioContext||window.webkitAudioContext)();
+  _mGain=_ac.createGain(); _mGain.gain.value=0.38; _mGain.connect(_ac.destination);
+}
+
+function startMusic(track){
+  _initAudio();
+  if(_ac.state==='suspended') _ac.resume();
+  if(_seqTrack===track && _seqTimer) return;
+  stopMusic();
+  _seqTrack=track;
+  _seqMelIdx=0; _seqBassIdx=0; _seqDrumStep=0;
+  const now=_ac.currentTime+0.05;
+  _nextMelTime=now; _nextBassTime=now; _nextDrumTime=now;
+  _seqTimer=setInterval(_musicTick,_INT);
+}
+
+function stopMusic(){
+  clearInterval(_seqTimer); _seqTimer=null; _seqTrack='';
+}
+
+function _musicTick(){
+  if(!_ac||!_seqTrack) return;
+  const isBoss=_seqTrack==='boss';
+  const mel=isBoss?_BM:_LM, bass=isBoss?_BB:_LB, drums=isBoss?_BD:_LD;
+  const ms=isBoss?_BS:_LS;
+  const limit=_ac.currentTime+_LAH;
+
+  while(_nextMelTime < limit){
+    const [f,b]=mel[_seqMelIdx];
+    _osc(f,_nextMelTime,b*ms*0.88,'square',0.09);
+    _nextMelTime+=b*ms;
+    _seqMelIdx=(_seqMelIdx+1)%mel.length;
+  }
+  while(_nextBassTime < limit){
+    const [f,b]=bass[_seqBassIdx];
+    _osc(f,_nextBassTime,b*ms*0.78,'triangle',0.13);
+    _nextBassTime+=b*ms;
+    _seqBassIdx=(_seqBassIdx+1)%bass.length;
+  }
+  const dstep=_patDur(mel,ms)/16;
+  while(_nextDrumTime < limit){
+    const d=drums[_seqDrumStep%16];
+    if(d===1) _drum(_nextDrumTime,'kick');
+    else if(d===2) _drum(_nextDrumTime,'snare');
+    else if(d===3) _drum(_nextDrumTime,'hat');
+    _nextDrumTime+=dstep;
+    _seqDrumStep++;
+  }
+}
+
+function toggleMute(){
+  _musicMuted=!_musicMuted;
+  const btn=document.getElementById('mute-btn');
+  if(btn) btn.textContent=_musicMuted?'🔇':'🔊';
+  if(!_musicMuted && _ac && _ac.state==='suspended') _ac.resume();
+}
 
 // ── Boot ───────────────────────────────────────────────────
 showMessage('🦖 Iggy\'s Egg Adventure!',
