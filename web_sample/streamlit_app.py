@@ -6073,7 +6073,7 @@ def panel_corr_monitor(k):
     _dsel=[x for x in ["Realized cap-wt 63d","Realized eq-wt 63d","Implied 1M (CBOE)"] if x in prov] or list(prov)[:1]
     history_explorer(k+"_hx", lambda lab: prov.get(lab), list(prov), default_sel=_dsel,
                      unit="", title=f"{idxlabel} constituent correlation ×100  ·  0 = none, 100 = lockstep  ·  pick measures below",
-                     ranges=["YTD","1Y","2Y","3Y","5Y","10Y","All"], range_index=4)
+                     ranges=["YTD","6M","1Y","2Y","3Y","5Y","10Y","All"], range_index=5)
     _impnote=("**Implied** (coral) is **CBOE's Implied Correlation** (COR1M/3M) — the option market's forward, "
               "cap-weighted estimate, so compare it to the **cap-weighted** realized line; implied above realized "
               "= a correlation **risk premium** (normal, like vol). " if ikey=="sp500" else
@@ -6113,7 +6113,7 @@ def panel_corr_monitor(k):
         _vdef=[x for x in ["Index realized vol 63d","Avg stock realized vol 63d"] if x in vprov] or list(vprov)[:1]
         history_explorer(k+"_vx", lambda lab: vprov.get(lab), list(vprov), default_sel=_vdef,
                          unit="%", title=f"{idxlabel} realized volatility — index vs average stock (annualized %)",
-                         ranges=["YTD","1Y","2Y","3Y","5Y","10Y","All"], range_index=4)
+                         ranges=["YTD","6M","1Y","2Y","3Y","5Y","10Y","All"], range_index=5)
         st.caption("**Index realized vol** = realized vol of the actual index. **Avg stock realized vol** = the "
                    "simple average of the constituents' realized vols — always **higher** than the index, because "
                    "diversification cancels single-name moves. **The gap between them *is* the correlation** "
